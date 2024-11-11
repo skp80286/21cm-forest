@@ -5,9 +5,10 @@ import numpy as np
 import PS1D
 
 class F21DataLoader:
-    def __init__(self, max_workers: int = 4):
+    def __init__(self, max_workers: int = 4, aggregate: bool = True):
         self.max_workers = max_workers
         self.collector = ThreadSafeArrayCollector()
+        self.aggregate = aggregate
         
     def process_file(self, datafile: str) -> None:
         try:
@@ -60,15 +61,20 @@ class F21DataLoader:
                 # Calculate the power spectrum
                 #ks, power_spectrum = power_spectrum_1d(los, bins=160)
                 ks, ps = PS1D.get_P(los, bandwidth)
-                if power_spectrum is None:
-                    power_spectrum = ps
+                if self.aggregate:
+                    if power_spectrum is None:
+                        power_spectrum = ps
+                    else:
+                        power_spectrum += ps
                 else:
-                    power_spectrum += ps
+                    params = np.array([xHI_mean, logfX])
+                    self.collector.add_data(ks, ps, params)
 
-            params = np.array([xHI_mean, logfX])
-            # Store results thread-safely
-            self.collector.add_data(ks, power_spectrum/Nlos, params)
-                
+            if self.aggregate:
+                params = np.array([xHI_mean, logfX])
+                # Store results thread-safely
+                self.collector.add_data(ks, power_spectrum/Nlos, params)
+                    
         except Exception as e:
                 print(f"Error processing {datafile}: {str(e)}")
             

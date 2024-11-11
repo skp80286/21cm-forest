@@ -36,6 +36,8 @@ parser.add_argument('-x', '--xHI', type=str, default='*', help='mean neutral hyd
 parser.add_argument('-n', '--nlos', type=int, default=1000, help='num lines of sight')
 parser.add_argument('-m', '--runmode', type=str, default='train_test', help='one of train_test, test_only, grid_search, plot_only')
 parser.add_argument('-b', '--numsamplebatches', type=int, default=1, help='Number of batches of sample data to use for plotting learning curve by sample size.')
+parser.add_argument('--maxfiles', type=int, default=None, help='Max num files to read')
+parser.add_argument('--modelfile', type=str, default="output/xgboost-21cmforest-model.json", help='model file')
 
 args = parser.parse_args()
 
@@ -71,7 +73,7 @@ def power_spectrum_1d(data, bins=10):
 def plot_power_spectra(ps, ks, params):
     #print(f'shapes ps:{ps.shape} ks:{ks.shape}')
     print(params[0:2])
-    logfxs = params[:][1]
+    logfxs = params[:,1]
     minfx = min(logfxs)
     maxfx = max(logfxs)
     plt.rcParams['figure.figsize'] = [15, 9]
@@ -91,7 +93,7 @@ def plot_los(los, freq_axis):
     plt.xlabel('frequency[MHz]'), plt.ylabel('flux/S147')
     plt.show()
 
-def load_dataset():
+def load_dataset(aggregate=True):
     #Input parameters
     #Read LOS data from 21cmFAST 50cMpc box
     log_fx=args.log_fx
@@ -101,14 +103,15 @@ def load_dataset():
     print(f"Loading files with pattern {filepattern}")
     datafiles = glob.glob(filepattern)
     print(f"Found {len(datafiles)} files matching pattern")
-
+    if args.maxfiles is not None:
+        datafiles = datafiles[:args.maxfiles]
     freq_axis = None
     # Lists to store combined data
     all_ks = []
     all_F21 = []
     all_params = []
     # Create processor with desired number of worker threads
-    processor = dl.F21DataLoader(max_workers=8)
+    processor = dl.F21DataLoader(max_workers=8, aggregate=aggregate)
         
     # Process all files and get results
     results = processor.process_all_files(datafiles)
@@ -118,10 +121,14 @@ def load_dataset():
     all_F21 = results['F21']
     all_params = results['params']
     #plot_los(all_F21[0], freq_axis)
+    print(f"sample ks:{all_ks[0]}")
+    print(f"sample f21:{all_F21[0]}")
+    print(f"sample params:{all_params[0]}")
     plot_power_spectra(all_F21, all_ks, all_params)
     
-    with open('ps-21cm-forest.pkl', 'w+b') as f:  # open a text file
-        pickle.dump({"all_ks": all_ks, "all_F21": all_F21, "all_params": all_params}, f)
+    if args.runmode == 'train_test':
+        with open('ps-21cm-forest.pkl', 'w+b') as f:  # open a text file
+            pickle.dump({"all_ks": all_ks, "all_F21": all_F21, "all_params": all_params}, f)
             
     # Combine all data
     F21_combined = np.array(all_F21)
@@ -132,7 +139,7 @@ def load_dataset():
     return (F21_combined, params_combined)
 
 def summarize_test(y_pred, y_test):
-    errors = (y_pred - y_test)**2/y_test**2
+    errors = (y_pred - y_test)**2 #/y_test**2
 
     # Calculate R2 scores
     r2 = [r2_score(y_test[:, i], y_pred[:, i]) for i in range(2)]
@@ -173,9 +180,8 @@ def summarize_test(y_pred, y_test):
 
 def save_model(model):
     # Save the model architecture and weights
-    model_filename = datetime.now().strftime("output/xgboost-21cmforest-model.json")
-    print(f'Saving model to: {model_filename}')
-    model_json = model.save_model(model_filename)
+    print(f'Saving model to: {args.modelfile}')
+    model_json = model.save_model(args.modelfile)
 
 def run(X_train, X_test, y_train, y_test):
     print("Starting training")
@@ -266,7 +272,7 @@ if not args.runmode == "test_only":
     elif args.runmode == "plot_only":
         plot_power_spectra(X, y, kset)
 else: # testonly
-    X_test, y_test = load_testdataset(args.inputfile)
+    X_test, y_test = load_dataset(aggregate=False)
     model = xgb.XGBRegressor()
     model.load_model(args.modelfile)
     y_pred = model.predict(X_test)
