@@ -8,6 +8,7 @@ from xgboost import plot_tree
 import pandas as pd
 import numpy as np
 import pickle
+import math
 
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
@@ -21,6 +22,7 @@ import glob
 from datetime import datetime
 
 import F21DataLoader as dl
+import os
 
 parser = argparse.ArgumentParser(description='Predict reionization parameters from 21cm forest')
 parser.add_argument('-p', '--path', type=str, default='../data/21cmFAST_los/F21_noisy/', help='filepath')
@@ -37,7 +39,9 @@ parser.add_argument('-n', '--nlos', type=int, default=1000, help='num lines of s
 parser.add_argument('-m', '--runmode', type=str, default='train_test', help='one of train_test, test_only, grid_search, plot_only')
 parser.add_argument('-b', '--numsamplebatches', type=int, default=1, help='Number of batches of sample data to use for plotting learning curve by sample size.')
 parser.add_argument('--maxfiles', type=int, default=None, help='Max num files to read')
-parser.add_argument('--modelfile', type=str, default="output/xgboost-21cmforest-model.json", help='model file')
+parser.add_argument('--modelfile', type=str, default="xgboost-21cmforest-model.json", help='model file')
+parser.add_argument('--psbatchsize', type=int, default=None, help='batching for PS data.')
+parser.add_argument('--limitsamplesize', type=int, default=None, help='limit samples from one file to this number.')
 
 args = parser.parse_args()
 
@@ -93,7 +97,7 @@ def plot_los(los, freq_axis):
     plt.xlabel('frequency[MHz]'), plt.ylabel('flux/S147')
     plt.show()
 
-def load_dataset(aggregate=True):
+def load_dataset():
     #Input parameters
     #Read LOS data from 21cmFAST 50cMpc box
     log_fx=args.log_fx
@@ -111,7 +115,7 @@ def load_dataset(aggregate=True):
     all_F21 = []
     all_params = []
     # Create processor with desired number of worker threads
-    processor = dl.F21DataLoader(max_workers=8, aggregate=aggregate)
+    processor = dl.F21DataLoader(max_workers=8, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize)
         
     # Process all files and get results
     results = processor.process_all_files(datafiles)
@@ -124,9 +128,9 @@ def load_dataset(aggregate=True):
     print(f"sample ks:{all_ks[0]}")
     print(f"sample f21:{all_F21[0]}")
     print(f"sample params:{all_params[0]}")
-    plot_power_spectra(all_F21, all_ks, all_params)
     
     if args.runmode == 'train_test':
+        plot_power_spectra(all_F21, all_ks, all_params)
         with open('ps-21cm-forest.pkl', 'w+b') as f:  # open a text file
             pickle.dump({"all_ks": all_ks, "all_F21": all_F21, "all_params": all_params}, f)
             
@@ -139,49 +143,52 @@ def load_dataset(aggregate=True):
     return (F21_combined, params_combined)
 
 def summarize_test(y_pred, y_test):
-    errors = (y_pred - y_test)**2 #/y_test**2
-
     # Calculate R2 scores
     r2 = [r2_score(y_test[:, i], y_pred[:, i]) for i in range(2)]
     print("R2 Score: " + str(r2))
+
     # Calculate rmse scores
-    rms_scores = [mean_squared_error(y_test[:, i], y_pred[:, i]) for i in range(2)]
-    rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test, axis=0)
-    print("RMS Error: " + str(rms_scores_percent))
-    plt.scatter(y_test[:, 0], y_test[:, 1], s=1, c=errors[:,0])
+    se = (y_test - y_pred) ** 2
+    print(f"se raw: {se}")
+    se[:,1] /= 25 
+    se_combined = se[:,0] + se[:,1]
+    print(f"se weighted: {se_combined}")
+    df_y = pd.DataFrame()
+    df_y = df_y.assign(actual_xHI=y_test[:,0])
+    df_y = df_y.assign(actual_logfX=y_test[:,1])
+    df_y = df_y.assign(pred_xHI=y_pred[:,0])
+    df_y = df_y.assign(pred_logfX=y_pred[:,1])
+    df_y = df_y.assign(se=se_combined)
+    df_y_agg = df_y.groupby(["actual_xHI", "actual_logfX"])['se'].mean()
+    df_y_agg.rename('agg_rmse', inplace=True)
+    print(df_y_agg)
+    df_y = df_y.merge(df_y_agg, on=['actual_xHI', 'actual_logfX'], validate='many_to_one')
+    print(df_y)
+    df_y=df_y.assign(agg_rmse=np.sqrt(df_y['agg_rmse']))
+    print(df_y)
+    #rms_scores_percent = np.array([mse[:, i]*100/np.abs(np.mean(y_test[:, i])) for i in range(2)])
+    #print("RMS Error: " + str(rms_scores_percent))
+    cmap = plt.get_cmap('viridis')
+    rmse = df_y['agg_rmse']
+    norm = plt.Normalize(rmse.min(), rmse.max())
+    colors = cmap(norm(rmse))
+
+    plt.scatter(df_y['pred_xHI'], df_y['pred_logfX'], marker=".", s=2, label='Predicted', c=colors)
+    plt.scatter(df_y['actual_xHI'], df_y['actual_logfX'], marker="X", s=8, label='Actual', c=colors)
+    plt.xlim(0, 1)
+    plt.ylim(-4, 1)
     plt.xlabel('xHI')
     plt.ylabel('logfX')
-    plt.title('xHI Error')
+    plt.title('Predictions')
+    plt.legend()
     plt.colorbar()
-    plt.savefig('saved_output/f21_predict_logfx_error.png')
+    plt.savefig(f'{output_dir}/f21_prediction.png')
     plt.show()
-    plt.scatter(y_test[:, 0], y_test[:, 1], s=1, c=errors[:,1])
-    plt.xlabel('xHI')
-    plt.ylabel('logfX')
-    plt.title('logfX Error')
-    plt.colorbar()
-    plt.savefig('saved_output/f21_predict_logfx_error.png')
-    plt.show()
-    plt.scatter(y_test[:, 0], y_pred[:, 0], s=1)
-    plt.title('Predictions vs True Values for xHI')
-    plt.ylabel('Prediction')
-    plt.xlabel('True Value')
-    plt.savefig('saved_output/f21_predict_xHI.png')
-    plt.show()
-    plt.scatter(y_test[:, 1], y_pred[:, 1], s=1)
-    plt.title('Predictions vs True Values for logfX')
-    plt.ylabel('Prediction')
-    plt.xlabel('True Value')
-    plt.savefig('saved_output/f21_predict_logfx.png')
-    plt.show()
-    ## Train the model
-    #history = model.fit(X_train, y_train, epochs=512, batch_size=11)
-    ## Plot the training and validation los
 
 def save_model(model):
     # Save the model architecture and weights
-    print(f'Saving model to: {args.modelfile}')
-    model_json = model.save_model(args.modelfile)
+    print(f'Saving model to: {output_dir}/{args.modelfile}')
+    model_json = model.save_model(f"{output_dir}/{args.modelfile}")
 
 def run(X_train, X_test, y_train, y_test):
     print("Starting training")
@@ -218,11 +225,12 @@ def run(X_train, X_test, y_train, y_test):
         print (f'## Sample size: {size}')
         X_train_subset = X_train[:size]
         y_train_subset = y_train[:size]
+        print(f"Training dataset: X:{X_train_subset.shape} y:{y_train_subset.shape}")
 
         model = xgb.XGBRegressor(
-            n_estimators=1000,
-            learning_rate=0.1,
-            max_depth=50,
+            #n_estimators=1000,
+            #learning_rate=0.1,
+            #max_depth=50,
             random_state=42
         )
 
@@ -251,28 +259,28 @@ def run(X_train, X_test, y_train, y_test):
     summarize_test(y_pred, y_test)
     print('Plotting Decision Tree')
     plot_tree(model)
-    plt.savefig("output/xgboost_tree.png", dpi=600) 
+    plt.savefig(f"{output_dir}/xgboost_tree.png", dpi=600) 
     save_model(model)
 
 # main code start here
-#tf.config.list_physical_devices('GPU')
-# print("### GPU Enabled!!!")
+output_dir = str('output/%s_fX%s_xHI%s_%s_t%dh' % (args.runmode, args.log_fx, args.xHI, args.telescope,args.t_int))
+if not os.path.exists(output_dir):
+    os.mkdir(output_dir)
+    print("created " + output_dir)
+
 if not args.runmode == "test_only":
     #X, y = load_dataset("../21cm_simulation/output/ps-consolidated")
     X, y = load_dataset()
+    print(f"Loaded dataset X:{X.shape} y:{y.shape}")
     # Split the dataset and normalize
     print("Splitting dataset")
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    #X_train, X_test, y_train, y_test = load_dataset("../21cm_simulation/output/ps-noise-fg-80-7000.pkl")
-    #X_train, X_test, y_train, y_test = load_dataset("../21cm_simulation/output/ps-noise-20240929160608.pkl")
-    #X_train, X_test, y_train, y_test = load_dataset("../21cm_simulation/output/ps-noise-20240925215505.pkl")
-    #X_train, X_test, y_train, y_test = load_dataset("../21cm_simulation/output/ps-80-7000.pkl")
     if args.runmode == "train_test":
         run(X_train, X_test, y_train, y_test)
     elif args.runmode == "plot_only":
         plot_power_spectra(X, y, kset)
-else: # testonly
-    X_test, y_test = load_dataset(aggregate=False)
+else: # test_only
+    X_test, y_test = load_dataset()
     model = xgb.XGBRegressor()
     model.load_model(args.modelfile)
     y_pred = model.predict(X_test)
