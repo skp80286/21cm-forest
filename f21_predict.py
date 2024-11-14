@@ -97,16 +97,9 @@ def plot_los(los, freq_axis):
     plt.xlabel('frequency[MHz]'), plt.ylabel('flux/S147')
     plt.show()
 
-def load_dataset():
+def load_dataset(datafiles):
     #Input parameters
     #Read LOS data from 21cmFAST 50cMpc box
-    log_fx=args.log_fx
-    xHI=args.xHI
-    filepattern = str('%sF21_noisy_21cmFAST_200Mpc_z%.1f_fX%s_xHI%s_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
-               (args.path, args.redshift,log_fx, xHI, args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
-    print(f"Loading files with pattern {filepattern}")
-    datafiles = glob.glob(filepattern)
-    print(f"Found {len(datafiles)} files matching pattern")
     if args.maxfiles is not None:
         datafiles = datafiles[:args.maxfiles]
     freq_axis = None
@@ -143,45 +136,50 @@ def load_dataset():
     return (F21_combined, params_combined)
 
 def summarize_test(y_pred, y_test):
+    print(f"y_pred: {y_pred}")
+    print(f"y_test: {y_test}")
     # Calculate R2 scores
     r2 = [r2_score(y_test[:, i], y_pred[:, i]) for i in range(2)]
     print("R2 Score: " + str(r2))
 
     # Calculate rmse scores
-    se = (y_test - y_pred) ** 2
-    print(f"se raw: {se}")
-    se[:,1] /= 25 
-    se_combined = se[:,0] + se[:,1]
-    print(f"se weighted: {se_combined}")
+    rmse = np.sqrt((y_test - y_pred) ** 2)
+    rmse = 100*(rmse[:,0]+rmse[:,1]/5)/(np.abs(y_test[:,0])+np.abs(y_test[:,1])/5) # Weighted as per the range of params
+    print(f"rmse : {rmse.shape}\n{rmse[:10]}")
     df_y = pd.DataFrame()
     df_y = df_y.assign(actual_xHI=y_test[:,0])
     df_y = df_y.assign(actual_logfX=y_test[:,1])
     df_y = df_y.assign(pred_xHI=y_pred[:,0])
     df_y = df_y.assign(pred_logfX=y_pred[:,1])
-    df_y = df_y.assign(se=se_combined)
-    df_y_agg = df_y.groupby(["actual_xHI", "actual_logfX"])['se'].mean()
+    df_y = df_y.assign(rmse=rmse)
+    print(f"Describing test data with rmse: {df_y.describe()}")
+
+    df_y_agg = df_y.groupby(["actual_xHI", "actual_logfX"])['rmse'].mean()
     df_y_agg.rename('agg_rmse', inplace=True)
-    print(df_y_agg)
     df_y = df_y.merge(df_y_agg, on=['actual_xHI', 'actual_logfX'], validate='many_to_one')
-    print(df_y)
-    df_y=df_y.assign(agg_rmse=np.sqrt(df_y['agg_rmse']))
-    print(df_y)
-    #rms_scores_percent = np.array([mse[:, i]*100/np.abs(np.mean(y_test[:, i])) for i in range(2)])
-    #print("RMS Error: " + str(rms_scores_percent))
+    print(f"Describing data with rmse: \n{df_y.describe()}\n{df_y.head()}")
+
+    rmse_summary = df_y.groupby(["actual_xHI", "actual_logfX"])['agg_rmse'].mean()
+    print(f"rmse Summary: \n{rmse_summary}")
+
+    #print(df_y.head(5))
     cmap = plt.get_cmap('viridis')
     rmse = df_y['agg_rmse']
+    rmse_min = rmse.min()
+    rmse_max = rmse.max()
     norm = plt.Normalize(rmse.min(), rmse.max())
-    colors = cmap(norm(rmse))
+    colors = cmap(norm(rmse))    
 
-    plt.scatter(df_y['pred_xHI'], df_y['pred_logfX'], marker=".", s=2, label='Predicted', c=colors)
-    plt.scatter(df_y['actual_xHI'], df_y['actual_logfX'], marker="X", s=8, label='Actual', c=colors)
+    plt.rcParams['figure.figsize'] = [15, 9]
+    plt.scatter(df_y['pred_xHI'], df_y['pred_logfX'], marker="o", s=4, label='Predicted', c=colors)
+    plt.scatter(df_y['actual_xHI'], df_y['actual_logfX'], marker="X", s=16, label='Actual', c=colors)
     plt.xlim(0, 1)
     plt.ylim(-4, 1)
     plt.xlabel('xHI')
     plt.ylabel('logfX')
     plt.title('Predictions')
     plt.legend()
-    plt.colorbar()
+    plt.colorbar(label=f'RMS Error ({rmse_min:.2f}% to {rmse_max:.2f}%)')
     plt.savefig(f'{output_dir}/f21_prediction.png')
     plt.show()
 
@@ -263,24 +261,31 @@ def run(X_train, X_test, y_train, y_test):
     save_model(model)
 
 # main code start here
-output_dir = str('output/%s_fX%s_xHI%s_%s_t%dh' % (args.runmode, args.log_fx, args.xHI, args.telescope,args.t_int))
+output_dir = str('output/%s_fX%s_xHI%s_%s_t%dh_b%d_%s' % (args.runmode, args.log_fx, args.xHI, args.telescope,args.t_int, args.psbatchsize, datetime.now().strftime("%Y%m%d%H%M%S")))
 if not os.path.exists(output_dir):
     os.mkdir(output_dir)
     print("created " + output_dir)
 
-if not args.runmode == "test_only":
-    #X, y = load_dataset("../21cm_simulation/output/ps-consolidated")
-    X, y = load_dataset()
-    print(f"Loaded dataset X:{X.shape} y:{y.shape}")
-    # Split the dataset and normalize
-    print("Splitting dataset")
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    if args.runmode == "train_test":
-        run(X_train, X_test, y_train, y_test)
-    elif args.runmode == "plot_only":
-        plot_power_spectra(X, y, kset)
-else: # test_only
-    X_test, y_test = load_dataset()
+filepattern = str('%sF21_noisy_21cmFAST_200Mpc_z%.1f_fX%s_xHI%s_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
+               (args.path, args.redshift,args.log_fx, args.xHI, args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
+print(f"Loading files with pattern {filepattern}")
+datafiles = glob.glob(filepattern)
+print(f"Found {len(datafiles)} files matching pattern")
+datafiles = sorted(datafiles)
+train_files, test_files = train_test_split(datafiles, test_size=16, random_state=42)
+
+if args.runmode == "train_test":
+    print(f"Loading train dataset {len(train_files)}")
+    X_train, y_train = load_dataset(train_files)
+    print(f"Loaded dataset X_train:{X_train.shape} y:{y_train.shape}")
+    print(f"Loading test dataset {len(test_files)}")
+    X_test, y_test = load_dataset(test_files)
+    print(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
+    run(X_train, X_test, y_train, y_test)
+elif args.runmode == "test_only": # test_only
+    print(f"Loading test dataset {len(test_files)}")
+    X_test, y_test = load_dataset(test_files)
+    print(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
     model = xgb.XGBRegressor()
     model.load_model(args.modelfile)
     y_pred = model.predict(X_test)
