@@ -73,7 +73,7 @@ def load_dataset(datafiles):
     print(f"sample params:{all_params[0]}")
     
     if args.runmode == 'train_test':
-        base.plot_power_spectra(all_F21, all_ks, all_params)
+        base.plot_power_spectra(all_F21, all_ks, all_params, output_dir=output_dir, showplots=args.interactive)
         with open('ps-21cm-forest.pkl', 'w+b') as f:  # open a text file
             pickle.dump({"all_ks": all_ks, "all_F21": all_F21, "all_params": all_params}, f)
             
@@ -156,7 +156,7 @@ def run(X_train, X_test, y_train, y_test):
         test_loss.append(0.5*(rms_scores_percent[0]+rms_scores_percent[1]))
 
 
-    base.summarize_test(y_pred, y_test)
+    base.summarize_test(y_pred, y_test, output_dir=output_dir, showplots=args.interactive)
     print('Plotting Decision Tree')
     plot_tree(model)
     plt.savefig(f"{output_dir}/xgboost_tree.png", dpi=600) 
@@ -191,4 +191,4 @@ elif args.runmode == "test_only": # test_only
     model = xgb.XGBRegressor()
     model.load_model(args.modelfile)
     y_pred = model.predict(X_test)
-    base.summarize_test(y_pred, y_test)
+    base.summarize_test(y_pred, y_test, output_dir=output_dir, showplots=args.interactive)

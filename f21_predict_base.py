@@ -39,7 +39,7 @@ def power_spectrum_1d(data, bins=10):
 
     return k, power
 
-def plot_power_spectra(ps, ks, params):
+def plot_power_spectra(ps, ks, params, output_dir=".", showplots=False):
     #print(f'shapes ps:{ps.shape} ks:{ks.shape}')
     print(params[0:2])
     logfxs = params[:,1]
@@ -52,17 +52,19 @@ def plot_power_spectra(ps, ks, params):
         break
     plt.xlabel('k (MHz$^{-1}$)')
     plt.ylabel('P$_{21}$(k)')
-    plt.show()
+    if showplots: plt.show()
+    plt.savefig(f"{output_dir}/power_spectra.png")
 
-def plot_los(los, freq_axis):
+def plot_los(los, freq_axis, output_dir=".", showplots=False):
     plt.rcParams['figure.figsize'] = [15, 9]
     for f in los:
         plt.plot(freq_axis/1e6, f)
         break
     plt.xlabel('frequency[MHz]'), plt.ylabel('flux/S147')
-    plt.show()
+    if showplots: plt.show()
+    plt.savefig(f"{output_dir}/los.png")
 
-def summarize_test(y_pred, y_test):
+def summarize_test(y_pred, y_test, output_dir=".", showplots=False):
     print(f"y_pred: {y_pred}")
     print(f"y_test: {y_test}")
     # Calculate R2 scores
@@ -110,4 +112,4 @@ def summarize_test(y_pred, y_test):
     plt.legend()
     plt.colorbar(label=f'RMS Error ({rmse_min:.2f} to {rmse_max:.2f})')
     plt.savefig(f'{output_dir}/f21_prediction.png')
-    plt.show()
+    if showplots: plt.show()

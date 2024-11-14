@@ -82,7 +82,7 @@ def load_dataset(datafiles):
 
 def save_model(model):
     # Save the model architecture and weights
-    keras_filename = output_dir + datetime.now().strftime("f21_predict_cnn.keras")
+    keras_filename = output_dir +"/f21_predict_cnn.keras"
     print(f'Saving model to: {keras_filename}')
     model_json = model.save(keras_filename)
 
@@ -183,7 +183,7 @@ def run(X_train, X_test, y_train, y_test):
         test_loss.append(0.5*(rms_scores_percent[0]+rms_scores_percent[1]))
 
 
-    base.summarize_test(y_pred, y_test)
+    base.summarize_test(y_pred, y_test, output_dir=output_dir, showplots=args.interactive)
     save_model(model)
 
 # main code start here
@@ -218,4 +218,4 @@ elif args.runmode == "test_only": # test_only
     print(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
     model = load_model(args.modelfile)
     y_pred = model.predict(X_test)
-    base.summarize_test(y_pred, y_test)
+    base.summarize_test(y_pred, y_test, output_dir=output_dir, showplots=args.interactive)
