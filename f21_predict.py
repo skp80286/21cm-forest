@@ -144,14 +144,16 @@ def summarize_test(y_pred, y_test):
 
     # Calculate rmse scores
     rmse = np.sqrt((y_test - y_pred) ** 2)
-    rmse = 100*(rmse[:,0]+rmse[:,1]/5)/(np.abs(y_test[:,0])+np.abs(y_test[:,1])/5) # Weighted as per the range of params
-    print(f"rmse : {rmse.shape}\n{rmse[:10]}")
+    rmse_comb = rmse[:,0]+rmse[:,1]/5 # Weighted as per the range of params
+    print(f"rmse_comb : {rmse_comb.shape}\n{rmse_comb[:10]}")
     df_y = pd.DataFrame()
     df_y = df_y.assign(actual_xHI=y_test[:,0])
     df_y = df_y.assign(actual_logfX=y_test[:,1])
     df_y = df_y.assign(pred_xHI=y_pred[:,0])
     df_y = df_y.assign(pred_logfX=y_pred[:,1])
-    df_y = df_y.assign(rmse=rmse)
+    df_y = df_y.assign(rmse_xHI=rmse[:,0])
+    df_y = df_y.assign(rmse_logfx=rmse[:,1])
+    df_y = df_y.assign(rmse=rmse_comb)
     print(f"Describing test data with rmse: {df_y.describe()}")
 
     df_y_agg = df_y.groupby(["actual_xHI", "actual_logfX"])['rmse'].mean()
@@ -159,10 +161,9 @@ def summarize_test(y_pred, y_test):
     df_y = df_y.merge(df_y_agg, on=['actual_xHI', 'actual_logfX'], validate='many_to_one')
     print(f"Describing data with rmse: \n{df_y.describe()}\n{df_y.head()}")
 
-    rmse_summary = df_y.groupby(["actual_xHI", "actual_logfX"])['agg_rmse'].mean()
+    rmse_summary = df_y.groupby(["actual_xHI", "actual_logfX"]).agg({'agg_rmse':'mean','rmse_xHI':'mean','rmse_logfx': 'mean'})
     print(f"rmse Summary: \n{rmse_summary}")
 
-    #print(df_y.head(5))
     cmap = plt.get_cmap('viridis')
     rmse = df_y['agg_rmse']
     rmse_min = rmse.min()
@@ -171,15 +172,16 @@ def summarize_test(y_pred, y_test):
     colors = cmap(norm(rmse))    
 
     plt.rcParams['figure.figsize'] = [15, 9]
-    plt.scatter(df_y['pred_xHI'], df_y['pred_logfX'], marker="o", s=4, label='Predicted', c=colors)
-    plt.scatter(df_y['actual_xHI'], df_y['actual_logfX'], marker="X", s=16, label='Actual', c=colors)
+    plt.scatter(df_y['pred_xHI'], df_y['pred_logfX'], marker="o", s=25, label='Predicted', c=colors)
+    plt.plot([df_y['pred_xHI'], df_y['actual_xHI']], [df_y['pred_logfX'], df_y['actual_logfX']], 'r--', alpha=0.2)
+    plt.scatter(df_y['actual_xHI'], df_y['actual_logfX'], marker="X", s=100, label='Actual', c=colors)
     plt.xlim(0, 1)
     plt.ylim(-4, 1)
     plt.xlabel('xHI')
     plt.ylabel('logfX')
     plt.title('Predictions')
     plt.legend()
-    plt.colorbar(label=f'RMS Error ({rmse_min:.2f}% to {rmse_max:.2f}%)')
+    plt.colorbar(label=f'RMS Error ({rmse_min:.2f} to {rmse_max:.2f})')
     plt.savefig(f'{output_dir}/f21_prediction.png')
     plt.show()
 
