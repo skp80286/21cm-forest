@@ -193,7 +193,7 @@ def run(X_train, X_test, y_train, y_test):
 # main code start here
 #tf.config.list_physical_devices('GPU')
 #print("### GPU Enabled!!!")
-output_dir = str('output/cnn_%s_%s_t%dh_b%d_%s' % (args.runmode, args.telescope,args.t_int, args.psbatchsize, datetime.now().strftime("%Y%m%d%H%M%S")))
+output_dir = str('output/cnn_%s_%s_t%dh_b%d_%s' % (args.runmode, args.telescope,args.t_int, 1, datetime.now().strftime("%Y%m%d%H%M%S")))
 if not os.path.exists(output_dir):
     os.mkdir(output_dir)
     print("created " + output_dir)

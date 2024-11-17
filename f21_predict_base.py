@@ -39,7 +39,7 @@ def power_spectrum_1d(data, bins=10):
 
     return k, power
 
-def plot_power_spectra(ps, ks, params, output_dir=".", showplots=False):
+def plot_power_spectra(ps, ks, params, output_dir=".", showplots=False, saveplots=True):
     #print(f'shapes ps:{ps.shape} ks:{ks.shape}')
     print(params[0:2])
     logfxs = params[:,1]
@@ -48,21 +48,24 @@ def plot_power_spectra(ps, ks, params, output_dir=".", showplots=False):
     plt.rcParams['figure.figsize'] = [15, 9]
     plt.title('power spectra.')
     for i, (row_ps, row_ks, row_fx) in enumerate(zip(ps, ks, logfxs)):
-        plt.loglog(row_ks[1:]*1e6, row_ps[1:], linewidth=0.5, color=plt.cm.coolwarm((row_fx-minfx)/(maxfx-minfx)))
+        color = None
+        if maxfx > minfx: color=plt.cm.coolwarm((row_fx-minfx)/(maxfx-minfx))
+        plt.loglog(row_ks[1:]*1e6, row_ps[1:], linewidth=0.5, color=color)
         break
     plt.xlabel('k (MHz$^{-1}$)')
     plt.ylabel('P$_{21}$(k)')
     if showplots: plt.show()
-    plt.savefig(f"{output_dir}/power_spectra.png")
+    if saveplots: plt.savefig(f"{output_dir}/power_spectra.png")
+    plt.clf()
 
-def plot_los(los, freq_axis, output_dir=".", showplots=False):
+def plot_los(los, freq_axis, output_dir=".", showplots=False, saveplots=True):
     plt.rcParams['figure.figsize'] = [15, 9]
     for f in los:
         plt.plot(freq_axis/1e6, f)
-        break
     plt.xlabel('frequency[MHz]'), plt.ylabel('flux/S147')
     if showplots: plt.show()
-    plt.savefig(f"{output_dir}/los.png")
+    if saveplots: plt.savefig(f"{output_dir}/los.png")
+    plt.clf()
 
 def summarize_test(y_pred, y_test, output_dir=".", showplots=False):
     print(f"y_pred: {y_pred}")
@@ -101,6 +104,7 @@ def summarize_test(y_pred, y_test, output_dir=".", showplots=False):
     colors = cmap(norm(rmse))    
 
     plt.rcParams['figure.figsize'] = [15, 9]
+    fig, ax = plt.subplots()
     plt.scatter(df_y['pred_xHI'], df_y['pred_logfX'], marker="o", s=25, label='Predicted', c=colors)
     plt.plot([df_y['pred_xHI'], df_y['actual_xHI']], [df_y['pred_logfX'], df_y['actual_logfX']], 'r--', alpha=0.2)
     plt.scatter(df_y['actual_xHI'], df_y['actual_logfX'], marker="X", s=100, label='Actual', c=colors)
@@ -111,5 +115,6 @@ def summarize_test(y_pred, y_test, output_dir=".", showplots=False):
     plt.title('Predictions')
     plt.legend()
     plt.colorbar(label=f'RMS Error ({rmse_min:.2f} to {rmse_max:.2f})')
-    plt.savefig(f'{output_dir}/f21_prediction.png')
     if showplots: plt.show()
+    plt.savefig(f'{output_dir}/f21_prediction.png')
+    plt.clf()

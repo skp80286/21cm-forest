@@ -3,6 +3,7 @@ import threading
 from typing import List, Dict
 import numpy as np
 import PS1D
+import pandas as pd
 
 class F21DataLoader:
     def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None, skip_ps: bool = False):
@@ -53,6 +54,13 @@ class F21DataLoader:
         return (z, xHI_mean, logfX, Nlos, Nbins, freq_axis, F21_current)
 
 
+    def aggregate(self, dataseries):
+        df = pd.DataFrame(dataseries)
+        # Calculate mean and standard deviation across all samples
+        mean = df.mean(axis=0)
+        std = df.std(axis=0)
+        return (mean, std)
+
     def process_file(self, datafile: str) -> None:
         try:
             print(f"Reading file: {datafile}")
@@ -62,38 +70,39 @@ class F21DataLoader:
             # Store the data
             #all_F21.append(F21_current)
             bandwidth = freq_axis[-1]-freq_axis[0]
-            power_spectrum = None
-            cumulative_los = None
+            power_spectrum = []
+            cumulative_los = []
             ks = None
             psbatchnum = 0
             samplenum = 0
             for los in F21_current:
                 if self.skip_ps:
                     params = np.array([xHI_mean, logfX])
-                    self.collector.add_data(None, None, los, params)
+                    self.collector.add_data(None, None, los, freq_axis, params)
                 else:
                     psbatchnum += 1
                     samplenum += 1
                     # Calculate the power spectrum
                     #ks, power_spectrum = power_spectrum_1d(los, bins=160)
                     ks, ps = PS1D.get_P(los, bandwidth)
-                    if power_spectrum is None:
-                        power_spectrum = ps
-                        cumulative_los = los
-                    else: # aggregation
-                        power_spectrum += ps
-                        cumulative_los += los
+                    #print(f"ks: {ks}")
+                    #print(f"ps: {ps}")
+                    power_spectrum.append(ps)
+                    cumulative_los.append(los)
                     
                     if samplenum > Nlos or psbatchnum >= self.psbatchsize:
                         # Collect this batch
                         params = np.array([xHI_mean, logfX])
-                        self.collector.add_data(ks, power_spectrum/self.psbatchsize, cumulative_los/self.psbatchsize, params)
+                        (ps_mean, ps_std) = self.aggregate(np.array(power_spectrum))
+                        (los_mean, los_std) = self.aggregate(np.array(cumulative_los))
+                        self.collector.add_data(ks, ps_mean, ps_std, los_mean, los_std, freq_axis, params)
                         psbatchnum = 0
-                        power_spectrum = None
-                        cumulative_los = None
+                        power_spectrum = []
+                        cumulative_los = []
 
                     if self.limitsamplesize is not None and samplenum > self.limitsamplesize: 
                         break
+
         except Exception as e:
             print(f"Error processing {datafile}: {str(e)}")
             
@@ -115,24 +124,33 @@ class ThreadSafeArrayCollector:
     def __init__(self):
         self._data = {
             'ks': [],
-            'F21': [],
+            'ps': [],
+            'ps_std': [],
             'los': [],
+            'los_std': [],
+            'freq_axis': [],
             'params': []
         }
         self._lock = threading.Lock()
         
-    def add_data(self, ks, F21, los, params):
+    def add_data(self, ks, ps, ps_std, los, los_std, freq_axis, params):
         with self._lock:
             self._data['ks'].append(ks)
-            self._data['F21'].append(F21)
+            self._data['ps'].append(ps)
+            self._data['ps_std'].append(ps_std)
             self._data['los'].append(los)
+            self._data['los_std'].append(los_std)
+            self._data['freq_axis'].append(freq_axis)
             self._data['params'].append(params)
             
     def get_arrays(self):
         with self._lock:
             return {
                 'ks': np.array(self._data['ks']),
-                'F21': np.array(self._data['F21']),
+                'ps': np.array(self._data['ps']),
+                'ps_std': np.array(self._data['ps_std']),
                 'los': np.array(self._data['los']),
+                'los_std': np.array(self._data['los_std']),
+                'freq_axis': np.array(self._data['freq_axis']),
                 'params': np.array(self._data['params'])
             }
