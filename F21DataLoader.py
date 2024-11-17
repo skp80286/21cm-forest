@@ -5,11 +5,12 @@ import numpy as np
 import PS1D
 
 class F21DataLoader:
-    def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None):
+    def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None, skip_ps: bool = False):
         self.max_workers = max_workers
         self.collector = ThreadSafeArrayCollector()
         self.psbatchsize = psbatchsize
         self.limitsamplesize = limitsamplesize
+        self.skip_ps = skip_ps
         
 
     def get_los(self, datafile: str) -> None:
@@ -67,30 +68,34 @@ class F21DataLoader:
             psbatchnum = 0
             samplenum = 0
             for los in F21_current:
-                psbatchnum += 1
-                samplenum += 1
-                # Calculate the power spectrum
-                #ks, power_spectrum = power_spectrum_1d(los, bins=160)
-                ks, ps = PS1D.get_P(los, bandwidth)
-                if power_spectrum is None:
-                    power_spectrum = ps
-                    cumulative_los = los
-                else: # aggregation
-                    power_spectrum += ps
-                    cumulative_los += los
-                
-                if samplenum > Nlos or psbatchnum >= self.psbatchsize:
-                    # Collect this batch
+                if self.skip_ps:
                     params = np.array([xHI_mean, logfX])
-                    self.collector.add_data(ks, power_spectrum/self.psbatchsize, cumulative_los/self.psbatchsize, params)
-                    psbatchnum = 0
-                    power_spectrum = None
-                    cumulative_los = None
+                    self.collector.add_data(None, None, los, params)
+                else:
+                    psbatchnum += 1
+                    samplenum += 1
+                    # Calculate the power spectrum
+                    #ks, power_spectrum = power_spectrum_1d(los, bins=160)
+                    ks, ps = PS1D.get_P(los, bandwidth)
+                    if power_spectrum is None:
+                        power_spectrum = ps
+                        cumulative_los = los
+                    else: # aggregation
+                        power_spectrum += ps
+                        cumulative_los += los
+                    
+                    if samplenum > Nlos or psbatchnum >= self.psbatchsize:
+                        # Collect this batch
+                        params = np.array([xHI_mean, logfX])
+                        self.collector.add_data(ks, power_spectrum/self.psbatchsize, cumulative_los/self.psbatchsize, params)
+                        psbatchnum = 0
+                        power_spectrum = None
+                        cumulative_los = None
 
-                if self.limitsamplesize is not None and samplenum > self.limitsamplesize: break
-
+                    if self.limitsamplesize is not None and samplenum > self.limitsamplesize: 
+                        break
         except Exception as e:
-                print(f"Error processing {datafile}: {str(e)}")
+            print(f"Error processing {datafile}: {str(e)}")
             
     def process_all_files(self, file_list: List[str]) -> Dict[str, np.ndarray]:
         # Process files in parallel using ThreadPoolExecutor

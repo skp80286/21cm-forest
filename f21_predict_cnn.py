@@ -2,30 +2,22 @@
 Predict parameters fX and xHI from the 21cm forest data using CNN.
 '''
 
-import pandas as pd
-import numpy as np
-import pickle
+import tensorflow as tf
+from tensorflow.keras import layers, models
+from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.models import load_model
+from tensorflow.keras.losses import huber
 
-import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score
-from keras.saving import load_model
-
-import scipy.fftpack as fftpack
-from scipy.stats import binned_statistic
 
 import argparse
 import glob
 from datetime import datetime
 
 import F21DataLoader as dl
-
-import tensorflow as tf
-from tensorflow.keras import layers, models
-from tensorflow.keras.callbacks import EarlyStopping
-from sklearn.preprocessing import StandardScaler
-
 import f21_predict_base as base
+import numpy as np
 import os
 
 parser = argparse.ArgumentParser(description='Predict reionization parameters from 21cm forest')
@@ -44,7 +36,6 @@ parser.add_argument('-m', '--runmode', type=str, default='train_test', help='one
 parser.add_argument('-b', '--numsamplebatches', type=int, default=1, help='Number of batches of sample data to use for plotting learning curve by sample size.')
 parser.add_argument('--maxfiles', type=int, default=None, help='Max num files to read')
 parser.add_argument('--modelfile', type=str, default="output/cnn-21cmforest-model.json", help='model file')
-parser.add_argument('--psbatchsize', type=int, default=None, help='batching for PS data.')
 parser.add_argument('--limitsamplesize', type=int, default=None, help='limit samples from one file to this number.')
 parser.add_argument('--interactive', action='store_true', help='run in interactive mode. show plots as modals.')
 
@@ -61,7 +52,7 @@ def load_dataset(datafiles):
     all_F21 = []
     all_params = []
     # Create processor with desired number of worker threads
-    processor = dl.F21DataLoader(max_workers=8, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize)
+    processor = dl.F21DataLoader(max_workers=8, psbatchsize=1, limitsamplesize=args.limitsamplesize, skip_ps=True)
         
     # Process all files and get results TODO: skip the powerspectrum calculation
     results = processor.process_all_files(datafiles)
@@ -95,10 +86,15 @@ def create_cnn_model(input_shape):
     model = models.Sequential([
         layers.Reshape((*input_shape, 1), input_shape=input_shape),
         layers.Conv1D(32, kernel_size=3, activation='relu', padding='same'),
+        layers.BatchNormalization(),
         layers.MaxPooling1D(2),
+        layers.Dropout(0.1),
         layers.Conv1D(64, kernel_size=3, activation='relu', padding='same'),
+        layers.BatchNormalization(),
         layers.MaxPooling1D(2),
+        layers.Dropout(0.2),
         layers.Conv1D(128, kernel_size=3, activation='relu', padding='same'),
+        layers.BatchNormalization(),
         layers.MaxPooling1D(2),
         layers.Flatten(),
         layers.Dense(128, activation='relu'),
@@ -106,6 +102,14 @@ def create_cnn_model(input_shape):
         layers.Dense(64, activation='relu'),
         layers.Dense(2)  # Output layer with 2 neurons for xHI and logfX
     ])
+
+    # Compile the model  
+    model.compile(loss=huber, optimizer='adam', metrics=['accuracy'])
+
+    # Summary of the model
+    model.summary()
+    print("######## completed model setup #########")
+
     return model
 
 def run(X_train, X_test, y_train, y_test):
@@ -148,9 +152,6 @@ def run(X_train, X_test, y_train, y_test):
         # Create and compile the model
         input_shape = (X_train_subset.shape[1],)
         model = create_cnn_model(input_shape)
-        model.compile(optimizer='adam',
-                     loss='mse',
-                     metrics=['mae'])
         
         # Early stopping callback
         early_stopping = EarlyStopping(
@@ -159,10 +160,13 @@ def run(X_train, X_test, y_train, y_test):
             restore_best_weights=True
         )
     
+        print(f"{X_train_subset.shape}")
+        X_train_subset = X_train_subset.reshape(len(X_train_subset), X_train_subset.shape[1], 1)
+        print(f"Fitting data: {X_train_subset.shape}")
         history = model.fit(
             X_train_subset, y_train_subset,
-            epochs=100,
-            batch_size=32,
+            epochs=10,
+            batch_size=1024,
             validation_split=0.2,
             callbacks=[early_stopping],
             verbose=1
@@ -187,9 +191,9 @@ def run(X_train, X_test, y_train, y_test):
     save_model(model)
 
 # main code start here
-tf.config.list_physical_devices('GPU')
-print("### GPU Enabled!!!")
-output_dir = str('output/cnn_%s_fX%s_xHI%s_%s_t%dh_b%d_%s' % (args.runmode, args.log_fx, args.xHI, args.telescope,args.t_int, args.psbatchsize, datetime.now().strftime("%Y%m%d%H%M%S")))
+#tf.config.list_physical_devices('GPU')
+#print("### GPU Enabled!!!")
+output_dir = str('output/cnn_%s_%s_t%dh_b%d_%s' % (args.runmode, args.telescope,args.t_int, args.psbatchsize, datetime.now().strftime("%Y%m%d%H%M%S")))
 if not os.path.exists(output_dir):
     os.mkdir(output_dir)
     print("created " + output_dir)
@@ -197,12 +201,14 @@ if not os.path.exists(output_dir):
 filepattern = str('%sF21_noisy_21cmFAST_200Mpc_z%.1f_fX%s_xHI%s_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
                (args.path, args.redshift,args.log_fx, args.xHI, args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
 print(f"Loading files with pattern {filepattern}")
+test_size = 16
 datafiles = glob.glob(filepattern)
 if args.maxfiles is not None:
     datafiles = datafiles[:args.maxfiles]
+    test_size = 1
 print(f"Found {len(datafiles)} files matching pattern")
 datafiles = sorted(datafiles)
-train_files, test_files = train_test_split(datafiles, test_size=16, random_state=42)
+train_files, test_files = train_test_split(datafiles, test_size=test_size, random_state=42)
 
 if args.runmode == "train_test":
     print(f"Loading train dataset {len(train_files)}")

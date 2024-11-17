@@ -1,0 +1,14 @@
+#!/bin/sh
+#PBS -l cput=2:00:00
+#PBS -l walltime=2:00:00
+#PBS -l mem=64gb
+#PBS -N f21cnn
+#PBS -o /user1/sameer.patil/pbsf21cnn.out
+#PBS -j oe
+#PBS -m abe
+#PBS -M sameerkpatil@gmail.com
+#PBS -V
+#PBS -l nodes=1:ppn=10
+
+cd /user1/sameer.patil/girish-kulkarni/21cm-forest
+python f21_predict_cnn.py
