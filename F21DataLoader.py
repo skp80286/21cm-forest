@@ -86,7 +86,7 @@ class F21DataLoader:
             for los in F21_current:
                 if self.skip_ps:
                     params = np.array([xHI_mean, logfX])
-                    self.collector.add_data(None, None, los, freq_axis, params)
+                    self.collector.add_data(None, None, None, los, None, freq_axis, params)
                 else:
                     psbatchnum += 1
                     samplenum += 1
