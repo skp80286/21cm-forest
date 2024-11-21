@@ -18,15 +18,25 @@ class F21DataLoader:
         data = np.fromfile(str(datafile), dtype=np.float32)
     
         # Extract parameters
-        z = data[0]        # redshift
-        xHI_mean = data[1] # mean neutral hydrogen fraction
-        logfX = data[2]    # log10(f_X)
-        Nlos = int(data[3])# Number of lines-of-sight
-        Nbins = int(data[4])# Number of pixels/cells/bins in one line-of-sight
-        x_initial = 5
+        i = 0
+        z, xHI_mean, logfX = -999, -999, -999
+        if "noiseonly" not in datafile:
+            z = data[i]
+            i += 1        # redshift
+            xHI_mean = data[i] # mean neutral hydrogen fraction
+            i += 1       
+            logfX = data[i]    # log10(f_X)
+            i += 1       
+        Nlos = int(data[i])# Number of lines-of-sight
+        i += 1
+        Nbins = int(data[i])# Number of pixels/cells/bins in one line-of-sight
+        x_initial = i + 1
+
+        print('z=%.2f, <x_HI>=%.6f, log10(f_X)=%.2f, %d LOS, %d pixels' % 
+                (z, xHI_mean, logfX, Nlos, Nbins))
 
         if len(data) != x_initial + (1+Nlos)*Nbins:
-            error_msg = f"Error: Found {len(data)} fields, expected {x_initial + (1+Nlos)*Nbins:}. File may be corrupted: {datafile}"
+            error_msg = f"Error: Found {len(data)} fields, expected {x_initial + (1+Nlos)*Nbins:}. x_initial={x_initial}, Nlos={Nlos}, Nbins={Nbins}. File may be corrupted: {datafile}"
             raise ValueError(error_msg)
         # Find skipcount
         skipcount = 0
@@ -65,8 +75,6 @@ class F21DataLoader:
         try:
             print(f"Reading file: {datafile}")
             (z, xHI_mean, logfX, Nlos, Nbins, freq_axis, F21_current) = self.get_los(datafile)
-            print('z=%.2f, <x_HI>=%.6f, log10(f_X)=%.2f, %d LOS, %d pixels' % 
-                (z, xHI_mean, logfX, Nlos, Nbins))
             # Store the data
             #all_F21.append(F21_current)
             bandwidth = freq_axis[-1]-freq_axis[0]

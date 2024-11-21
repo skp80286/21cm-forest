@@ -54,7 +54,7 @@ def load_dataset(datafiles):
     # Create processor with desired number of worker threads
     processor = dl.F21DataLoader(max_workers=8, psbatchsize=1, limitsamplesize=args.limitsamplesize, skip_ps=True)
         
-    # Process all files and get results TODO: skip the powerspectrum calculation
+    # Process all files and get results
     results = processor.process_all_files(datafiles)
         
     # Access results

@@ -28,36 +28,7 @@ import sys
 import logging
 import f21_predict_base as base
 
-def load_dataset_from_pkl():
-    # Lists to store combined data
-    all_ks = []
-    all_ps = []
-    all_params = []
-    pklfile = "ps-21cm-forest.pkl"
-    with open(pklfile, 'rb') as input_file:  # open a text file
-        e = pickle.load(input_file)
-        logger.info(f"Loading PS from file. keys={e.keys()}")
-        all_ks = e["all_ks"]
-        all_ps = e["all_ps"]
-        all_params = e["all_params"]
-        ps_std = e["ps_std"]
-        logger.info(f"Loaded PS from file: {pklfile}, shape={all_ps.shape}")
-
-    logger.info(f"sample ks:{all_ks[0]}")
-    logger.info(f"sample ps:{all_ps[0]}")
-    logger.info(f"sample params:{all_params[0]}")
-    
-    # Combine all data
-    #ps_combined = np.hstack([all_ps[:,:100], ps_std[:,:100]])
-    ps_combined = all_ps
-    #ps_combined = np.hstack([all_ps[:,:600], ps_std[:,:600]])
-    params_combined = np.array(all_params)
-
-    logger.info(f"\nCombined data shape: {ps_combined.shape}")
-    logger.info(f"Combined parameters shape: {params_combined.shape}")
-    return (ps_combined, params_combined)
-
-def load_dataset(datafiles, save=False):
+def load_dataset(datafiles):
     #Input parameters
     #Read LOS data from 21cmFAST 50cMpc box
     if args.maxfiles is not None:
@@ -77,23 +48,25 @@ def load_dataset(datafiles, save=False):
     all_ks = results['ks']
     all_ps = results['ps']
     ps_std = results['ps_std']
-    #ps_plus_std = all_ps + ps_std
-    #ps_minus_std = all_ps - ps_std
+    ps_plus_std = all_ps + ps_std
+    ps_minus_std = all_ps - ps_std
     all_params = results['params']
     #plot_los(all_ps[0], freq_axis)
     logger.info(f"sample ks:{all_ks[0]}")
     logger.info(f"sample ps:{all_ps[0]}")
     logger.info(f"sample ps_std:{ps_std[0]}")
+    logger.info(f"sample ps_std:{ps_plus_std[0]}")
+    logger.info(f"sample ps_std:{ps_minus_std[0]}")
     logger.info(f"sample params:{all_params[0]}")
     
-    if args.runmode == 'train_test' and save:
+    """
+    if args.runmode == 'train_test':
         base.plot_power_spectra(all_ps, all_ks, all_params, output_dir=output_dir, showplots=args.interactive)
-        logger.info(f"Saving PS data to file")
         with open('ps-21cm-forest.pkl', 'w+b') as f:  # open a text file
-            pickle.dump({"all_ks": all_ks, "all_ps": all_ps, "all_params": all_params, "ps_std": ps_std}, f)
+            pickle.dump({"all_ks": all_ks, "all_ps": all_ps, "all_params": all_params}, f)
+    """       
     # Combine all data
-    #ps_combined = np.hstack([all_ps[:,:600], ps_std[:,:600]])
-    ps_combined = all_ps
+    ps_combined = np.hstack([all_ps, ps_std])
     params_combined = np.array(all_params)
 
     logger.info(f"\nCombined data shape: {ps_combined.shape}")
@@ -210,7 +183,6 @@ parser.add_argument('--modelfile', type=str, default="xgboost-21cmforest-model.j
 parser.add_argument('--psbatchsize', type=int, default=None, help='batching for PS data.')
 parser.add_argument('--limitsamplesize', type=int, default=None, help='limit samples from one file to this number.')
 parser.add_argument('--interactive', action='store_true', help='run in interactive mode. show plots as modals.')
-parser.add_argument('--use_saved_ps_data', action='store_true', help='load PS data from pkl file.')
 
 args = parser.parse_args()
 
@@ -218,32 +190,16 @@ filepattern = str('%sF21_noisy_21cmFAST_200Mpc_z%.1f_fX%s_xHI%s_%s_%dkHz_t%dh_Sm
                (args.path, args.redshift,args.log_fx, args.xHI, args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
 logger.info(f"Loading files with pattern {filepattern}")
 datafiles = glob.glob(filepattern)
-test_size = 16
-if args.maxfiles is not None:
-    datafiles = datafiles[:args.maxfiles]
-    test_size = 1
-print(f"Found {len(datafiles)} files matching pattern")
+logger.info(f"Found {len(datafiles)} files matching pattern")
 datafiles = sorted(datafiles)
-train_files, test_files = train_test_split(datafiles, test_size=test_size, random_state=42)
-
+train_files, test_files = train_test_split(datafiles, test_size=16, random_state=42)
 
 if args.runmode == "train_test":
     logger.info(f"Loading train dataset {len(train_files)}")
-    X_train, y_train = None, None
-    if args.use_saved_ps_data:
-        X_train, y_train = load_dataset_from_pkl()
-    else:
-        X_train, y_train = load_dataset(train_files, save=True)
+    X_train, y_train = load_dataset(train_files)
     logger.info(f"Loaded dataset X_train:{X_train.shape} y:{y_train.shape}")
-    if args.subtractnoise:
-        noisefilepattern = str('%sF21_noisy_21cmFAST_200Mpc_z%.1f_fX%s_xHI%s_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
-               (args.path, args.redshift,args.log_fx, args.xHI, args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
-        logger.info(f"Loading noise files with pattern {filepattern}")
-        noisefiles = glob.glob(filepattern)
-        X_noise, y_noise = load_dataset(noisefiles, save=False)
-        X_train -= X_noise
     logger.info(f"Loading test dataset {len(test_files)}")
-    X_test, y_test = load_dataset(test_files, save=False)
+    X_test, y_test = load_dataset(test_files)
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
     run(X_train, X_test, y_train, y_test)
 elif args.runmode == "test_only": # test_only
