@@ -57,7 +57,7 @@ def load_dataset_from_pkl():
     logger.info(f"Combined parameters shape: {params_combined.shape}")
     return (ps_combined, params_combined)
 
-def load_dataset(datafiles, save=False):
+def load_dataset(datafiles, psbatchsize, save=False):
     #Input parameters
     #Read LOS data from 21cmFAST 50cMpc box
     if args.maxfiles is not None:
@@ -68,7 +68,7 @@ def load_dataset(datafiles, save=False):
     all_ps = []
     all_params = []
     # Create processor with desired number of worker threads
-    processor = dl.F21DataLoader(max_workers=8, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize)
+    processor = dl.F21DataLoader(max_workers=8, psbatchsize=psbatchsize, limitsamplesize=args.limitsamplesize)
         
     # Process all files and get results
     results = processor.process_all_files(datafiles)
@@ -211,6 +211,7 @@ parser.add_argument('--psbatchsize', type=int, default=None, help='batching for 
 parser.add_argument('--limitsamplesize', type=int, default=None, help='limit samples from one file to this number.')
 parser.add_argument('--interactive', action='store_true', help='run in interactive mode. show plots as modals.')
 parser.add_argument('--use_saved_ps_data', action='store_true', help='load PS data from pkl file.')
+parser.add_argument('--subtractnoise', action='store_true', help='subtract noise.')
 
 args = parser.parse_args()
 
@@ -233,22 +234,26 @@ if args.runmode == "train_test":
     if args.use_saved_ps_data:
         X_train, y_train = load_dataset_from_pkl()
     else:
-        X_train, y_train = load_dataset(train_files, save=True)
+        X_train, y_train = load_dataset(train_files, psbatchsize=args.psbatchsize, save=True)
     logger.info(f"Loaded dataset X_train:{X_train.shape} y:{y_train.shape}")
     if args.subtractnoise:
-        noisefilepattern = str('%sF21_noisy_21cmFAST_200Mpc_z%.1f_fX%s_xHI%s_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
-               (args.path, args.redshift,args.log_fx, args.xHI, args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
-        logger.info(f"Loading noise files with pattern {filepattern}")
-        noisefiles = glob.glob(filepattern)
-        X_noise, y_noise = load_dataset(noisefiles, save=False)
-        X_train -= X_noise
+        noisefilepattern = str('%sF21_noiseonly_21cmFAST_200Mpc_z%.1f_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
+               (args.path, args.redshift,args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
+        logger.info(f"Loading noise files with pattern {noisefilepattern}")
+        noisefiles = glob.glob(noisefilepattern)
+        X_noise, y_noise = load_dataset(noisefiles, psbatchsize=1000, save=False)
+        if X_noise[:,0] == 0: X_noise[:,0] = 1 # Avoid div by zero
+        print(f"Loaded noise: {X_noise.shape}")
+        print(f"Sample PS before noise subtraction: \n{X_train[:2]}")
+        X_train /= X_noise
+        print(f"Sample PS after noise subtraction: \n{X_train[:2]}")
     logger.info(f"Loading test dataset {len(test_files)}")
-    X_test, y_test = load_dataset(test_files, save=False)
+    X_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
     run(X_train, X_test, y_train, y_test)
 elif args.runmode == "test_only": # test_only
     logger.info(f"Loading test dataset {len(test_files)}")
-    X_test, y_test = load_dataset(test_files)
+    X_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
     model = xgb.XGBRegressor()
     model.load_model(args.modelfile)

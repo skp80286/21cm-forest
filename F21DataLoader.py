@@ -3,7 +3,6 @@ import threading
 from typing import List, Dict
 import numpy as np
 import PS1D
-import pandas as pd
 
 class F21DataLoader:
     def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None, skip_ps: bool = False):
@@ -61,16 +60,20 @@ class F21DataLoader:
             raise ValueError(error_msg)
         """
         F21_current = np.reshape(data[(x_initial+1*Nbins):(x_initial+1*Nbins+Nlos*Nbins)],(Nlos,Nbins))
+        """
+        if Nlos > 100:
+            Nlos = 100
+        """
         return (z, xHI_mean, logfX, Nlos, Nbins, freq_axis, F21_current)
 
-
+    """
     def aggregate(self, dataseries):
         df = pd.DataFrame(dataseries)
         # Calculate mean and standard deviation across all samples
         mean = df.mean(axis=0)
         std = df.std(axis=0)
         return (mean, std)
-
+    """
     def process_file(self, datafile: str) -> None:
         try:
             print(f"Reading file: {datafile}")
@@ -101,8 +104,8 @@ class F21DataLoader:
                     if samplenum > Nlos or psbatchnum >= self.psbatchsize:
                         # Collect this batch
                         params = np.array([xHI_mean, logfX])
-                        (ps_mean, ps_std) = self.aggregate(np.array(power_spectrum))
-                        (los_mean, los_std) = self.aggregate(np.array(cumulative_los))
+                        (ps_mean, ps_std) = None, None #self.aggregate(np.array(power_spectrum))
+                        (los_mean, los_std) = None, None #self.aggregate(np.array(cumulative_los))
                         self.collector.add_data(ks, ps_mean, ps_std, los_mean, los_std, freq_axis, params)
                         psbatchnum = 0
                         power_spectrum = []
@@ -150,6 +153,7 @@ class ThreadSafeArrayCollector:
             self._data['los_std'].append(los_std)
             self._data['freq_axis'].append(freq_axis)
             self._data['params'].append(params)
+            if len(los) % 10 == 0: print(f"DataLoader: {len(los)} records added.")
             
     def get_arrays(self):
         with self._lock:

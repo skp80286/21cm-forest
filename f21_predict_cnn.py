@@ -19,29 +19,28 @@ import F21DataLoader as dl
 import f21_predict_base as base
 import numpy as np
 import os
+import sys
+import logging
+import pickle
 
-parser = argparse.ArgumentParser(description='Predict reionization parameters from 21cm forest')
-parser.add_argument('-p', '--path', type=str, default='../data/21cmFAST_los/F21_noisy/', help='filepath')
-parser.add_argument('-z', '--redshift', type=float, default=6, help='redshift')
-parser.add_argument('-d', '--dvH', type=float, default=0.0, help='rebinning width in km/s')
-parser.add_argument('-r', '--spec_res', type=int, default=8, help='spectral resolution of telescope (i.e. frequency channel width) in kHz')
-parser.add_argument('-t', '--telescope', type=str, default='uGMRT', help='telescope')
-parser.add_argument('-s', '--s147', type=float, default=64.2, help='intrinsic flux of QSO at 147Hz in mJy')
-parser.add_argument('-a', '--alpha_r', type=float, default=-0.44, help='radio spectral index of QSO')
-parser.add_argument('-i', '--t_int', type=float, default=500, help='integration time of obsevation in hours')
-parser.add_argument('-f', '--log_fx', type=str, default='*', help='log10(f_X)')
-parser.add_argument('-x', '--xHI', type=str, default='*', help='mean neutral hydrogen fraction')
-parser.add_argument('-n', '--nlos', type=int, default=1000, help='num lines of sight')
-parser.add_argument('-m', '--runmode', type=str, default='train_test', help='one of train_test, test_only, grid_search, plot_only')
-parser.add_argument('-b', '--numsamplebatches', type=int, default=1, help='Number of batches of sample data to use for plotting learning curve by sample size.')
-parser.add_argument('--maxfiles', type=int, default=None, help='Max num files to read')
-parser.add_argument('--modelfile', type=str, default="output/cnn-21cmforest-model.json", help='model file')
-parser.add_argument('--limitsamplesize', type=int, default=None, help='limit samples from one file to this number.')
-parser.add_argument('--interactive', action='store_true', help='run in interactive mode. show plots as modals.')
+def load_dataset_from_pkl():
+    # Lists to store combined data
+    all_los = []
+    all_params = []
+    pklfile = "los-21cm-forest.pkl"
+    with open(pklfile, 'rb') as input_file:  # open a text file
+        e = pickle.load(input_file)
+        logger.info(f"Loading PS from file. keys={e.keys()}")
+        all_los = e["all_los"]
+        all_params = e["all_params"]
+        logger.info(f"Loaded LoS from file: {pklfile}, shape={all_los.shape}")
 
-args = parser.parse_args()
+    logger.info(f"sample ps:{all_los[0]}")
+    logger.info(f"sample params:{all_params[0]}")
 
-def load_dataset(datafiles):
+    return (all_los, all_params)
+
+def load_dataset(datafiles, save=False):
     #Input parameters
     #Read LOS data from 21cmFAST 50cMpc box
     if args.maxfiles is not None:
@@ -56,29 +55,31 @@ def load_dataset(datafiles):
         
     # Process all files and get results
     results = processor.process_all_files(datafiles)
-        
+    logger.info(f"Finished data loading.")
     # Access results
     all_los = results['los']
     all_params = results['params']
-    print(f"sample los:{all_los[0]}")
-    print(f"sample params:{all_params[0]}")
+    logger.info(f"sample los:{all_los[0]}")
+    logger.info(f"sample params:{all_params[0]}")
     
     # Combine all data
-    los_combined = np.array(all_los)
-    params_combined = np.array(all_params)
-
-    print(f"\nCombined data shape: {los_combined.shape}")
-    print(f"Combined parameters shape: {params_combined.shape}")
-    return (los_combined, params_combined)
+    logger.info(f"\nCombined data shape: {all_los.shape}")
+    logger.info(f"Combined parameters shape: {all_params.shape}")
+        
+    if args.runmode == 'train_test' and save:
+        logger.info(f"Saving LoS data to file")
+        with open('los-21cm-forest.pkl', 'w+b') as f:  # open a text file
+            pickle.dump({"all_los": all_los, "all_params": all_params}, f)
+    return (all_los, all_params)
 
 def save_model(model):
     # Save the model architecture and weights
     keras_filename = output_dir +"/f21_predict_cnn.keras"
-    print(f'Saving model to: {keras_filename}')
+    logger.info(f'Saving model to: {keras_filename}')
     model_json = model.save(keras_filename)
 
 def load_model():
-    print(f'Loading model from: {args.modelfile}')
+    logger.info(f'Loading model from: {args.modelfile}')
     return models.load_model(args.modelfile)
 
 def create_cnn_model(input_shape):
@@ -86,20 +87,23 @@ def create_cnn_model(input_shape):
     model = models.Sequential([
         layers.Reshape((*input_shape, 1), input_shape=input_shape),
         layers.Conv1D(32, kernel_size=3, activation='relu', padding='same'),
+        layers.Conv1D(32, kernel_size=7, activation='relu', padding='same'),
         layers.BatchNormalization(),
         layers.MaxPooling1D(2),
         layers.Dropout(0.1),
         layers.Conv1D(64, kernel_size=3, activation='relu', padding='same'),
+        layers.Conv1D(64, kernel_size=7, activation='relu', padding='same'),
         layers.BatchNormalization(),
         layers.MaxPooling1D(2),
         layers.Dropout(0.2),
         layers.Conv1D(128, kernel_size=3, activation='relu', padding='same'),
+        layers.Conv1D(128, kernel_size=7, activation='relu', padding='same'),
         layers.BatchNormalization(),
         layers.MaxPooling1D(2),
         layers.Flatten(),
-        layers.Dense(128, activation='relu'),
-        layers.Dropout(0.3),
+        layers.Dense(128, activation='tanh'),
         layers.Dense(64, activation='relu'),
+        layers.Dense(32, activation='relu'),
         layers.Dense(2)  # Output layer with 2 neurons for xHI and logfX
     ])
 
@@ -108,12 +112,12 @@ def create_cnn_model(input_shape):
 
     # Summary of the model
     model.summary()
-    print("######## completed model setup #########")
+    logger.info("######## completed model setup #########")
 
     return model
 
 def run(X_train, X_test, y_train, y_test):
-    print("Starting training")
+    logger.info("Starting training")
 
     # Split the data into training and testing sets
     #X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
@@ -147,7 +151,7 @@ def run(X_train, X_test, y_train, y_test):
         print (f'## Sample size: {size}')
         X_train_subset = X_train[:size]
         y_train_subset = y_train[:size]
-        print(f"Training dataset: X:{X_train_subset.shape} y:{y_train_subset.shape}")
+        logger.info(f"Training dataset: X:{X_train_subset.shape} y:{y_train_subset.shape}")
 
         # Create and compile the model
         input_shape = (X_train_subset.shape[1],)
@@ -160,12 +164,12 @@ def run(X_train, X_test, y_train, y_test):
             restore_best_weights=True
         )
     
-        print(f"{X_train_subset.shape}")
+        logger.info(f"{X_train_subset.shape}")
         X_train_subset = X_train_subset.reshape(len(X_train_subset), X_train_subset.shape[1], 1)
-        print(f"Fitting data: {X_train_subset.shape}")
+        logger.info(f"Fitting data: {X_train_subset.shape}")
         history = model.fit(
             X_train_subset, y_train_subset,
-            epochs=10,
+            epochs=args.epochs,
             batch_size=1024,
             validation_split=0.2,
             callbacks=[early_stopping],
@@ -173,17 +177,17 @@ def run(X_train, X_test, y_train, y_test):
         )
 
         # Test the model
-        print("Testing prediction")
+        logger.info("Testing prediction")
         y_pred = model.predict(X_test)
 
         # Calculate R2 scores
         r2 = [r2_score(y_test[:, i], y_pred[:, i]) for i in range(2)]
-        print("R2 Score: " + str(r2))
+        logger.info("R2 Score: " + str(r2))
         r2_scores.append(50*(r2[0]+r2[1]))
         # Calculate rmse scores
         rms_scores = [mean_squared_error(y_test[:, i], y_pred[:, i]) for i in range(2)]
         rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test, axis=0)
-        print("RMS Error: " + str(rms_scores_percent))
+        logger.info("RMS Error: " + str(rms_scores_percent))
         test_loss.append(0.5*(rms_scores_percent[0]+rms_scores_percent[1]))
 
 
@@ -192,36 +196,70 @@ def run(X_train, X_test, y_train, y_test):
 
 # main code start here
 tf.config.list_physical_devices('GPU')
-print("### GPU Enabled!!!")
+#print("### GPU Enabled!!!")
+
+parser = argparse.ArgumentParser(description='Predict reionization parameters from 21cm forest')
+parser.add_argument('-p', '--path', type=str, default='../data/21cmFAST_los/F21_noisy/', help='filepath')
+parser.add_argument('-z', '--redshift', type=float, default=6, help='redshift')
+parser.add_argument('-d', '--dvH', type=float, default=0.0, help='rebinning width in km/s')
+parser.add_argument('-r', '--spec_res', type=int, default=8, help='spectral resolution of telescope (i.e. frequency channel width) in kHz')
+parser.add_argument('-t', '--telescope', type=str, default='uGMRT', help='telescope')
+parser.add_argument('-s', '--s147', type=float, default=64.2, help='intrinsic flux of QSO at 147Hz in mJy')
+parser.add_argument('-a', '--alpha_r', type=float, default=-0.44, help='radio spectral index of QSO')
+parser.add_argument('-i', '--t_int', type=float, default=500, help='integration time of obsevation in hours')
+parser.add_argument('-f', '--log_fx', type=str, default='*', help='log10(f_X)')
+parser.add_argument('-x', '--xHI', type=str, default='*', help='mean neutral hydrogen fraction')
+parser.add_argument('-n', '--nlos', type=int, default=1000, help='num lines of sight')
+parser.add_argument('-m', '--runmode', type=str, default='train_test', help='one of train_test, test_only, grid_search, plot_only')
+parser.add_argument('-b', '--numsamplebatches', type=int, default=1, help='Number of batches of sample data to use for plotting learning curve by sample size.')
+parser.add_argument('--maxfiles', type=int, default=None, help='Max num files to read')
+parser.add_argument('--modelfile', type=str, default="output/cnn-21cmforest-model.json", help='model file')
+parser.add_argument('--limitsamplesize', type=int, default=None, help='limit samples from one file to this number.')
+parser.add_argument('--interactive', action='store_true', help='run in interactive mode. show plots as modals.')
+parser.add_argument('--use_saved_los_data', action='store_true', help='load LoS data from pkl file.')
+parser.add_argument('--epochs', type=int, default=10, help='Number of epoch of training.')
+
+args = parser.parse_args()
 output_dir = str('output/cnn_%s_%s_t%dh_b%d_%s' % (args.runmode, args.telescope,args.t_int, 1, datetime.now().strftime("%Y%m%d%H%M%S")))
 if not os.path.exists(output_dir):
     os.mkdir(output_dir)
     print("created " + output_dir)
 
+file_handler = logging.FileHandler(filename=f"{output_dir}/f21_predict_cnn.log")
+stdout_handler = logging.StreamHandler(stream=sys.stdout)
+handlers = [file_handler, stdout_handler]
+
+logging.basicConfig(level=logging.INFO, handlers=handlers)
+logger = logging.getLogger(__name__)
+logger.info(f"Commandline: {' '.join(sys.argv)}")
+
 filepattern = str('%sF21_noisy_21cmFAST_200Mpc_z%.1f_fX%s_xHI%s_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
                (args.path, args.redshift,args.log_fx, args.xHI, args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
-print(f"Loading files with pattern {filepattern}")
+logger.info(f"Loading files with pattern {filepattern}")
 test_size = 16
 datafiles = glob.glob(filepattern)
 if args.maxfiles is not None:
     datafiles = datafiles[:args.maxfiles]
     test_size = 1
-print(f"Found {len(datafiles)} files matching pattern")
+logger.info(f"Found {len(datafiles)} files matching pattern")
 datafiles = sorted(datafiles)
 train_files, test_files = train_test_split(datafiles, test_size=test_size, random_state=42)
 
 if args.runmode == "train_test":
-    print(f"Loading train dataset {len(train_files)}")
-    X_train, y_train = load_dataset(train_files)
-    print(f"Loaded dataset X_train:{X_train.shape} y:{y_train.shape}")
-    print(f"Loading test dataset {len(test_files)}")
-    X_test, y_test = load_dataset(test_files)
-    print(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
+    logger.info(f"Loading train dataset {len(train_files)}")
+    if args.use_saved_los_data:
+        X_train, y_train = load_dataset_from_pkl()
+    else:
+        X_train, y_train = load_dataset(train_files, save=True)
+    logger.info(f"Loaded dataset X_train:{X_train.shape} y:{y_train.shape}")
+    logger.info(f"Loading test dataset {len(test_files)}")
+    X_test, y_test = load_dataset(test_files, save=False)
+    logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
     run(X_train, X_test, y_train, y_test)
 elif args.runmode == "test_only": # test_only
-    print(f"Loading test dataset {len(test_files)}")
-    X_test, y_test = load_dataset(test_files)
-    print(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
+    logger.info(f"Loading test dataset {len(test_files)}")
+    X_test, y_test = load_dataset(test_files, save=False)
+    logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
     model = load_model(args.modelfile)
     y_pred = model.predict(X_test)
     base.summarize_test(y_pred, y_test, output_dir=output_dir, showplots=args.interactive)
