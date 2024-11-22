@@ -170,7 +170,7 @@ def run(X_train, X_test, y_train, y_test):
         history = model.fit(
             X_train_subset, y_train_subset,
             epochs=args.epochs,
-            batch_size=64,
+            batch_size=args.trainingbatchsize,
             validation_split=0.2,
             callbacks=[early_stopping],
             verbose=1
@@ -218,6 +218,7 @@ parser.add_argument('--limitsamplesize', type=int, default=20, help='limit sampl
 parser.add_argument('--interactive', action='store_true', help='run in interactive mode. show plots as modals.')
 parser.add_argument('--use_saved_los_data', action='store_true', help='load LoS data from pkl file.')
 parser.add_argument('--epochs', type=int, default=10, help='Number of epoch of training.')
+parser.add_argument('--trainingbatchsize', type=int, default=64, help='Size of batch for training.')
 
 args = parser.parse_args()
 output_dir = str('output/cnn_%s_%s_t%dh_b%d_%s' % (args.runmode, args.telescope,args.t_int, 1, datetime.now().strftime("%Y%m%d%H%M%S")))
