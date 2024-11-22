@@ -170,7 +170,7 @@ def run(X_train, X_test, y_train, y_test):
         history = model.fit(
             X_train_subset, y_train_subset,
             epochs=args.epochs,
-            batch_size=1024,
+            batch_size=64,
             validation_split=0.2,
             callbacks=[early_stopping],
             verbose=1
@@ -214,7 +214,7 @@ parser.add_argument('-m', '--runmode', type=str, default='train_test', help='one
 parser.add_argument('-b', '--numsamplebatches', type=int, default=1, help='Number of batches of sample data to use for plotting learning curve by sample size.')
 parser.add_argument('--maxfiles', type=int, default=None, help='Max num files to read')
 parser.add_argument('--modelfile', type=str, default="output/cnn-21cmforest-model.json", help='model file')
-parser.add_argument('--limitsamplesize', type=int, default=None, help='limit samples from one file to this number.')
+parser.add_argument('--limitsamplesize', type=int, default=20, help='limit samples from one file to this number.')
 parser.add_argument('--interactive', action='store_true', help='run in interactive mode. show plots as modals.')
 parser.add_argument('--use_saved_los_data', action='store_true', help='load LoS data from pkl file.')
 parser.add_argument('--epochs', type=int, default=10, help='Number of epoch of training.')

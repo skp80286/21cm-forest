@@ -31,9 +31,6 @@ class F21DataLoader:
         Nbins = int(data[i])# Number of pixels/cells/bins in one line-of-sight
         x_initial = i + 1
 
-        print('z=%.2f, <x_HI>=%.6f, log10(f_X)=%.2f, %d LOS, %d pixels' % 
-                (z, xHI_mean, logfX, Nlos, Nbins))
-
         if len(data) != x_initial + (1+Nlos)*Nbins:
             error_msg = f"Error: Found {len(data)} fields, expected {x_initial + (1+Nlos)*Nbins:}. x_initial={x_initial}, Nlos={Nlos}, Nbins={Nbins}. File may be corrupted: {datafile}"
             raise ValueError(error_msg)
@@ -59,12 +56,12 @@ class F21DataLoader:
             error_msg += f"Found: {freq_axis_cur[0]}-{freq_axis_cur[-1]} MHz"
             raise ValueError(error_msg)
         """
-        F21_current = np.reshape(data[(x_initial+1*Nbins):(x_initial+1*Nbins+Nlos*Nbins)],(Nlos,Nbins))
+        los_arr = np.reshape(data[(x_initial+1*Nbins):(x_initial+1*Nbins+Nlos*Nbins)],(Nlos,Nbins))
         """
         if Nlos > 100:
             Nlos = 100
         """
-        return (z, xHI_mean, logfX, Nlos, Nbins, freq_axis, F21_current)
+        return (z, xHI_mean, logfX, freq_axis, los_arr)
 
     """
     def aggregate(self, dataseries):
@@ -77,7 +74,7 @@ class F21DataLoader:
     def process_file(self, datafile: str) -> None:
         try:
             print(f"Reading file: {datafile}")
-            (z, xHI_mean, logfX, Nlos, Nbins, freq_axis, F21_current) = self.get_los(datafile)
+            (z, xHI_mean, logfX, freq_axis, los_arr) = self.get_los(datafile)
             # Store the data
             #all_F21.append(F21_current)
             bandwidth = freq_axis[-1]-freq_axis[0]
@@ -86,7 +83,15 @@ class F21DataLoader:
             ks = None
             psbatchnum = 0
             samplenum = 0
-            for los in F21_current:
+            if self.limitsamplesize is not None and len(los_arr) > self.limitsamplesize:
+                los_arr = los_arr[np.random.randint(len(los_arr), size=self.limitsamplesize)]
+            Nlos = len(los_arr)
+ 
+ 
+            print('z=%.2f, <x_HI>=%.6f, log10(f_X)=%.2f, %d LOS, %d pixels' % 
+                (z, xHI_mean, logfX, Nlos, len(los_arr[0])))
+            
+            for los in los_arr:
                 if self.skip_ps:
                     params = np.array([xHI_mean, logfX])
                     self.collector.add_data(None, None, None, los, None, freq_axis, params)
@@ -110,9 +115,6 @@ class F21DataLoader:
                         psbatchnum = 0
                         power_spectrum = []
                         cumulative_los = []
-
-                    if self.limitsamplesize is not None and samplenum > self.limitsamplesize: 
-                        break
 
         except Exception as e:
             print(f"Error processing {datafile}: {str(e)}")
