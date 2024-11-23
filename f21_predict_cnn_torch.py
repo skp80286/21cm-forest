@@ -1,10 +1,14 @@
+'''
+Predict parameters fX and xHI from the 21cm forest data using CNN.
+'''
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
-import numpy as np
-from sklearn.metrics import r2_score, mean_squared_error
+
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error, r2_score
 
 import argparse
 import glob
@@ -42,6 +46,8 @@ def load_dataset(datafiles, save=False):
         datafiles = datafiles[:args.maxfiles]
     freq_axis = None
     # Lists to store combined data
+    all_ks = []
+    all_F21 = []
     all_params = []
     # Create processor with desired number of worker threads
     processor = dl.F21DataLoader(max_workers=8, psbatchsize=1, limitsamplesize=args.limitsamplesize, skip_ps=True)
@@ -67,7 +73,7 @@ def load_dataset(datafiles, save=False):
 
 def save_model(model):
     # Save the model architecture and weights
-    torch_filename = output_dir +"/f21_predict_torch.pth"
+    torch_filename = output_dir +"/f21_predict_cnn_torch.pth"
     logger.info(f'Saving model to: {torch_filename}')
     torch.save(model, torch_filename)
 
@@ -79,25 +85,67 @@ def load_model():
     logger.info("Entire model loaded!")
     return loaded_model
 
-# Define the neural network architecture
-class NeuralNetwork(nn.Module):
-    def __init__(self, input_size=2762, hidden_size=512, output_size=2):
-        super(NeuralNetwork, self).__init__()
-        self.linear_relu_stack = nn.Sequential(
-            nn.Linear(input_size, hidden_size),
+
+class CNNModel(nn.Module):
+    def __init__(self, input_size, output_size):
+        super(CNNModel, self).__init__()
+        
+        # Convolutional layers
+        self.conv_layers = nn.Sequential(
+            # First conv block
+            nn.Conv1d(1, 32, kernel_size=3, padding='valid'),
             nn.ReLU(),
-            nn.Dropout(0.2),  # Dropout to regularize and handle noise
-            nn.Linear(hidden_size, hidden_size//2),
+            nn.Conv1d(32, 32, kernel_size=7, padding='valid'),
             nn.ReLU(),
-            nn.Dropout(0.2),  # Dropout to regularize and handle noise
-            nn.Linear(hidden_size//2, hidden_size//4),
+            nn.BatchNorm1d(32),
+            nn.MaxPool1d(4),
+            nn.Dropout(0.1),
+            
+            # Second conv block
+            nn.Conv1d(32, 64, kernel_size=3, padding='valid'),
             nn.ReLU(),
-            nn.Dropout(0.2),  # Dropout to regularize and handle noise
-            nn.Linear(hidden_size//4, output_size))
+            nn.Conv1d(64, 64, kernel_size=7, padding='valid'),
+            nn.ReLU(),
+            nn.BatchNorm1d(64),
+            nn.MaxPool1d(4),
+            nn.Dropout(0.2),
+            
+            # Third conv block
+            nn.Conv1d(64, 128, kernel_size=3, padding='valid'),
+            nn.ReLU(),
+            nn.Conv1d(128, 128, kernel_size=7, padding='valid'),
+            nn.ReLU(),
+            nn.BatchNorm1d(128),
+            nn.MaxPool1d(4)
+        )
+        
+        # Calculate the size of flattened features
+        self.flatten_size = 5120        
+        # Dense layers
+        self.dense_layers = nn.Sequential(
+            nn.Linear(self.flatten_size, 128),
+            nn.Tanh(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, output_size)  # Output layer for xHI and logfX
+        )
+        
     
     def forward(self, x):
-        calc = self.linear_relu_stack(x)
-        return calc
+        # Reshape input to (batch_size, channels, length)
+        x = x.unsqueeze(1)  # Add channel dimension
+        
+        # Apply conv layers
+        x = self.conv_layers(x)
+        
+        # Flatten
+        x = x.view(x.size(0), -1)
+        
+        # Apply dense layers
+        x = self.dense_layers(x)
+        return x
 
 def run(X_train, X_test, y_train, y_test):
     logger.info("Starting training")
@@ -119,8 +167,12 @@ def run(X_train, X_test, y_train, y_test):
         if torch.backends.mps.is_available()
         else "cpu"
     )
-    print(f"Using {device} device")
-    model = NeuralNetwork(input_size=2762, hidden_size=512, output_size=2)
+
+    logger.info("####")
+    logger.info(f"### Using \"{device}\" device ###")
+    logger.info("####")
+    model = CNNModel(input_size=2762, output_size=2)
+    logger.info("Created model: {model}")
     # Loss function and optimizer
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
@@ -153,9 +205,9 @@ def run(X_train, X_test, y_train, y_test):
         # Print loss for every epoch
         logger.info(f'Epoch [{epoch+1}/{num_epochs}], Loss: {running_loss / len(dataloader):.4f}')
 
-    logger.info(f"model summary: {model.summary()}")
     # Evaluate the model (on a test set, here we just use the training data for simplicity)
     model.eval()  # Set the model to evaluation mode
+    save_model(model)
     with torch.no_grad():
         # Test the model
         logger.info("Testing prediction")
@@ -177,10 +229,9 @@ def run(X_train, X_test, y_train, y_test):
         logger.info("RMS Error: " + str(rms_scores_percent))
 
         base.summarize_test(y_pred_np, y_test, output_dir=output_dir, showplots=args.interactive)
-        save_model(model)
+
 
 # main code start here
-
 parser = argparse.ArgumentParser(description='Predict reionization parameters from 21cm forest')
 parser.add_argument('-p', '--path', type=str, default='../data/21cmFAST_los/F21_noisy/', help='filepath')
 parser.add_argument('-z', '--redshift', type=float, default=6, help='redshift')
@@ -196,20 +247,20 @@ parser.add_argument('-n', '--nlos', type=int, default=1000, help='num lines of s
 parser.add_argument('-m', '--runmode', type=str, default='train_test', help='one of train_test, test_only, grid_search, plot_only')
 parser.add_argument('-b', '--numsamplebatches', type=int, default=1, help='Number of batches of sample data to use for plotting learning curve by sample size.')
 parser.add_argument('--maxfiles', type=int, default=None, help='Max num files to read')
-parser.add_argument('--modelfile', type=str, default="output/torch-21cmforest-model.json", help='model file')
+parser.add_argument('--modelfile', type=str, default="output/cnn-torch-21cmforest-model.pth", help='model file')
 parser.add_argument('--limitsamplesize', type=int, default=20, help='limit samples from one file to this number.')
 parser.add_argument('--interactive', action='store_true', help='run in interactive mode. show plots as modals.')
 parser.add_argument('--use_saved_los_data', action='store_true', help='load LoS data from pkl file.')
-parser.add_argument('--epochs', type=int, default=100, help='Number of epoch of training.')
-parser.add_argument('--trainingbatchsize', type=int, default=256, help='Size of batch for training.')
+parser.add_argument('--epochs', type=int, default=10, help='Number of epoch of training.')
+parser.add_argument('--trainingbatchsize', type=int, default=64, help='Size of batch for training.')
 
 args = parser.parse_args()
-output_dir = str('output/torch_%s_%s_t%dh_b%d_%s' % (args.runmode, args.telescope,args.t_int, 1, datetime.now().strftime("%Y%m%d%H%M%S")))
+output_dir = str('output/cnn_torch_%s_%s_t%dh_b%d_%s' % (args.runmode, args.telescope,args.t_int, 1, datetime.now().strftime("%Y%m%d%H%M%S")))
 if not os.path.exists(output_dir):
     os.mkdir(output_dir)
     print("created " + output_dir)
 
-file_handler = logging.FileHandler(filename=f"{output_dir}/f21_predict_torch.log")
+file_handler = logging.FileHandler(filename=f"{output_dir}/f21_predict_cnn_torch.log")
 stdout_handler = logging.StreamHandler(stream=sys.stdout)
 handlers = [file_handler, stdout_handler]
 
@@ -247,4 +298,3 @@ elif args.runmode == "test_only": # test_only
     model = load_model(args.modelfile)
     y_pred = model.predict(X_test)
     base.summarize_test(y_pred, y_test, output_dir=output_dir, showplots=args.interactive)
-
