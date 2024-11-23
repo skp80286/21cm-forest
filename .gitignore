@@ -160,3 +160,6 @@ cython_debug/
 #.idea/
 /output
 alldatafiles.txt
+/data
+.DS_Store
+.f21_predict_cnn.py.swp
