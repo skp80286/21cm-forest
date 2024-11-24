@@ -170,12 +170,22 @@ def run(X_train, X_test, y_train, y_test):
         logger.info("RMS Error: " + str(rms_scores_percent))
         test_loss.append(0.5*(rms_scores_percent[0]+rms_scores_percent[1]))
 
-
+    if args.scale_y: 
+        y_pred = unscale_y(y_pred)
+        y_test = unscale_y(y_test)
     base.summarize_test(y_pred, y_test, output_dir=output_dir, showplots=args.interactive)
     logger.info('Plotting Decision Tree')
     plot_tree(model)
     plt.savefig(f"{output_dir}/xgboost_tree.png", dpi=600) 
     save_model(model)
+
+def scale_y(y):
+    y[:,1] = 0.8 + y[:,1]/5.0
+    return y
+
+def unscale_y(y):
+    y[:,1] = 5.0*(y[:,1] - 0.8)
+    return y
 
 # main code start here
 output_dir = str('output/xgb_%s' % (datetime.now().strftime("%Y%m%d%H%M%S")))
@@ -214,6 +224,7 @@ parser.add_argument('--use_saved_ps_data', action='store_true', help='load PS da
 parser.add_argument('--subtractnoise', action='store_true', help='subtract noise.')
 parser.add_argument('--psbins', type=int, default=None, help='bin the powerspectrum into n bins ')
 parser.add_argument('--psbins_to_use', type=int, default=None, help='use the first n bins specified')
+parser.add_argument('--scale_y', action='store_true', help='Scale the y parameters.')
 
 args = parser.parse_args()
 
@@ -229,7 +240,6 @@ print(f"Found {len(datafiles)} files matching pattern")
 datafiles = sorted(datafiles)
 train_files, test_files = train_test_split(datafiles, test_size=test_size, random_state=42)
 
-
 if args.runmode == "train_test":
     logger.info(f"Loading train dataset {len(train_files)}")
     X_train, y_train = None, None
@@ -239,6 +249,7 @@ if args.runmode == "train_test":
         X_train, y_train = load_dataset(train_files, psbatchsize=args.psbatchsize, save=True)
     if args.psbins_to_use is not None:
         X_train = X_train[:, :args.psbins_to_use]
+    if args.scale_y: y_train = scale_y(y_train)
     logger.info(f"Loaded dataset X_train:{X_train.shape} y:{y_train.shape}")
     X_noise = None
     if args.subtractnoise:
@@ -260,6 +271,7 @@ if args.runmode == "train_test":
         X_test = X_test[:, :args.psbins_to_use]
     if args.subtractnoise:
         X_test /= X_noise
+    if args.scale_y: y_test = scale_y(y_test)
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
     run(X_train, X_test, y_train, y_test)
 elif args.runmode == "test_only": # test_only
@@ -267,8 +279,12 @@ elif args.runmode == "test_only": # test_only
     X_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
     if args.psbins_to_use is not None:
         X_test = X_test[:, :args.psbins_to_use]
+    if args.scale_y: y_test = scale_y(y_test)
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
     model = xgb.XGBRegressor()
     model.load_model(args.modelfile)
     y_pred = model.predict(X_test)
+    if args.scale_y: 
+        y_pred = unscale_y(y_pred)
+        y_test = unscale_y(y_test)
     base.summarize_test(y_pred, y_test, output_dir=output_dir, showplots=args.interactive)
