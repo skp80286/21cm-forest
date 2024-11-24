@@ -3,15 +3,16 @@ import threading
 from typing import List, Dict
 import numpy as np
 import PS1D
+from scipy.stats import binned_statistic
 
 class F21DataLoader:
-    def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None, skip_ps: bool = False):
+    def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None, skip_ps: bool = False, ps_bins = None):
         self.max_workers = max_workers
         self.collector = ThreadSafeArrayCollector()
         self.psbatchsize = psbatchsize
         self.limitsamplesize = limitsamplesize
         self.skip_ps = skip_ps
-        
+        self.ps_bins = ps_bins
 
     def get_los(self, datafile: str) -> None:
         data = np.fromfile(str(datafile), dtype=np.float32)
@@ -63,14 +64,13 @@ class F21DataLoader:
         """
         return (z, xHI_mean, logfX, freq_axis, los_arr)
 
-    """
+
     def aggregate(self, dataseries):
-        df = pd.DataFrame(dataseries)
         # Calculate mean and standard deviation across all samples
-        mean = df.mean(axis=0)
-        std = df.std(axis=0)
+        mean = np.mean(dataseries, axis=0)
+        std = np.std(dataseries, axis=0)
         return (mean, std)
-    """
+
     def process_file(self, datafile: str) -> None:
         try:
             print(f"Reading file: {datafile}")
@@ -101,6 +101,10 @@ class F21DataLoader:
                     # Calculate the power spectrum
                     #ks, power_spectrum = power_spectrum_1d(los, bins=160)
                     ks, ps = PS1D.get_P(los, bandwidth)
+                    if self.ps_bins is not None:
+                        ps, bin_edges, _ = binned_statistic(np.abs(ks), ps, statistic='mean', bins=self.ps_bins)
+                        ks = 0.5 * (bin_edges[1:] + bin_edges[:-1])  # Bin centers
+
                     #print(f"ks: {ks}")
                     #print(f"ps: {ps}")
                     power_spectrum.append(ps)
@@ -109,8 +113,8 @@ class F21DataLoader:
                     if samplenum > Nlos or psbatchnum >= self.psbatchsize:
                         # Collect this batch
                         params = np.array([xHI_mean, logfX])
-                        (ps_mean, ps_std) = None, None #self.aggregate(np.array(power_spectrum))
-                        (los_mean, los_std) = None, None #self.aggregate(np.array(cumulative_los))
+                        (ps_mean, ps_std) = self.aggregate(np.array(power_spectrum))
+                        (los_mean, los_std) = self.aggregate(np.array(cumulative_los))
                         self.collector.add_data(ks, ps_mean, ps_std, los_mean, los_std, freq_axis, params)
                         psbatchnum = 0
                         power_spectrum = []

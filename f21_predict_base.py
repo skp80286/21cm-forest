@@ -41,6 +41,15 @@ def power_spectrum_1d(data, bins=10):
 
     return k, power
 
+def plot_single_power_spectrum(ps, ks, showplots=False, label=""):
+    plt.rcParams['figure.figsize'] = [15, 9]
+    plt.title(f'{label} - power spectrum')
+    plt.loglog(ks[1:]*1e6, ps[1:], linewidth=0.5)
+    plt.xlabel('k (MHz$^{-1}$)')
+    plt.ylabel('P$_{21}$(k)')
+    if showplots: plt.show()
+    plt.clf()
+
 def plot_power_spectra(ps, ks, params, output_dir=".", showplots=False, saveplots=True, label=""):
     #logger.info(f'shapes ps:{ps.shape} ks:{ks.shape}')
     logger.info(params[0:2])
