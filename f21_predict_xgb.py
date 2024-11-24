@@ -68,7 +68,7 @@ def load_dataset(datafiles, psbatchsize, save=False):
     all_ps = []
     all_params = []
     # Create processor with desired number of worker threads
-    processor = dl.F21DataLoader(max_workers=8, psbatchsize=psbatchsize, limitsamplesize=args.limitsamplesize)
+    processor = dl.F21DataLoader(max_workers=8, psbatchsize=psbatchsize, limitsamplesize=args.limitsamplesize, ps_bins=args.psbins)
         
     # Process all files and get results
     results = processor.process_all_files(datafiles)
@@ -212,6 +212,7 @@ parser.add_argument('--limitsamplesize', type=int, default=None, help='limit sam
 parser.add_argument('--interactive', action='store_true', help='run in interactive mode. show plots as modals.')
 parser.add_argument('--use_saved_ps_data', action='store_true', help='load PS data from pkl file.')
 parser.add_argument('--subtractnoise', action='store_true', help='subtract noise.')
+parser.add_argument('--psbins', type=int, default=None, help='bin the powerspectrum into 128 bins and use first n bins specified')
 
 args = parser.parse_args()
 
@@ -235,6 +236,8 @@ if args.runmode == "train_test":
         X_train, y_train = load_dataset_from_pkl()
     else:
         X_train, y_train = load_dataset(train_files, psbatchsize=args.psbatchsize, save=True)
+    if args.psbins is not None:
+        X_train = X_train[:, :args.psbins]
     logger.info(f"Loaded dataset X_train:{X_train.shape} y:{y_train.shape}")
     if args.subtractnoise:
         noisefilepattern = str('%sF21_noiseonly_21cmFAST_200Mpc_z%.1f_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
@@ -254,6 +257,8 @@ if args.runmode == "train_test":
 elif args.runmode == "test_only": # test_only
     logger.info(f"Loading test dataset {len(test_files)}")
     X_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
+    if args.psbins is not None:
+        X_test = X_test[:, :args.psbins]
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
     model = xgb.XGBRegressor()
     model.load_model(args.modelfile)
