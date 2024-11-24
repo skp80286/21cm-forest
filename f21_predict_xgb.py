@@ -76,14 +76,14 @@ def load_dataset(datafiles, psbatchsize, save=False):
     # Access results
     all_ks = results['ks']
     all_ps = results['ps']
-    ps_std = results['ps_std']
+    #ps_std = results['ps_std']
     #ps_plus_std = all_ps + ps_std
     #ps_minus_std = all_ps - ps_std
     all_params = results['params']
     #plot_los(all_ps[0], freq_axis)
     logger.info(f"sample ks:{all_ks[0]}")
     logger.info(f"sample ps:{all_ps[0]}")
-    logger.info(f"sample ps_std:{ps_std[0]}")
+    #logger.info(f"sample ps_std:{ps_std[0]}")
     logger.info(f"sample params:{all_params[0]}")
     
     if args.runmode == 'train_test' and save:
@@ -212,7 +212,8 @@ parser.add_argument('--limitsamplesize', type=int, default=None, help='limit sam
 parser.add_argument('--interactive', action='store_true', help='run in interactive mode. show plots as modals.')
 parser.add_argument('--use_saved_ps_data', action='store_true', help='load PS data from pkl file.')
 parser.add_argument('--subtractnoise', action='store_true', help='subtract noise.')
-parser.add_argument('--psbins', type=int, default=None, help='bin the powerspectrum into 128 bins and use first n bins specified')
+parser.add_argument('--psbins', type=int, default=None, help='bin the powerspectrum into n bins ')
+parser.add_argument('--psbins_to_use', type=int, default=None, help='use the first n bins specified')
 
 args = parser.parse_args()
 
@@ -236,15 +237,18 @@ if args.runmode == "train_test":
         X_train, y_train = load_dataset_from_pkl()
     else:
         X_train, y_train = load_dataset(train_files, psbatchsize=args.psbatchsize, save=True)
-    if args.psbins is not None:
-        X_train = X_train[:, :args.psbins]
+    if args.psbins_to_use is not None:
+        X_train = X_train[:, :args.psbins_to_use]
     logger.info(f"Loaded dataset X_train:{X_train.shape} y:{y_train.shape}")
+    X_noise = None
     if args.subtractnoise:
         noisefilepattern = str('%sF21_noiseonly_21cmFAST_200Mpc_z%.1f_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
                (args.path, args.redshift,args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
         logger.info(f"Loading noise files with pattern {noisefilepattern}")
         noisefiles = glob.glob(noisefilepattern)
         X_noise, y_noise = load_dataset(noisefiles, psbatchsize=1000, save=False)
+        if args.psbins_to_use is not None:
+            X_noise = X_noise[:, :args.psbins_to_use]
         if X_noise[:,0] == 0: X_noise[:,0] = 1 # Avoid div by zero
         print(f"Loaded noise: {X_noise.shape}")
         print(f"Sample PS before noise subtraction: \n{X_train[:2]}")
@@ -252,13 +256,17 @@ if args.runmode == "train_test":
         print(f"Sample PS after noise subtraction: \n{X_train[:2]}")
     logger.info(f"Loading test dataset {len(test_files)}")
     X_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
+    if args.psbins_to_use is not None:
+        X_test = X_test[:, :args.psbins_to_use]
+    if args.subtractnoise:
+        X_test /= X_noise
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
     run(X_train, X_test, y_train, y_test)
 elif args.runmode == "test_only": # test_only
     logger.info(f"Loading test dataset {len(test_files)}")
     X_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
-    if args.psbins is not None:
-        X_test = X_test[:, :args.psbins]
+    if args.psbins_to_use is not None:
+        X_test = X_test[:, :args.psbins_to_use]
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
     model = xgb.XGBRegressor()
     model.load_model(args.modelfile)
