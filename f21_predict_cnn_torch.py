@@ -139,9 +139,11 @@ class CNNModel(nn.Module):
         
     
     def forward(self, x):
-        # Reshape input to (batch_size, channels, length)
-        x = x.unsqueeze(1)  # Add channel dimension
-        
+        # If input is single channel, add channel dimension
+        if len(x.shape) == 2:
+            x = x.unsqueeze(1)  # Add channel dimension
+        # If input already has channels, it will remain unchanged
+
         # Apply conv layers
         x = self.conv_layers(x)
         
@@ -153,6 +155,17 @@ class CNNModel(nn.Module):
         return x
     
 #def convert_to_pytorch_tensors(X, y):
+class ProductLoss(nn.Module):
+    def __init__(self):
+        super(ProductLoss, self).__init__()
+        self.mse = nn.MSELoss()
+    
+    def forward(self, predictions, targets):
+        pred_product = predictions[:, 0] * predictions[:, 1]
+        target_product = targets[:, 0] * targets[:, 1]
+        product_loss = self.mse(pred_product, target_product)
+        
+        return product_loss
     
 class CustomLoss(nn.Module):
     def __init__(self, alpha=0.6, beta=0.25):
@@ -168,13 +181,43 @@ class CustomLoss(nn.Module):
         
         # Second component: MSE between product of predictions and value 3
         pred_product = predictions[:, 0] * predictions[:, 1]
-        target_product = targets[:, 0] * targets[:, 1]
-        product_loss = self.mse(pred_product, target_product)
+        product_loss = 100*self.mse(pred_product, predictions[:,2])
         
         # Combine both losses
         total_loss = self.alpha * (self.beta * mse_loss1 + (1 - self.beta)*mse_loss2) + (1 - self.alpha) * product_loss
+
+        #logger.info(f"Loss calculation:\n##predictions\n{predictions}\n##targets:\n{targets}\n##loss1\n{mse_loss1}\n##loss2\n{mse_loss2}\n##productloss\n{product_loss}\n##total_loss\n{total_loss}")
         return total_loss
+
+def convert_to_pytorch_tensors(X, y):
+    # Create different channel representations based on args.channels
+    channels = []
     
+    # Channel 1: Original signal (always included)
+    channels.append(X)
+    
+    if args.channels > 1:
+        # Channel 2: Log of signal
+        channels.append(np.log(np.clip(X, 1e-10, None)))
+        
+    if args.channels > 2:
+        # Channel 3: Gradient of signal
+        channels.append(np.gradient(X, axis=1))
+        
+    if args.channels > 3:
+        # Channel 4: Moving average
+        window_size = 5
+        channels.append(np.array([np.convolve(row, np.ones(window_size)/window_size, mode='same') for row in X]))
+    
+    # Stack channels along a new axis
+    X = np.stack(channels[:args.channels], axis=1)
+    
+    # Convert to PyTorch tensors with float32 dtype
+    X_tensor = torch.tensor(X, dtype=torch.float32)
+    y_tensor = torch.tensor(y, dtype=torch.float32)
+    
+    return X_tensor, y_tensor
+
 def run(X_train, X_test, y_train, y_test, num_epochs, batch_size, lr, kernel1, kernel2, dropout, input_points_to_use, showplots=False, saveplots=True):
     if input_points_to_use is not None:
         X_train = X_train[:, :input_points_to_use]
@@ -182,10 +225,8 @@ def run(X_train, X_test, y_train, y_test, num_epochs, batch_size, lr, kernel1, k
     logger.info("Starting training")
 
     # Convert data to PyTorch tensors
-    #inputs, outputs = convert_to_pytorch_tensors(X_train, y_train)
+    inputs, outputs = convert_to_pytorch_tensors(X_train, y_train)
 
-    inputs = torch.tensor(X_train)
-    outputs = torch.tensor(y_train)
     logger.info(f"Shape of inouts, outputs: {inputs.shape}, {outputs.shape}")
     # Create DataLoader for batching
     train_dataset = TensorDataset(inputs, outputs)
@@ -204,8 +245,7 @@ def run(X_train, X_test, y_train, y_test, num_epochs, batch_size, lr, kernel1, k
     logger.info(f"### Using \"{device}\" device ###")
     logger.info("####")
 
-    channels = 1
-    if args.use_channels: channels = 10
+    channels = args.channels
     
     model = CNNModel(input_size=len(X_train[0]), output_size=len(y_train[0]), channels=channels, kernel1=kernel1, kernel2=kernel2, dropout=dropout)
     logger.info(f"Created model: {model}")
@@ -252,8 +292,7 @@ def run(X_train, X_test, y_train, y_test, num_epochs, batch_size, lr, kernel1, k
         logger.info("Testing prediction")
         #test_input, test_output = convert_to_pytorch_tensors(X_test, y_test)
 
-        test_input = torch.tensor(X_test)  # Replace with actual test data
-        test_output = torch.tensor(y_test)
+        test_input, test_output = convert_to_pytorch_tensors(X_test, y_test)
         logger.info(f"Shape of test_input, test_output: {test_input.shape}, {test_output.shape}")
         y_pred = model(test_input)
         test_loss = criterion(y_pred, test_output)
@@ -307,6 +346,8 @@ def unscale_y(y):
         logfx = 5.0*(sqrt - 0.8)
         xHI = sqrt
         return np.hstack((xHI, logfx))
+    
+    return y
 
 def objective(trial):
     # Define hyperparameter search space
@@ -370,7 +411,7 @@ parser.add_argument('--scale_y', action='store_true', help='Scale the y paramete
 parser.add_argument('--scale_y0', action='store_true', help='Scale the y parameters (xHI).')
 parser.add_argument('--scale_y1', action='store_true', help='Scale logfx and calculate product of logfx with xHI.')
 parser.add_argument('--logscale_X', action='store_true', help='Log scale the signal strength.')
-parser.add_argument('--use_channels', action='store_true', help='Use different LoS as channels for the CNN.')
+parser.add_argument('--channels', type=int, default=1, help='Use multiple channel inputs for the CNN.')
 parser.add_argument('--psbatchsize', type=int, default=None, help='batching for PS data.')
 
 args = parser.parse_args()
@@ -413,7 +454,7 @@ if args.runmode == "train_test":
         X_test = X_test[:, :args.input_points_to_use]    
     X_test, y_test = scaleXy(X_test, y_test)
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
-    run(X_train, X_test, y_train, y_test, args.epochs, args.trainingbatchsize, 1e-4, 11, 3, 0.2, args.input_points_to_use, showplots=args.interactive)
+    run(X_train, X_test, y_train, y_test, args.epochs, args.trainingbatchsize, lr=0.003207368350697034, kernel1=9, kernel2=5, dropout=0.5, input_points_to_use=args.input_points_to_use, showplots=args.interactive)
 
 elif args.runmode == "test_only": # test_only
     logger.info(f"Loading test dataset {len(test_files)}")

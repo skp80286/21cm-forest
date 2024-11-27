@@ -164,3 +164,4 @@ alldatafiles.txt
 .DS_Store
 .f21_predict_cnn.py.swp
 los-21cm-forest.pkl
+nohup.out
