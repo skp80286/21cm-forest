@@ -42,7 +42,7 @@ def load_dataset_from_pkl():
     logger.info(f"sample ps:{all_los[0]}")
     logger.info(f"sample params:{all_params[0]}")
 
-    return (all_los, all_params)
+    return (all_los, all_params, [])
 
 def load_dataset(datafiles, psbatchsize, save=False):
     #Input parameters
@@ -62,6 +62,7 @@ def load_dataset(datafiles, psbatchsize, save=False):
     logger.info(f"Finished data loading.")
     # Access results
     all_los = results['los']
+    los_samples = results['los_samples']
     all_params = results['params']
     logger.info(f"sample los:{all_los[0]}")
     logger.info(f"sample params:{all_params[0]}")
@@ -74,7 +75,7 @@ def load_dataset(datafiles, psbatchsize, save=False):
         logger.info(f"Saving LoS data to file")
         with open('los-21cm-forest.pkl', 'w+b') as f:  # open a text file
             pickle.dump({"all_los": all_los, "all_params": all_params}, f)
-    return (all_los, all_params)
+    return (all_los, all_params, los_samples)
 
 def save_model(model):
     # Save the model architecture and weights
@@ -154,7 +155,6 @@ class CNNModel(nn.Module):
         x = self.dense_layers(x)
         return x
     
-#def convert_to_pytorch_tensors(X, y):
 class ProductLoss(nn.Module):
     def __init__(self):
         super(ProductLoss, self).__init__()
@@ -189,26 +189,38 @@ class CustomLoss(nn.Module):
         #logger.info(f"Loss calculation:\n##predictions\n{predictions}\n##targets:\n{targets}\n##loss1\n{mse_loss1}\n##loss2\n{mse_loss2}\n##productloss\n{product_loss}\n##total_loss\n{total_loss}")
         return total_loss
 
-def convert_to_pytorch_tensors(X, y):
+def convert_to_pytorch_tensors(X, y, samples):
     # Create different channel representations based on args.channels
     channels = []
     
     # Channel 1: Original signal (always included)
     channels.append(X)
+    logger.info(f"Appending channel with shape: {X.shape}")
     
     if args.channels > 1:
         # Channel 2: Log of signal
-        channels.append(np.log(np.clip(X, 1e-10, None)))
+        logchannel = np.log(np.clip(X, 1e-10, None))
+        logger.info(f"Appending channel with shape: {logchannel.shape}")
+        channels.append(logchannel)
         
     if args.channels > 2:
         # Channel 3: Gradient of signal
-        channels.append(np.gradient(X, axis=1))
+        gradchannel = np.gradient(X, axis=1)
+        logger.info(f"Appending channel with shape: {gradchannel.shape}")
+        channels.append(gradchannel)
         
     if args.channels > 3:
         # Channel 4: Moving average
-        window_size = 5
-        channels.append(np.array([np.convolve(row, np.ones(window_size)/window_size, mode='same') for row in X]))
-    
+        window_size = 150
+        movavgchannel = np.array([np.convolve(row, np.ones(window_size)/window_size, mode='same') for row in X])
+        logger.info(f"Appending channel with shape: {movavgchannel.shape}")
+        channels.append(movavgchannel)
+    if args.channels > 4:
+        for i in range(samples.shape[1]):
+            sampleschannel = np.array(samples)[:,i,:]
+            logger.info(f"Appending channel with shape: {sampleschannel.shape}")
+            channels.append(sampleschannel)
+
     # Stack channels along a new axis
     X = np.stack(channels[:args.channels], axis=1)
     
@@ -218,14 +230,16 @@ def convert_to_pytorch_tensors(X, y):
     
     return X_tensor, y_tensor
 
-def run(X_train, X_test, y_train, y_test, num_epochs, batch_size, lr, kernel1, kernel2, dropout, input_points_to_use, showplots=False, saveplots=True):
+def run(X_train, train_samples, X_test, test_samples,y_train, y_test, num_epochs, batch_size, lr, kernel1, kernel2, dropout, input_points_to_use, showplots=False, saveplots=True):
     if input_points_to_use is not None:
         X_train = X_train[:, :input_points_to_use]
+        train_samples = train_samples[:,:, :input_points_to_use]
         X_test = X_test[:, :input_points_to_use]  
+        test_samples = test_samples[:,:, :input_points_to_use]
     logger.info("Starting training")
 
     # Convert data to PyTorch tensors
-    inputs, outputs = convert_to_pytorch_tensors(X_train, y_train)
+    inputs, outputs = convert_to_pytorch_tensors(X_train, y_train, train_samples)
 
     logger.info(f"Shape of inouts, outputs: {inputs.shape}, {outputs.shape}")
     # Create DataLoader for batching
@@ -290,9 +304,8 @@ def run(X_train, X_test, y_train, y_test, num_epochs, batch_size, lr, kernel1, k
     with torch.no_grad():
         # Test the model
         logger.info("Testing prediction")
-        #test_input, test_output = convert_to_pytorch_tensors(X_test, y_test)
 
-        test_input, test_output = convert_to_pytorch_tensors(X_test, y_test)
+        test_input, test_output = convert_to_pytorch_tensors(X_test, y_test, test_samples)
         logger.info(f"Shape of test_input, test_output: {test_input.shape}, {test_output.shape}")
         y_pred = model(test_input)
         test_loss = criterion(y_pred, test_output)
@@ -362,7 +375,7 @@ def objective(trial):
     }    
     # Run training with the suggested parameters
     try:
-        r2 = run(X_train, X_test, y_train, y_test, 
+        r2 = run(X_train, train_samples, X_test, test_samples, y_train, y_test, 
                    num_epochs=params['num_epochs'],
                    batch_size=params['batch_size'],
                    lr=params['learning_rate'],
@@ -443,22 +456,22 @@ train_files, test_files = train_test_split(datafiles, test_size=test_size, rando
 if args.runmode == "train_test":
     logger.info(f"Loading train dataset {len(train_files)}")
     if args.use_saved_los_data:
-        X_train, y_train = load_dataset_from_pkl()
+        X_train, y_train, train_samples = load_dataset_from_pkl()
     else:
-        X_train, y_train = load_dataset(train_files, psbatchsize=args.psbatchsize, save=True)
+        X_train, y_train, train_samples = load_dataset(train_files, psbatchsize=args.psbatchsize, save=True)
     X_train, y_train = scaleXy(X_train, y_train)
     logger.info(f"Loaded dataset X_train:{X_train.shape} y:{y_train.shape}")
     logger.info(f"Loading test dataset {len(test_files)}")
-    X_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
+    X_test, y_test, test_samples = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
     if args.input_points_to_use is not None:
         X_test = X_test[:, :args.input_points_to_use]    
     X_test, y_test = scaleXy(X_test, y_test)
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
-    run(X_train, X_test, y_train, y_test, args.epochs, args.trainingbatchsize, lr=0.003207368350697034, kernel1=9, kernel2=5, dropout=0.5, input_points_to_use=args.input_points_to_use, showplots=args.interactive)
+    run(X_train, train_samples, X_test, test_samples, y_train, y_test, args.epochs, args.trainingbatchsize, lr=1e-3, kernel1=150, kernel2=5, dropout=0.5, input_points_to_use=args.input_points_to_use, showplots=args.interactive)
 
 elif args.runmode == "test_only": # test_only
     logger.info(f"Loading test dataset {len(test_files)}")
-    X_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
+    X_test, y_test, samples = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
     if args.input_points_to_use is not None:
         X_test = X_test[:, :args.input_points_to_use]
     X_test, y_test = scaleXy(X_test, y_test)
@@ -476,13 +489,13 @@ elif args.runmode == "optimize":
     
     # Load data
     if args.use_saved_los_data:
-        X_train, y_train = load_dataset_from_pkl()
+        X_train, y_train, train_samples = load_dataset_from_pkl()
     else:
-        X_train, y_train = load_dataset(train_files, psbatchsize=args.psbatchsize, save=True)
+        X_train, y_train, train_samples = load_dataset(train_files, psbatchsize=args.psbatchsize, save=True)
     
     X_train, y_train = scaleXy(X_train, y_train)
     
-    X_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
+    X_test, y_test, test_samples = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
   
     X_test, y_test = scaleXy(X_test, y_test)
     

@@ -7,13 +7,13 @@ from scipy.stats import binned_statistic
 
 class F21DataLoader:
     def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None, skip_ps: bool = False, ps_bins = None):
+        np.random.seed(42)
         self.max_workers = max_workers
         self.collector = ThreadSafeArrayCollector()
         self.psbatchsize = psbatchsize
         self.limitsamplesize = limitsamplesize
         self.skip_ps = skip_ps
         self.ps_bins = ps_bins
-        np.random.seed(42)
 
     def get_los(self, datafile: str) -> None:
         data = np.fromfile(str(datafile), dtype=np.float32)
@@ -70,7 +70,10 @@ class F21DataLoader:
         # Calculate mean and standard deviation across all samples
         mean = np.mean(dataseries, axis=0)
         std = np.std(dataseries, axis=0)
-        return (mean, std)
+        samples_len = 5
+        if len(dataseries) < 5:
+            samples_len = len(dataseries)
+        return (mean, std, dataseries[:samples_len])
 
     def process_file(self, datafile: str) -> None:
         try:
@@ -113,10 +116,10 @@ class F21DataLoader:
                     params = np.array([xHI_mean, logfX])
                     
                     #print(f"Collecting batch for params {params}")
-                    ps_mean, ps_std = None, None
-                    if not self.skip_ps: (ps_mean, ps_std) = self.aggregate(np.array(power_spectrum))
-                    (los_mean, los_std) = self.aggregate(np.array(cumulative_los))
-                    self.collector.add_data(ks, ps_mean, ps_std, los_mean, los_std, freq_axis, params)
+                    ps_mean, ps_std, ps_samples = None, None, None
+                    if not self.skip_ps: (ps_mean, ps_std, ps_samples) = self.aggregate(np.array(power_spectrum))
+                    (los_mean, los_std, los_samples) = self.aggregate(np.array(cumulative_los))
+                    self.collector.add_data(ks, ps_mean, ps_std, los_mean, los_std, freq_axis, params, los_samples, ps_samples)
                     psbatchnum = 0
                     power_spectrum = []
                     cumulative_los = []
@@ -147,11 +150,13 @@ class ThreadSafeArrayCollector:
             'los': [],
             'los_std': [],
             'freq_axis': [],
-            'params': []
+            'params': [],
+            'los_samples': [],
+            'ps_samples': [],
         }
         self._lock = threading.Lock()
         
-    def add_data(self, ks, ps, ps_std, los, los_std, freq_axis, params):
+    def add_data(self, ks, ps, ps_std, los, los_std, freq_axis, params, los_samples, ps_samples):
         with self._lock:
             self._data['ks'].append(ks)
             self._data['ps'].append(ps)
@@ -160,7 +165,8 @@ class ThreadSafeArrayCollector:
             self._data['los_std'].append(los_std)
             self._data['freq_axis'].append(freq_axis)
             self._data['params'].append(params)
-            if len(los) % 10 == 0: print(f"DataLoader: {len(los)} records added.")
+            self._data['los_samples'].append(los_samples)
+            self._data['ps_samples'].append(ps_samples)
             
     def get_arrays(self):
         with self._lock:
@@ -171,5 +177,7 @@ class ThreadSafeArrayCollector:
                 'los': np.array(self._data['los']),
                 'los_std': np.array(self._data['los_std']),
                 'freq_axis': np.array(self._data['freq_axis']),
-                'params': np.array(self._data['params'])
+                'params': np.array(self._data['params']),
+                'los_samples': np.array(self._data['los_samples']),
+                'ps_samples': np.array(self._data['ps_samples']),
             }
