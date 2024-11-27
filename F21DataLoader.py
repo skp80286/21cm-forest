@@ -13,6 +13,7 @@ class F21DataLoader:
         self.limitsamplesize = limitsamplesize
         self.skip_ps = skip_ps
         self.ps_bins = ps_bins
+        np.random.seed(42)
 
     def get_los(self, datafile: str) -> None:
         data = np.fromfile(str(datafile), dtype=np.float32)
@@ -92,12 +93,10 @@ class F21DataLoader:
                 (z, xHI_mean, logfX, Nlos, len(los_arr[0])))
             
             for los in los_arr:
-                if self.skip_ps:
-                    params = np.array([xHI_mean, logfX])
-                    self.collector.add_data(None, None, None, los, None, freq_axis, params)
-                else:
-                    psbatchnum += 1
-                    samplenum += 1
+                psbatchnum += 1
+                samplenum += 1
+                cumulative_los.append(los)
+                if not self.skip_ps:
                     # Calculate the power spectrum
                     #ks, power_spectrum = power_spectrum_1d(los, bins=160)
                     ks, ps = PS1D.get_P(los, bandwidth)
@@ -108,17 +107,19 @@ class F21DataLoader:
                     #print(f"ks: {ks}")
                     #print(f"ps: {ps}")
                     power_spectrum.append(ps)
-                    cumulative_los.append(los)
                     
-                    if samplenum > Nlos or psbatchnum >= self.psbatchsize:
-                        # Collect this batch
-                        params = np.array([xHI_mean, logfX])
-                        (ps_mean, ps_std) = self.aggregate(np.array(power_spectrum))
-                        (los_mean, los_std) = self.aggregate(np.array(cumulative_los))
-                        self.collector.add_data(ks, ps_mean, ps_std, los_mean, los_std, freq_axis, params)
-                        psbatchnum = 0
-                        power_spectrum = []
-                        cumulative_los = []
+                if samplenum >= Nlos or psbatchnum >= self.psbatchsize:
+                    # Collect this batch
+                    params = np.array([xHI_mean, logfX])
+                    
+                    #print(f"Collecting batch for params {params}")
+                    ps_mean, ps_std = None, None
+                    if not self.skip_ps: (ps_mean, ps_std) = self.aggregate(np.array(power_spectrum))
+                    (los_mean, los_std) = self.aggregate(np.array(cumulative_los))
+                    self.collector.add_data(ks, ps_mean, ps_std, los_mean, los_std, freq_axis, params)
+                    psbatchnum = 0
+                    power_spectrum = []
+                    cumulative_los = []
 
         except Exception as e:
             print(f"Error processing {datafile}: {str(e)}")

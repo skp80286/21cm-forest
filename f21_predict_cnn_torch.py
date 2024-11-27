@@ -22,6 +22,11 @@ import sys
 import logging
 import pickle
 
+import optuna
+from optuna.trial import TrialState
+
+import math
+
 def load_dataset_from_pkl():
     # Lists to store combined data
     all_los = []
@@ -39,7 +44,7 @@ def load_dataset_from_pkl():
 
     return (all_los, all_params)
 
-def load_dataset(datafiles, save=False):
+def load_dataset(datafiles, psbatchsize, save=False):
     #Input parameters
     #Read LOS data from 21cmFAST 50cMpc box
     if args.maxfiles is not None:
@@ -50,8 +55,8 @@ def load_dataset(datafiles, save=False):
     all_F21 = []
     all_params = []
     # Create processor with desired number of worker threads
-    processor = dl.F21DataLoader(max_workers=8, psbatchsize=1, limitsamplesize=args.limitsamplesize, skip_ps=True)
-        
+    processor = dl.F21DataLoader(max_workers=8, psbatchsize=psbatchsize, limitsamplesize=args.limitsamplesize, skip_ps=True)
+
     # Process all files and get results
     results = processor.process_all_files(datafiles)
     logger.info(f"Finished data loading.")
@@ -87,49 +92,49 @@ def load_model():
 
 
 class CNNModel(nn.Module):
-    def __init__(self, input_size, output_size):
+    def __init__(self, input_size, output_size, channels=1, kernel1=11, kernel2=3, dropout=0.2):
         super(CNNModel, self).__init__()
-        
+
         # Convolutional layers
         self.conv_layers = nn.Sequential(
             # First conv block
-            nn.Conv1d(1, 32, kernel_size=3, padding='valid'),
-            nn.ReLU(),
-            nn.Conv1d(32, 32, kernel_size=7, padding='valid'),
-            nn.ReLU(),
+            nn.Conv1d(channels, 32, kernel_size=kernel1, padding='same'),
+            nn.Tanh(),
+            nn.Conv1d(32, 32, kernel_size=kernel2, padding='same'),
+            nn.LeakyReLU(),
             nn.BatchNorm1d(32),
             nn.MaxPool1d(4),
-            nn.Dropout(0.1),
+            nn.Dropout(dropout),
             
             # Second conv block
-            nn.Conv1d(32, 64, kernel_size=3, padding='valid'),
-            nn.ReLU(),
-            nn.Conv1d(64, 64, kernel_size=7, padding='valid'),
-            nn.ReLU(),
+            nn.Conv1d(32, 64, kernel_size=kernel1, padding='same'),
+            nn.Tanh(),
+            nn.Conv1d(64, 64, kernel_size=kernel2, padding='same'),
+            nn.LeakyReLU(),
             nn.BatchNorm1d(64),
             nn.MaxPool1d(4),
-            nn.Dropout(0.2),
-            
+            nn.Dropout(dropout),
+
             # Third conv block
-            nn.Conv1d(64, 128, kernel_size=3, padding='valid'),
-            nn.ReLU(),
-            nn.Conv1d(128, 128, kernel_size=7, padding='valid'),
-            nn.ReLU(),
+            nn.Conv1d(64, 128, kernel_size=kernel1, padding='same'),
+            nn.Tanh(),
+            nn.Conv1d(128, 128, kernel_size=kernel2, padding='same'),
+            nn.LeakyReLU(),
             nn.BatchNorm1d(128),
-            nn.MaxPool1d(4)
+            nn.MaxPool1d(4),
+            nn.Dropout(dropout),
         )
         
         # Calculate the size of flattened features
-        self.flatten_size = 5120        
+        self.flatten_size = (((input_size//4)//4)//4)*128
         # Dense layers
         self.dense_layers = nn.Sequential(
-            nn.Linear(self.flatten_size, 128),
+            nn.Linear(self.flatten_size, 1024),
             nn.Tanh(),
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            nn.Linear(64, 32),
-            nn.ReLU(),
-            nn.Linear(32, output_size)  # Output layer for xHI and logfX
+            nn.Dropout(dropout),
+            nn.Linear(1024, 128),
+            nn.LeakyReLU(),
+            nn.Linear(128, output_size)  # Output layer for xHI and logfX
         )
         
     
@@ -146,18 +151,25 @@ class CNNModel(nn.Module):
         # Apply dense layers
         x = self.dense_layers(x)
         return x
+    
+#def convert_to_pytorch_tensors(X, y):
+    
 
-def run(X_train, X_test, y_train, y_test):
+def run(X_train, X_test, y_train, y_test, num_epochs, batch_size, lr, kernel1, kernel2, dropout, input_points_to_use, showplots=False, saveplots=True):
+    if input_points_to_use is not None:
+        X_train = X_train[:, :input_points_to_use]
+        X_test = X_test[:, :input_points_to_use]  
     logger.info("Starting training")
 
-    
     # Convert data to PyTorch tensors
+    #inputs, outputs = convert_to_pytorch_tensors(X_train, y_train)
+
     inputs = torch.tensor(X_train)
     outputs = torch.tensor(y_train)
     logger.info(f"Shape of inouts, outputs: {inputs.shape}, {outputs.shape}")
     # Create DataLoader for batching
     train_dataset = TensorDataset(inputs, outputs)
-    dataloader = DataLoader(train_dataset, batch_size=args.trainingbatchsize, shuffle=True)
+    dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
     # Initialize the network
     device = (
@@ -171,14 +183,18 @@ def run(X_train, X_test, y_train, y_test):
     logger.info("####")
     logger.info(f"### Using \"{device}\" device ###")
     logger.info("####")
-    model = CNNModel(input_size=2762, output_size=2)
-    logger.info("Created model: {model}")
+
+    channels = 1
+    if args.use_channels: channels = 10
+    model = CNNModel(input_size=len(X_train[0]), output_size=2, channels=channels, kernel1=kernel1, kernel2=kernel2, dropout=dropout)
+    logger.info(f"Created model: {model}")
     # Loss function and optimizer
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+    #optimizer = optim.Adagrad(model.parameters(), lr=0.01)
 
     # Training loop
-    num_epochs = args.epochs
+    
     for epoch in range(num_epochs):
         model.train()  # Set the model to training mode
         running_loss = 0.0
@@ -211,6 +227,8 @@ def run(X_train, X_test, y_train, y_test):
     with torch.no_grad():
         # Test the model
         logger.info("Testing prediction")
+        #test_input, test_output = convert_to_pytorch_tensors(X_test, y_test)
+
         test_input = torch.tensor(X_test)  # Replace with actual test data
         test_output = torch.tensor(y_test)
         logger.info(f"Shape of test_input, test_output: {test_input.shape}, {test_output.shape}")
@@ -227,11 +245,66 @@ def run(X_train, X_test, y_train, y_test):
         rms_scores = [mean_squared_error(y_test[:, i], y_pred_np[:, i]) for i in range(2)]
         rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test, axis=0)
         logger.info("RMS Error: " + str(rms_scores_percent))
+ 
+        y_pred = unscale_y(y_pred)
+        X_test, y_test = unscaleXy(X_test, y_test)
+    
+    mean_r2_score = base.summarize_test(y_pred_np, y_test, output_dir=output_dir, showplots=showplots, saveplots=saveplots)
+    return mean_r2_score
 
-        base.summarize_test(y_pred_np, y_test, output_dir=output_dir, showplots=args.interactive)
+def scaleXy(X, y):
+    if args.scale_y: y[:,1] = 0.8 + y[:,1]/5.0
+    if args.scale_y0: y[:,0] = y[:,0]*5.0
+    if args.logscale_X: X = np.log(X)
+    return X, y
+
+def unscaleXy(X, y):
+    if args.scale_y: y[:,1] = 5.0*(y[:,1] - 0.8)
+    if args.scale_y0: y[:,0] = y[:,0]/5.0
+    if args.logscale_X: X = np.exp(X)
+    return X, y
+
+def unscale_y(y):
+    if args.scale_y: y[:,1] = 5.0*(y[:,1] - 0.8)
+    return y
 
 
+def objective(trial):
+    # Define hyperparameter search space
+    params = {
+        'num_epochs': trial.suggest_int('num_epochs', 10, 50),
+        'batch_size': trial.suggest_categorical('batch_size', [16, 32, 64, 128, 256]),
+        'learning_rate': trial.suggest_float('learning_rate', 1e-5, 1e-2, log=True),
+        'kernel1': trial.suggest_int('kernel1', 3, 15, step=2),  # odd numbers only
+        'kernel2': trial.suggest_int('kernel2', 3, 7, step=2),   # odd numbers only
+        'dropout': trial.suggest_categorical('dropout', [0.1, 0.2, 0.3, 0.4, 0.5]),
+        'input_points_to_use': trial.suggest_int('input_points_to_use', 400, 2762),
+    }    
+    # Run training with the suggested parameters
+    try:
+        r2 = run(X_train, X_test, y_train, y_test, 
+                   num_epochs=params['num_epochs'],
+                   batch_size=params['batch_size'],
+                   lr=params['learning_rate'],
+                   kernel1=params['kernel1'],
+                   kernel2=params['kernel2'],
+                   dropout=params['dropout'],
+                   input_points_to_use=params['input_points_to_use'],
+                   showplots=False,
+                   saveplots=False)
+            
+        return r2
+    
+    except Exception as e:
+        logger.error(f"Trial failed with error: {str(e)}")
+        return float('-inf')
+    
 # main code start here
+torch.manual_seed(42)
+np.random.seed(42)
+torch.backends.cudnn.determinisitc=True
+torch.backends.cudnn.benchmark=False
+
 parser = argparse.ArgumentParser(description='Predict reionization parameters from 21cm forest')
 parser.add_argument('-p', '--path', type=str, default='../data/21cmFAST_los/F21_noisy/', help='filepath')
 parser.add_argument('-z', '--redshift', type=float, default=6, help='redshift')
@@ -253,6 +326,12 @@ parser.add_argument('--interactive', action='store_true', help='run in interacti
 parser.add_argument('--use_saved_los_data', action='store_true', help='load LoS data from pkl file.')
 parser.add_argument('--epochs', type=int, default=10, help='Number of epoch of training.')
 parser.add_argument('--trainingbatchsize', type=int, default=64, help='Size of batch for training.')
+parser.add_argument('--input_points_to_use', type=int, default=None, help='use the first n points of los. ie truncate the los to first 690 points')
+parser.add_argument('--scale_y', action='store_true', help='Scale the y parameters (logfX).')
+parser.add_argument('--scale_y0', action='store_true', help='Scale the y parameters (xHI).')
+parser.add_argument('--logscale_X', action='store_true', help='Log scale the signal strength.')
+parser.add_argument('--use_channels', action='store_true', help='Use different LoS as channels for the CNN.')
+parser.add_argument('--psbatchsize', type=int, default=None, help='batching for PS data.')
 
 args = parser.parse_args()
 output_dir = str('output/cnn_torch_%s_%s_t%dh_b%d_%s' % (args.runmode, args.telescope,args.t_int, 1, datetime.now().strftime("%Y%m%d%H%M%S")))
@@ -285,16 +364,64 @@ if args.runmode == "train_test":
     if args.use_saved_los_data:
         X_train, y_train = load_dataset_from_pkl()
     else:
-        X_train, y_train = load_dataset(train_files, save=True)
+        X_train, y_train = load_dataset(train_files, psbatchsize=args.psbatchsize, save=True)
+    X_train, y_train = scaleXy(X_train, y_train)
     logger.info(f"Loaded dataset X_train:{X_train.shape} y:{y_train.shape}")
     logger.info(f"Loading test dataset {len(test_files)}")
-    X_test, y_test = load_dataset(test_files, save=False)
+    X_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
+    if args.input_points_to_use is not None:
+        X_test = X_test[:, :args.input_points_to_use]    
+    X_test, y_test = scaleXy(X_test, y_test)
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
-    run(X_train, X_test, y_train, y_test)
+    run(X_train, X_test, y_train, y_test, args.epochs, args.trainingbatchsize, 1e-4, 11, 3, 0.2, args.input_points_to_use, showplots=args.interactive)
+
 elif args.runmode == "test_only": # test_only
     logger.info(f"Loading test dataset {len(test_files)}")
-    X_test, y_test = load_dataset(test_files, save=False)
+    X_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
+    if args.input_points_to_use is not None:
+        X_test = X_test[:, :args.input_points_to_use]
+    X_test, y_test = scaleXy(X_test, y_test)
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
     model = load_model(args.modelfile)
     y_pred = model.predict(X_test)
+
+    y_pred = unscale_y(y_pred)
+    X_test, y_test = unscaleXy(X_test, y_test)
     base.summarize_test(y_pred, y_test, output_dir=output_dir, showplots=args.interactive)
+
+
+elif args.runmode == "optimize":
+    logger.info("Starting hyperparameter optimization with Optuna")
+    
+    # Load data
+    if args.use_saved_los_data:
+        X_train, y_train = load_dataset_from_pkl()
+    else:
+        X_train, y_train = load_dataset(train_files, psbatchsize=args.psbatchsize, save=True)
+    
+    X_train, y_train = scaleXy(X_train, y_train)
+    
+    X_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
+  
+    X_test, y_test = scaleXy(X_test, y_test)
+    
+    # Create study object
+    study = optuna.create_study(direction="maximize")
+    study.optimize(objective, n_trials=50)  # Adjust n_trials as needed
+
+    # Print optimization results
+    logger.info("Number of finished trials: {}".format(len(study.trials)))
+    logger.info("Best trial:")
+    trial = study.best_trial
+
+    logger.info("  Value: {}".format(trial.value))
+    logger.info("  Params: ")
+    for key, value in trial.params.items():
+        logger.info("    {}: {}".format(key, value))
+
+    # Save optimization results
+    with open(f"{output_dir}/optuna_results.txt", "w") as f:
+        f.write("Best parameters:\n")
+        for key, value in trial.params.items():
+            f.write(f"{key}: {value}\n")
+        f.write(f"\nBest R2 score: {trial.value}")

@@ -69,6 +69,15 @@ def plot_power_spectra(ps, ks, params, output_dir=".", showplots=False, saveplot
     if saveplots: plt.savefig(f"{output_dir}/power_spectra.png")
     plt.clf()
 
+def plot_single_los(los, freq_axis, output_dir=".", showplots=False, saveplots=True, label=""):
+    plt.rcParams['figure.figsize'] = [15, 9]
+    plt.title(f'{label} - LoS')
+    plt.plot(freq_axis/1e6, los)
+    plt.xlabel('frequency[MHz]'), plt.ylabel('flux/S147')
+    if showplots: plt.show()
+    if saveplots: plt.savefig(f"{output_dir}/los.png")
+    plt.clf()
+
 def plot_los(los, freq_axis, output_dir=".", showplots=False, saveplots=True, label=""):
     plt.rcParams['figure.figsize'] = [15, 9]
     plt.title(f'{label} - LoS')
@@ -128,13 +137,15 @@ def plot_predictions(df_y, colors):
     plt.legend()
     plt.show()
 
-def summarize_test(y_pred, y_test, output_dir=".", showplots=False):
+def summarize_test(y_pred, y_test, output_dir=".", showplots=False, saveplots=True):
     logger.info(f"y_pred: {y_pred}")
     logger.info(f"y_test: {y_test}")
 
     # Calculate R2 scores
     r2 = [r2_score(y_test[:, i], y_pred[:, i]) for i in range(2)]
     logger.info("R2 Score: " + str(r2))
+    mean_r2_score = 0.5*(r2[0]+r2[1])
+    logger.info("Mean R2 Score: " + str(mean_r2_score))
 
     # Calculate RMSE scores
     rmse = np.sqrt((y_test - y_pred) ** 2)
@@ -160,32 +171,34 @@ def summarize_test(y_pred, y_test, output_dir=".", showplots=False):
     logger.info(f"Min RMSE: {np.min(rmse_comb)}")
     logger.info(f"Max RMSE: {np.max(rmse_comb)}")
 
-    # Calculate colors for plotting
-    cmap = plt.get_cmap('viridis')
-    rmse_min = np.min(rmse_comb)
-    rmse_max = np.max(rmse_comb)
-    norm = plt.Normalize(rmse_min, rmse_max)
-    colors = cmap(norm(rmse_comb))
+    if showplots or saveplots:
+        # Calculate colors for plotting
+        cmap = plt.get_cmap('viridis')
+        rmse_min = np.min(rmse_comb)
+        rmse_max = np.max(rmse_comb)
+        norm = plt.Normalize(rmse_min, rmse_max)
+        colors = cmap(norm(rmse_comb))
 
-    # Plot predictions with colored points
-    #plot_predictions(np.column_stack((actual_xHI, actual_logfX, pred_xHI, pred_logfX)), colors)
-    
-    # Create scatter plot
-    plt.rcParams['figure.figsize'] = [15, 9]
-    fig, ax = plt.subplots()
-    plt.scatter(pred_xHI, pred_logfX, marker="o", s=25, label='Predicted', c=colors)
-    plt.plot([pred_xHI, actual_xHI], [pred_logfX, actual_logfX], 'r--', alpha=0.2)
-    plt.scatter(actual_xHI, actual_logfX, marker="x", s=100, label='Actual', c=colors)
-    plt.xlim(0, 1)
-    plt.ylim(-4, 1)
-    plt.xlabel('xHI')
-    plt.ylabel('logfX')
-    plt.title('Predictions')
-    plt.legend()
-    plt.colorbar(label=f'RMS Error ({rmse_min:.2f} to {rmse_max:.2f})')
-    if showplots: plt.show()
-    plt.savefig(f'{output_dir}/f21_prediction.png')
-    plt.clf()
+        # Plot predictions with colored points
+        #plot_predictions(np.column_stack((actual_xHI, actual_logfX, pred_xHI, pred_logfX)), colors)
+        
+        # Create scatter plot
+        plt.rcParams['figure.figsize'] = [15, 9]
+        fig, ax = plt.subplots()
+        plt.scatter(pred_xHI, pred_logfX, marker="o", s=25, label='Predicted', c=colors)
+        plt.plot([pred_xHI, actual_xHI], [pred_logfX, actual_logfX], 'r--', alpha=0.2)
+        plt.scatter(actual_xHI, actual_logfX, marker="x", s=100, label='Actual', c=colors)
+        plt.xlim(0, 1)
+        plt.ylim(-4, 1)
+        plt.xlabel('xHI')
+        plt.ylabel('logfX')
+        plt.title('Predictions')
+        plt.legend()
+        plt.colorbar(label=f'RMS Error ({rmse_min:.2f} to {rmse_max:.2f})')
+        if showplots: plt.show()
+        if saveplots: plt.savefig(f'{output_dir}/f21_prediction.png')
+        plt.clf()
+    return mean_r2_score
     
     """
 def summarize_test(y_pred, y_test, output_dir=".", showplots=False):

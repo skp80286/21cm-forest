@@ -40,7 +40,6 @@ def load_dataset_from_pkl():
         all_ks = e["all_ks"]
         all_ps = e["all_ps"]
         all_params = e["all_params"]
-        ps_std = e["ps_std"]
         logger.info(f"Loaded PS from file: {pklfile}, shape={all_ps.shape}")
 
     logger.info(f"sample ks:{all_ks[0]}")
@@ -90,7 +89,7 @@ def load_dataset(datafiles, psbatchsize, save=False):
         base.plot_power_spectra(all_ps, all_ks, all_params, output_dir=output_dir, showplots=args.interactive)
         logger.info(f"Saving PS data to file")
         with open('ps-21cm-forest.pkl', 'w+b') as f:  # open a text file
-            pickle.dump({"all_ks": all_ks, "all_ps": all_ps, "all_params": all_params, "ps_std": ps_std}, f)
+            pickle.dump({"all_ks": all_ks, "all_ps": all_ps, "all_params": all_params}, f)
     # Combine all data
     #ps_combined = np.hstack([all_ps[:,:600], ps_std[:,:600]])
     ps_combined = all_ps
@@ -170,21 +169,30 @@ def run(X_train, X_test, y_train, y_test):
         logger.info("RMS Error: " + str(rms_scores_percent))
         test_loss.append(0.5*(rms_scores_percent[0]+rms_scores_percent[1]))
 
-    if args.scale_y: 
+    
         y_pred = unscale_y(y_pred)
-        y_test = unscale_y(y_test)
+        X_test, y_test = unscaleXy(X_test, y_test)
     base.summarize_test(y_pred, y_test, output_dir=output_dir, showplots=args.interactive)
     logger.info('Plotting Decision Tree')
     plot_tree(model)
     plt.savefig(f"{output_dir}/xgboost_tree.png", dpi=600) 
     save_model(model)
 
-def scale_y(y):
-    y[:,1] = 0.8 + y[:,1]/5.0
-    return y
+
+def scaleXy(X, y):
+    if args.scale_y: y[:,1] = 0.8 + y[:,1]/5.0
+    if args.scale_y0: y[:,0] = y[:,0]*5.0
+    if args.logscale_X: X = np.log(X)
+    return X, y
+
+def unscaleXy(X, y):
+    if args.scale_y: y[:,1] = 5.0*(y[:,1] - 0.8)
+    if args.scale_y0: y[:,0] = y[:,0]/5.0
+    if args.logscale_X: X = np.exp(X)
+    return X, y
 
 def unscale_y(y):
-    y[:,1] = 5.0*(y[:,1] - 0.8)
+    if args.scale_y: y[:,1] = 5.0*(y[:,1] - 0.8)
     return y
 
 # main code start here
@@ -224,7 +232,9 @@ parser.add_argument('--use_saved_ps_data', action='store_true', help='load PS da
 parser.add_argument('--subtractnoise', action='store_true', help='subtract noise.')
 parser.add_argument('--psbins', type=int, default=None, help='bin the powerspectrum into n bins ')
 parser.add_argument('--psbins_to_use', type=int, default=None, help='use the first n bins specified')
-parser.add_argument('--scale_y', action='store_true', help='Scale the y parameters.')
+parser.add_argument('--scale_y', action='store_true', help='Scale the y parameters (logfX).')
+parser.add_argument('--scale_y0', action='store_true', help='Scale the y parameters (xHI).')
+parser.add_argument('--logscale_X', action='store_true', help='Log scale the signal strength.')
 
 args = parser.parse_args()
 
@@ -249,7 +259,7 @@ if args.runmode == "train_test":
         X_train, y_train = load_dataset(train_files, psbatchsize=args.psbatchsize, save=True)
     if args.psbins_to_use is not None:
         X_train = X_train[:, :args.psbins_to_use]
-    if args.scale_y: y_train = scale_y(y_train)
+    X_train, y_train = scaleXy(X_train, y_train)
     logger.info(f"Loaded dataset X_train:{X_train.shape} y:{y_train.shape}")
     X_noise = None
     if args.subtractnoise:
@@ -271,7 +281,7 @@ if args.runmode == "train_test":
         X_test = X_test[:, :args.psbins_to_use]
     if args.subtractnoise:
         X_test /= X_noise
-    if args.scale_y: y_test = scale_y(y_test)
+    X_test, y_test = scaleXy(X_test, y_test)
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
     run(X_train, X_test, y_train, y_test)
 elif args.runmode == "test_only": # test_only
@@ -279,12 +289,12 @@ elif args.runmode == "test_only": # test_only
     X_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
     if args.psbins_to_use is not None:
         X_test = X_test[:, :args.psbins_to_use]
-    if args.scale_y: y_test = scale_y(y_test)
+    X_test, y_test = scaleXy(X_test, y_test)
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
     model = xgb.XGBRegressor()
     model.load_model(args.modelfile)
     y_pred = model.predict(X_test)
     if args.scale_y: 
         y_pred = unscale_y(y_pred)
-        y_test = unscale_y(y_test)
+        X_test, y_test = unscaleXy(X_test, y_test)
     base.summarize_test(y_pred, y_test, output_dir=output_dir, showplots=args.interactive)
