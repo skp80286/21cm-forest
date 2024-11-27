@@ -154,7 +154,27 @@ class CNNModel(nn.Module):
     
 #def convert_to_pytorch_tensors(X, y):
     
-
+class CustomLoss(nn.Module):
+    def __init__(self, alpha=0.6, beta=0.25):
+        super(CustomLoss, self).__init__()
+        self.alpha = alpha  # Weight for balancing the two loss components
+        self.beta = beta  # Weight for balancing the two loss components
+        self.mse = nn.MSELoss()
+    
+    def forward(self, predictions, targets):
+        # First component: MSE between predictions and targets
+        mse_loss1 = self.mse(predictions[:,:2], targets[:,:2])
+        mse_loss2 = self.mse(predictions[:,2], targets[:,2])
+        
+        # Second component: MSE between product of predictions and value 3
+        pred_product = predictions[:, 0] * predictions[:, 1]
+        target_product = targets[:, 0] * targets[:, 1]
+        product_loss = self.mse(pred_product, target_product)
+        
+        # Combine both losses
+        total_loss = self.alpha * (self.beta * mse_loss1 + (1 - self.beta)*mse_loss2) + (1 - self.alpha) * product_loss
+        return total_loss
+    
 def run(X_train, X_test, y_train, y_test, num_epochs, batch_size, lr, kernel1, kernel2, dropout, input_points_to_use, showplots=False, saveplots=True):
     if input_points_to_use is not None:
         X_train = X_train[:, :input_points_to_use]
@@ -186,15 +206,17 @@ def run(X_train, X_test, y_train, y_test, num_epochs, batch_size, lr, kernel1, k
 
     channels = 1
     if args.use_channels: channels = 10
-    model = CNNModel(input_size=len(X_train[0]), output_size=2, channels=channels, kernel1=kernel1, kernel2=kernel2, dropout=dropout)
+    
+    model = CNNModel(input_size=len(X_train[0]), output_size=len(y_train[0]), channels=channels, kernel1=kernel1, kernel2=kernel2, dropout=dropout)
     logger.info(f"Created model: {model}")
     # Loss function and optimizer
-    criterion = nn.MSELoss()
+    if args.scale_y1:
+        criterion = CustomLoss(alpha=0.5)  # You can adjust alpha as needed
+    else:
+        criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    #optimizer = optim.Adagrad(model.parameters(), lr=0.01)
 
-    # Training loop
-    
+    # Training loop    
     for epoch in range(num_epochs):
         model.train()  # Set the model to training mode
         running_loss = 0.0
@@ -208,8 +230,9 @@ def run(X_train, X_test, y_train, y_test, num_epochs, batch_size, lr, kernel1, k
             predictions = model(input_batch)
             
             # Compute the loss
+
             loss = criterion(predictions, output_batch)
-            
+
             # Backpropagation
             loss.backward()
             
@@ -239,35 +262,51 @@ def run(X_train, X_test, y_train, y_test, num_epochs, batch_size, lr, kernel1, k
 
         # Calculate R2 scores
         y_pred_np = y_pred.detach().cpu().numpy()
-        r2 = [r2_score(y_test[:, i], y_pred_np[:, i]) for i in range(2)]
+
+        r2 = [r2_score(y_test[:, i], y_pred_np[:, i]) for i in range(len(y_pred_np[0]))]
         logger.info("R2 Score: " + str(r2))
         # Calculate rmse scores
-        rms_scores = [mean_squared_error(y_test[:, i], y_pred_np[:, i]) for i in range(2)]
+        rms_scores = [mean_squared_error(y_test[:, i], y_pred_np[:, i]) for i in range(len(y_pred_np[0]))]
         rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test, axis=0)
         logger.info("RMS Error: " + str(rms_scores_percent))
  
         y_pred = unscale_y(y_pred)
         X_test, y_test = unscaleXy(X_test, y_test)
+        logger.info(f"unscaled test result {X_test.shape} {y_test.shape} {y_pred.shape}")
     
-    mean_r2_score = base.summarize_test(y_pred_np, y_test, output_dir=output_dir, showplots=showplots, saveplots=saveplots)
+    mean_r2_score = base.summarize_test(y_pred_np[:,:2], y_test[:,:2], output_dir=output_dir, showplots=showplots, saveplots=saveplots)
     return mean_r2_score
 
 def scaleXy(X, y):
     if args.scale_y: y[:,1] = 0.8 + y[:,1]/5.0
     if args.scale_y0: y[:,0] = y[:,0]*5.0
+    if args.scale_y1:
+        y[:,1] = 0.8 + y[:,1]/5.0
+        product = (y[:,0] * y[:,1]).reshape(len(y), 1)
+        y = np.hstack((y, product))
+
     if args.logscale_X: X = np.log(X)
     return X, y
 
 def unscaleXy(X, y):
     if args.scale_y: y[:,1] = 5.0*(y[:,1] - 0.8)
     if args.scale_y0: y[:,0] = y[:,0]/5.0
+    if args.scale_y1:
+        y[:,1] = 5.0*(y[:,1] - 0.8)
+        y = y[:,:2]
     if args.logscale_X: X = np.exp(X)
     return X, y
 
 def unscale_y(y):
-    if args.scale_y: y[:,1] = 5.0*(y[:,1] - 0.8)
-    return y
-
+    if args.scale_y: 
+        y[:,1] = 5.0*(y[:,1] - 0.8)
+        return y
+    
+    if args.scale_y1:
+        sqrt = np.sqrt(y[:,2]).reshape((len(y), 1))
+        logfx = 5.0*(sqrt - 0.8)
+        xHI = sqrt
+        return np.hstack((xHI, logfx))
 
 def objective(trial):
     # Define hyperparameter search space
@@ -329,6 +368,7 @@ parser.add_argument('--trainingbatchsize', type=int, default=64, help='Size of b
 parser.add_argument('--input_points_to_use', type=int, default=None, help='use the first n points of los. ie truncate the los to first 690 points')
 parser.add_argument('--scale_y', action='store_true', help='Scale the y parameters (logfX).')
 parser.add_argument('--scale_y0', action='store_true', help='Scale the y parameters (xHI).')
+parser.add_argument('--scale_y1', action='store_true', help='Scale logfx and calculate product of logfx with xHI.')
 parser.add_argument('--logscale_X', action='store_true', help='Log scale the signal strength.')
 parser.add_argument('--use_channels', action='store_true', help='Use different LoS as channels for the CNN.')
 parser.add_argument('--psbatchsize', type=int, default=None, help='batching for PS data.')
@@ -387,7 +427,7 @@ elif args.runmode == "test_only": # test_only
 
     y_pred = unscale_y(y_pred)
     X_test, y_test = unscaleXy(X_test, y_test)
-    base.summarize_test(y_pred, y_test, output_dir=output_dir, showplots=args.interactive)
+    base.summarize_test(y_pred[:,:2], y_test[:,:2], output_dir=output_dir, showplots=args.interactive)
 
 
 elif args.runmode == "optimize":
