@@ -44,7 +44,7 @@ def load_dataset_from_pkl():
 
     return (all_los, all_params, [])
 
-def load_dataset(datafiles, psbatchsize, save=False):
+def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False):
     #Input parameters
     #Read LOS data from 21cmFAST 50cMpc box
     if args.maxfiles is not None:
@@ -55,7 +55,7 @@ def load_dataset(datafiles, psbatchsize, save=False):
     all_F21 = []
     all_params = []
     # Create processor with desired number of worker threads
-    processor = dl.F21DataLoader(max_workers=8, psbatchsize=psbatchsize, limitsamplesize=args.limitsamplesize, skip_ps=True)
+    processor = dl.F21DataLoader(max_workers=8, psbatchsize=psbatchsize, limitsamplesize=limitsamplesize, skip_ps=True)
 
     # Process all files and get results
     results = processor.process_all_files(datafiles)
@@ -75,8 +75,20 @@ def load_dataset(datafiles, psbatchsize, save=False):
         logger.info(f"Saving LoS data to file")
         with open('los-21cm-forest.pkl', 'w+b') as f:  # open a text file
             pickle.dump({"all_los": all_los, "all_params": all_params}, f)
+            
     return (all_los, all_params, los_samples)
 
+def load_noise():
+    X_noise = None
+    if args.use_noise_channel:
+        noisefilepattern = str('%sF21_noiseonly_21cmFAST_200Mpc_z%.1f_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
+               (args.path, args.redshift,args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
+        logger.info(f"Loading noise files with pattern {noisefilepattern}")
+        noisefiles = glob.glob(noisefilepattern)
+        X_noise, _, _ = load_dataset(noisefiles, psbatchsize=1000, limitsamplesize=1000, save=False)
+
+    return X_noise
+    
 def save_model(model):
     # Save the model architecture and weights
     torch_filename = output_dir +"/f21_predict_cnn_torch.pth"
@@ -93,14 +105,15 @@ def load_model():
 
 
 class CNNModel(nn.Module):
-    def __init__(self, input_size, output_size, channels=1, kernel1=11, kernel2=3, dropout=0.2):
+    def __init__(self, input_size, output_size, channels=1, kernel1=301, dropout=0.5):
         super(CNNModel, self).__init__()
+        kernel2 = (kernel1//2) + 1
 
         # Convolutional layers
         self.conv_layers = nn.Sequential(
             # First conv block
             nn.Conv1d(channels, 32, kernel_size=kernel1, padding='same'),
-            nn.Tanh(),
+            nn.LeakyReLU(),
             nn.Conv1d(32, 32, kernel_size=kernel2, padding='same'),
             nn.LeakyReLU(),
             nn.BatchNorm1d(32),
@@ -109,29 +122,21 @@ class CNNModel(nn.Module):
             
             # Second conv block
             nn.Conv1d(32, 64, kernel_size=kernel1, padding='same'),
-            nn.Tanh(),
+            nn.LeakyReLU(),
             nn.Conv1d(64, 64, kernel_size=kernel2, padding='same'),
             nn.LeakyReLU(),
             nn.BatchNorm1d(64),
             nn.MaxPool1d(4),
             nn.Dropout(dropout),
 
-            # Third conv block
-            nn.Conv1d(64, 128, kernel_size=kernel1, padding='same'),
-            nn.Tanh(),
-            nn.Conv1d(128, 128, kernel_size=kernel2, padding='same'),
-            nn.LeakyReLU(),
-            nn.BatchNorm1d(128),
-            nn.MaxPool1d(4),
-            nn.Dropout(dropout),
         )
         
         # Calculate the size of flattened features
-        self.flatten_size = (((input_size//4)//4)//4)*128
+        self.flatten_size = ((input_size//4)//4)*64
         # Dense layers
         self.dense_layers = nn.Sequential(
             nn.Linear(self.flatten_size, 1024),
-            nn.Tanh(),
+            nn.LeakyReLU(),
             nn.Dropout(dropout),
             nn.Linear(1024, 128),
             nn.LeakyReLU(),
@@ -163,12 +168,12 @@ class ProductLoss(nn.Module):
     def forward(self, predictions, targets):
         pred_product = predictions[:, 0] * predictions[:, 1]
         target_product = targets[:, 0] * targets[:, 1]
-        product_loss = self.mse(pred_product, target_product)
+        product_loss = 100*self.mse(pred_product, target_product)
         
         return product_loss
     
 class CustomLoss(nn.Module):
-    def __init__(self, alpha=0.6, beta=0.25):
+    def __init__(self, alpha=0.8, beta=0.25):
         super(CustomLoss, self).__init__()
         self.alpha = alpha  # Weight for balancing the two loss components
         self.beta = beta  # Weight for balancing the two loss components
@@ -176,30 +181,35 @@ class CustomLoss(nn.Module):
     
     def forward(self, predictions, targets):
         # First component: MSE between predictions and targets
-        mse_loss1 = self.mse(predictions[:,:2], targets[:,:2])
-        mse_loss2 = self.mse(predictions[:,2], targets[:,2])
+        #mse_loss_xHI = self.mse(predictions[:,0], targets[:,0])
+        #mse_loss_fx = self.mse(predictions[:,1], targets[:,1])
+        mse_loss_product = self.mse(predictions[:,2], targets[:,2])
         
         # Second component: MSE between product of predictions and value 3
-        pred_product = predictions[:, 0] * predictions[:, 1]
-        product_loss = 100*self.mse(pred_product, predictions[:,2])
+        #pred_product = predictions[:, 0] * predictions[:, 1]
+        #product_loss = 100*self.mse(pred_product, predictions[:,2])
         
         # Combine both losses
-        total_loss = self.alpha * (self.beta * mse_loss1 + (1 - self.beta)*mse_loss2) + (1 - self.alpha) * product_loss
+        total_loss = mse_loss_product #self.alpha * mse_loss_product + (1 - self.alpha)*mse_loss_xHI
 
-        #logger.info(f"Loss calculation:\n##predictions\n{predictions}\n##targets:\n{targets}\n##loss1\n{mse_loss1}\n##loss2\n{mse_loss2}\n##productloss\n{product_loss}\n##total_loss\n{total_loss}")
+        if args.trials == 1: logger.info(f"Loss calculation:\n##predictions\n{predictions}\n##targets:\n{targets}\n##loss1\n{mse_loss1}\n##loss2\n{mse_loss2}\n##productloss\n{product_loss}\n##total_loss\n{total_loss}")
         return total_loss
 
-def convert_to_pytorch_tensors(X, y, samples):
+def convert_to_pytorch_tensors(X, y, samples, X_noise, window_size):
     # Create different channel representations based on args.channels
     channels = []
     
-    # Channel 1: Original signal (always included)
-    channels.append(X)
-    logger.info(f"Appending channel with shape: {X.shape}")
+    # Channel 1: One of either Noise or Aggregated LoS 
+    if args.use_noise_channel:
+        logger.info(f"Appending channel with shape: {X_noise.shape}")
+        channels.append(np.repeat(X_noise, repeats=len(X), axis=0))
+    else: 
+        logger.info(f"Appending channel with shape: {X.shape}")
+        channels.append(X)
     
     if args.channels > 1:
         # Channel 2: Log of signal
-        logchannel = np.log(np.clip(X, 1e-10, None))
+        logchannel = np.log(np.clip(samples[:, 0, :], 1e-10, None))
         logger.info(f"Appending channel with shape: {logchannel.shape}")
         channels.append(logchannel)
         
@@ -211,12 +221,11 @@ def convert_to_pytorch_tensors(X, y, samples):
         
     if args.channels > 3:
         # Channel 4: Moving average
-        window_size = 150
-        movavgchannel = np.array([np.convolve(row, np.ones(window_size)/window_size, mode='same') for row in X])
+        movavgchannel = np.array([np.convolve(row, np.ones(window_size)/window_size, mode='same') for row in samples[:,0,:]])
         logger.info(f"Appending channel with shape: {movavgchannel.shape}")
         channels.append(movavgchannel)
     if args.channels > 4:
-        for i in range(samples.shape[1]):
+        for i in range(1):#samples.shape[1]):
             sampleschannel = np.array(samples)[:,i,:]
             logger.info(f"Appending channel with shape: {sampleschannel.shape}")
             channels.append(sampleschannel)
@@ -230,16 +239,21 @@ def convert_to_pytorch_tensors(X, y, samples):
     
     return X_tensor, y_tensor
 
-def run(X_train, train_samples, X_test, test_samples,y_train, y_test, num_epochs, batch_size, lr, kernel1, kernel2, dropout, input_points_to_use, showplots=False, saveplots=True):
+def run(X_train, train_samples, X_noise, X_test, test_samples,y_train, y_test, num_epochs, batch_size, lr, kernel1, dropout, input_points_to_use, showplots=False, saveplots=True):
+    run_description = f"Commandline: {' '.join(sys.argv)}\nParameters: epochs: {num_epochs}, batch_size: {batch_size}, lr: {lr}, kernel1: {kernel1}, dropout: {dropout}, points: {input_points_to_use}"
+    logger.info(f"Starting new run: {run_description}")
+
     if input_points_to_use is not None:
         X_train = X_train[:, :input_points_to_use]
         train_samples = train_samples[:,:, :input_points_to_use]
+        X_noise = X_noise[:, :input_points_to_use]
         X_test = X_test[:, :input_points_to_use]  
         test_samples = test_samples[:,:, :input_points_to_use]
     logger.info("Starting training")
 
+    kernel2 = (kernel1 // 2) + 1
     # Convert data to PyTorch tensors
-    inputs, outputs = convert_to_pytorch_tensors(X_train, y_train, train_samples)
+    inputs, outputs = convert_to_pytorch_tensors(X_train, y_train, train_samples, X_noise, window_size=kernel2)
 
     logger.info(f"Shape of inouts, outputs: {inputs.shape}, {outputs.shape}")
     # Create DataLoader for batching
@@ -261,11 +275,11 @@ def run(X_train, train_samples, X_test, test_samples,y_train, y_test, num_epochs
 
     channels = args.channels
     
-    model = CNNModel(input_size=len(X_train[0]), output_size=len(y_train[0]), channels=channels, kernel1=kernel1, kernel2=kernel2, dropout=dropout)
+    model = CNNModel(input_size=len(X_train[0]), output_size=len(y_train[0]), channels=channels, kernel1=kernel1, dropout=dropout)
     logger.info(f"Created model: {model}")
     # Loss function and optimizer
     if args.scale_y1:
-        criterion = CustomLoss(alpha=0.5)  # You can adjust alpha as needed
+        criterion = CustomLoss()  # You can adjust alpha as needed
     else:
         criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
@@ -278,7 +292,7 @@ def run(X_train, train_samples, X_test, test_samples,y_train, y_test, num_epochs
             # Zero the gradients
             optimizer.zero_grad()
             
-            if epoch==0 and i==0: logger.info(f"Shape of inout_batch, output_batch: {input_batch.shape}, {output_batch.shape}")
+            if epoch==0 and i==0: logger.info(f"Shape of input_batch, output_batch: {input_batch.shape}, {output_batch.shape}")
 
             # Forward pass
             predictions = model(input_batch)
@@ -301,11 +315,13 @@ def run(X_train, train_samples, X_test, test_samples,y_train, y_test, num_epochs
     # Evaluate the model (on a test set, here we just use the training data for simplicity)
     model.eval()  # Set the model to evaluation mode
     save_model(model)
+
+    r2 = None
     with torch.no_grad():
         # Test the model
         logger.info("Testing prediction")
 
-        test_input, test_output = convert_to_pytorch_tensors(X_test, y_test, test_samples)
+        test_input, test_output = convert_to_pytorch_tensors(X_test, y_test, test_samples, X_noise)
         logger.info(f"Shape of test_input, test_output: {test_input.shape}, {test_output.shape}")
         y_pred = model(test_input)
         test_loss = criterion(y_pred, test_output)
@@ -326,14 +342,20 @@ def run(X_train, train_samples, X_test, test_samples,y_train, y_test, num_epochs
         X_test, y_test = unscaleXy(X_test, y_test)
         logger.info(f"unscaled test result {X_test.shape} {y_test.shape} {y_pred.shape}")
     
-    mean_r2_score = base.summarize_test(y_pred_np[:,:2], y_test[:,:2], output_dir=output_dir, showplots=showplots, saveplots=saveplots)
-    return mean_r2_score
+    base.summarize_test(y_pred_np[:,:2], y_test[:,:2], output_dir=output_dir, showplots=showplots, saveplots=saveplots)
+    logger.info(f"Finished run: {run_description}")
+    return r2[2]
 
 def scaleXy(X, y):
     if args.scale_y: y[:,1] = 0.8 + y[:,1]/5.0
     if args.scale_y0: y[:,0] = y[:,0]*5.0
     if args.scale_y1:
-        y[:,1] = 0.8 + y[:,1]/5.0
+        # we wish to create a single metric representing the expected
+        # strength of the signal based on xHI (0 to 1) and logfx (-4 to +1)
+        # We know that higher xHI and lower logfx lead to a stronger signal, 
+        # First we scale logfx to range of 0 to 1.
+        # Then we take a product of xHI and (1 - logfx)
+        y[:,1] = 1 - (0.8 + y[:,1]/5.0)
         product = (y[:,0] * y[:,1]).reshape(len(y), 1)
         y = np.hstack((y, product))
 
@@ -341,46 +363,44 @@ def scaleXy(X, y):
     return X, y
 
 def unscaleXy(X, y):
+    # Undo what we did in scaleXy function
     if args.scale_y: y[:,1] = 5.0*(y[:,1] - 0.8)
     if args.scale_y0: y[:,0] = y[:,0]/5.0
     if args.scale_y1:
-        y[:,1] = 5.0*(y[:,1] - 0.8)
+        y[:,1] = 5.0*(1 - y[:,1] - 0.8)
         y = y[:,:2]
+        
     if args.logscale_X: X = np.exp(X)
     return X, y
 
 def unscale_y(y):
-    if args.scale_y: 
-        y[:,1] = 5.0*(y[:,1] - 0.8)
-        return y
-    
+    # Undo what we did in the scaleXy function
+    if args.scale_y: y[:,1] = 5.0*(1 - y[:,1] - 0.8)
+    if args.scale_y0: y[:,0] = y[:,0]/5.0
     if args.scale_y1:
-        sqrt = np.sqrt(y[:,2]).reshape((len(y), 1))
-        logfx = 5.0*(sqrt - 0.8)
-        xHI = sqrt
-        return np.hstack((xHI, logfx))
-    
+        # calculate fx using product and xHI 
+        fx = y[:,2]/y[:,0] 
+        y[:,1] = 5.0*(1 - fx - 0.8)
+        y = y[:,:2]
     return y
 
 def objective(trial):
     # Define hyperparameter search space
     params = {
-        'num_epochs': trial.suggest_int('num_epochs', 10, 50),
-        'batch_size': trial.suggest_categorical('batch_size', [16, 32, 64, 128, 256]),
-        'learning_rate': trial.suggest_float('learning_rate', 1e-5, 1e-2, log=True),
-        'kernel1': trial.suggest_int('kernel1', 3, 15, step=2),  # odd numbers only
-        'kernel2': trial.suggest_int('kernel2', 3, 7, step=2),   # odd numbers only
-        'dropout': trial.suggest_categorical('dropout', [0.1, 0.2, 0.3, 0.4, 0.5]),
-        'input_points_to_use': trial.suggest_int('input_points_to_use', 400, 2762),
+        'num_epochs': 15, #trial.suggest_int('num_epochs', 10, 40),
+        'batch_size': 32, #trial.suggest_categorical('batch_size', [16, 32, 64, 128]),
+        'learning_rate': 0.0019437504084241922, #trial.suggest_float('learning_rate', 1e-5, 1e-2, log=True),
+        'kernel1': trial.suggest_int('kernel1', 191, 401, step=35),
+        'dropout': 0.5, #trial.suggest_categorical('dropout', [0.2, 0.3, 0.4, 0.5]),
+        'input_points_to_use': 915, #trial.suggest_int('input_points_to_use', 600, 2762),
     }    
     # Run training with the suggested parameters
     try:
-        r2 = run(X_train, train_samples, X_test, test_samples, y_train, y_test, 
+        r2 = run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, 
                    num_epochs=params['num_epochs'],
                    batch_size=params['batch_size'],
                    lr=params['learning_rate'],
                    kernel1=params['kernel1'],
-                   kernel2=params['kernel2'],
                    dropout=params['dropout'],
                    input_points_to_use=params['input_points_to_use'],
                    showplots=False,
@@ -392,6 +412,7 @@ def objective(trial):
         logger.error(f"Trial failed with error: {str(e)}")
         return float('-inf')
     
+
 # main code start here
 torch.manual_seed(42)
 np.random.seed(42)
@@ -426,6 +447,9 @@ parser.add_argument('--scale_y1', action='store_true', help='Scale logfx and cal
 parser.add_argument('--logscale_X', action='store_true', help='Log scale the signal strength.')
 parser.add_argument('--channels', type=int, default=1, help='Use multiple channel inputs for the CNN.')
 parser.add_argument('--psbatchsize', type=int, default=None, help='batching for PS data.')
+parser.add_argument('--label', type=str, default='', help='just a descriptive text for the purpose of the run.')
+parser.add_argument('--trials', type=int, default=15, help='Optimization trials')
+parser.add_argument('--use_noise_channel', action='store_true', help='Use noise channel as input.')
 
 args = parser.parse_args()
 output_dir = str('output/cnn_torch_%s_%s_t%dh_b%d_%s' % (args.runmode, args.telescope,args.t_int, 1, datetime.now().strftime("%Y%m%d%H%M%S")))
@@ -458,20 +482,19 @@ if args.runmode == "train_test":
     if args.use_saved_los_data:
         X_train, y_train, train_samples = load_dataset_from_pkl()
     else:
-        X_train, y_train, train_samples = load_dataset(train_files, psbatchsize=args.psbatchsize, save=True)
+        X_train, y_train, train_samples = load_dataset(train_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=True)
     X_train, y_train = scaleXy(X_train, y_train)
     logger.info(f"Loaded dataset X_train:{X_train.shape} y:{y_train.shape}")
     logger.info(f"Loading test dataset {len(test_files)}")
-    X_test, y_test, test_samples = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
-    if args.input_points_to_use is not None:
-        X_test = X_test[:, :args.input_points_to_use]    
+    X_test, y_test, test_samples = load_dataset(test_files, psbatchsize=1, limitsamplesize=10, save=False)
+    X_noise = load_noise()
     X_test, y_test = scaleXy(X_test, y_test)
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
-    run(X_train, train_samples, X_test, test_samples, y_train, y_test, args.epochs, args.trainingbatchsize, lr=1e-3, kernel1=150, kernel2=5, dropout=0.5, input_points_to_use=args.input_points_to_use, showplots=args.interactive)
+    run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, args.epochs, args.trainingbatchsize, lr=0.0019437504084241922, kernel1=11, dropout=0.5, input_points_to_use=args.input_points_to_use, showplots=args.interactive)
 
 elif args.runmode == "test_only": # test_only
     logger.info(f"Loading test dataset {len(test_files)}")
-    X_test, y_test, samples = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
+    X_test, y_test, test_samples = load_dataset(test_files, psbatchsize=1, limitsamplesize=10, save=False)
     if args.input_points_to_use is not None:
         X_test = X_test[:, :args.input_points_to_use]
     X_test, y_test = scaleXy(X_test, y_test)
@@ -491,17 +514,20 @@ elif args.runmode == "optimize":
     if args.use_saved_los_data:
         X_train, y_train, train_samples = load_dataset_from_pkl()
     else:
-        X_train, y_train, train_samples = load_dataset(train_files, psbatchsize=args.psbatchsize, save=True)
+        X_train, y_train, train_samples = load_dataset(train_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize,save=True)
     
     X_train, y_train = scaleXy(X_train, y_train)
     
-    X_test, y_test, test_samples = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
+    X_noise = load_noise()
+
+    X_test, y_test, test_samples = load_dataset(test_files, psbatchsize=1, limitsamplesize=10, save=False)
   
     X_test, y_test = scaleXy(X_test, y_test)
     
+
     # Create study object
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=50)  # Adjust n_trials as needed
+    study.optimize(objective, n_trials=args.trials)  # Adjust n_trials as needed
 
     # Print optimization results
     logger.info("Number of finished trials: {}".format(len(study.trials)))
