@@ -103,11 +103,22 @@ def load_model():
     logger.info("Entire model loaded!")
     return loaded_model
 
+def calc_odd_half(n):
+    h = n//2
+    return  h + 1 if h % 2 == 0 else h
+
+def calc_odd_thirds(n):
+    t1 = 2*n//3
+    t1 =  t1 + 1 if t1 % 2 == 0 else t1
+    t2 = n//3
+    t2 =  t2 + 1 if t2 % 2 == 0 else t2
+    return t1, t2
 
 class CNNModel(nn.Module):
     def __init__(self, input_size, output_size, channels=1, kernel1=301, dropout=0.5):
         super(CNNModel, self).__init__()
-        kernel2 = (kernel1//2) + 1
+        kernel2 = calc_odd_half(kernel1)
+        #kernel3 = calc_odd_half(kernel2)
 
         # Convolutional layers
         self.conv_layers = nn.Sequential(
@@ -142,7 +153,6 @@ class CNNModel(nn.Module):
             nn.LeakyReLU(),
             nn.Linear(128, output_size)  # Output layer for xHI and logfX
         )
-        
     
     def forward(self, x):
         # If input is single channel, add channel dimension
@@ -168,10 +178,33 @@ class ProductLoss(nn.Module):
     def forward(self, predictions, targets):
         pred_product = predictions[:, 0] * predictions[:, 1]
         target_product = targets[:, 0] * targets[:, 1]
-        product_loss = 100*self.mse(pred_product, target_product)
+        product_loss = self.mse(pred_product, target_product)
         
         return product_loss
+
+class XHILoss(nn.Module):
+    def __init__(self):
+        super(XHILoss, self).__init__()
+        self.mse = nn.MSELoss()
     
+    def forward(self, predictions, targets):
+
+        xHI_loss = self.mse(predictions[:,0], targets[:,0])
+        
+        return xHI_loss
+
+
+class LogfxLoss(nn.Module):
+    def __init__(self):
+        super(LogfxLoss, self).__init__()
+        self.mse = nn.MSELoss()
+    
+    def forward(self, predictions, targets):
+
+        logfx_loss = self.mse(predictions[:,1], targets[:,1])
+        
+        return logfx_loss
+
 class CustomLoss(nn.Module):
     def __init__(self, alpha=0.8, beta=0.25):
         super(CustomLoss, self).__init__()
@@ -182,17 +215,17 @@ class CustomLoss(nn.Module):
     def forward(self, predictions, targets):
         # First component: MSE between predictions and targets
         #mse_loss_xHI = self.mse(predictions[:,0], targets[:,0])
-        #mse_loss_fx = self.mse(predictions[:,1], targets[:,1])
-        mse_loss_product = self.mse(predictions[:,2], targets[:,2])
+        mse_fx = self.mse(predictions[:,1], targets[:,1])
+        mse_product = self.mse(predictions[:,2], targets[:,2])
         
         # Second component: MSE between product of predictions and value 3
         #pred_product = predictions[:, 0] * predictions[:, 1]
         #product_loss = 100*self.mse(pred_product, predictions[:,2])
         
         # Combine both losses
-        total_loss = mse_loss_product #self.alpha * mse_loss_product + (1 - self.alpha)*mse_loss_xHI
+        total_loss = self.alpha * mse_product + (1 - self.alpha) * mse_fx
 
-        if args.trials == 1: logger.info(f"Loss calculation:\n##predictions\n{predictions}\n##targets:\n{targets}\n##loss1\n{mse_loss1}\n##loss2\n{mse_loss2}\n##productloss\n{product_loss}\n##total_loss\n{total_loss}")
+        #if args.trials == 1: logger.info(f"Loss calculation:\n##predictions\n{predictions}\n##targets:\n{targets}\n##loss1\n{mse_loss_fx}\n##loss2\n{mse_loss_product}\n##total_loss\n{total_loss}")
         return total_loss
 
 def convert_to_pytorch_tensors(X, y, samples, X_noise, window_size):
@@ -201,8 +234,9 @@ def convert_to_pytorch_tensors(X, y, samples, X_noise, window_size):
     
     # Channel 1: One of either Noise or Aggregated LoS 
     if args.use_noise_channel:
-        logger.info(f"Appending channel with shape: {X_noise.shape}")
-        channels.append(np.repeat(X_noise, repeats=len(X), axis=0))
+        noisechannel = np.repeat(X_noise, repeats=len(X), axis=0)
+        logger.info(f"Appending channel with shape: {noisechannel.shape}")
+        channels.append(noisechannel)
     else: 
         logger.info(f"Appending channel with shape: {X.shape}")
         channels.append(X)
@@ -215,7 +249,7 @@ def convert_to_pytorch_tensors(X, y, samples, X_noise, window_size):
         
     if args.channels > 2:
         # Channel 3: Gradient of signal
-        gradchannel = np.gradient(X, axis=1)
+        gradchannel = np.gradient(samples[:, 0, :], axis=1)
         logger.info(f"Appending channel with shape: {gradchannel.shape}")
         channels.append(gradchannel)
         
@@ -231,17 +265,19 @@ def convert_to_pytorch_tensors(X, y, samples, X_noise, window_size):
             channels.append(sampleschannel)
 
     # Stack channels along a new axis
-    X = np.stack(channels[:args.channels], axis=1)
+    combined_input = np.stack(channels[:args.channels], axis=1)
     
     # Convert to PyTorch tensors with float32 dtype
-    X_tensor = torch.tensor(X, dtype=torch.float32)
+    X_tensor = torch.tensor(combined_input, dtype=torch.float32)
     y_tensor = torch.tensor(y, dtype=torch.float32)
     
     return X_tensor, y_tensor
 
 def run(X_train, train_samples, X_noise, X_test, test_samples,y_train, y_test, num_epochs, batch_size, lr, kernel1, dropout, input_points_to_use, showplots=False, saveplots=True):
-    run_description = f"Commandline: {' '.join(sys.argv)}\nParameters: epochs: {num_epochs}, batch_size: {batch_size}, lr: {lr}, kernel1: {kernel1}, dropout: {dropout}, points: {input_points_to_use}"
+    run_description = f"Commandline: {' '.join(sys.argv)}\nParameters: epochs: {num_epochs}, batch_size: {batch_size}, lr: {lr}, kernel1: {kernel1}, dropout: {dropout}, points: {input_points_to_use}, label={args.label}"
     logger.info(f"Starting new run: {run_description}")
+    X_train, y_train = scaleXy(X_train, y_train)
+    X_test, y_test = scaleXy(X_test, y_test)
 
     if input_points_to_use is not None:
         X_train = X_train[:, :input_points_to_use]
@@ -249,9 +285,9 @@ def run(X_train, train_samples, X_noise, X_test, test_samples,y_train, y_test, n
         X_noise = X_noise[:, :input_points_to_use]
         X_test = X_test[:, :input_points_to_use]  
         test_samples = test_samples[:,:, :input_points_to_use]
-    logger.info("Starting training")
+    logger.info(f"Starting training. {X_train.shape},{X_test.shape},{y_train.shape},{y_test.shape}")
 
-    kernel2 = (kernel1 // 2) + 1
+    kernel2 = calc_odd_half(kernel1)
     # Convert data to PyTorch tensors
     inputs, outputs = convert_to_pytorch_tensors(X_train, y_train, train_samples, X_noise, window_size=kernel2)
 
@@ -278,7 +314,11 @@ def run(X_train, train_samples, X_noise, X_test, test_samples,y_train, y_test, n
     model = CNNModel(input_size=len(X_train[0]), output_size=len(y_train[0]), channels=channels, kernel1=kernel1, dropout=dropout)
     logger.info(f"Created model: {model}")
     # Loss function and optimizer
-    if args.scale_y1:
+    if args.xhi_only:
+        criterion = XHILoss()  
+    elif args.logfx_only:
+        criterion = LogfxLoss()
+    elif args.scale_y1:
         criterion = CustomLoss()  # You can adjust alpha as needed
     else:
         criterion = nn.MSELoss()
@@ -321,7 +361,7 @@ def run(X_train, train_samples, X_noise, X_test, test_samples,y_train, y_test, n
         # Test the model
         logger.info("Testing prediction")
 
-        test_input, test_output = convert_to_pytorch_tensors(X_test, y_test, test_samples, X_noise)
+        test_input, test_output = convert_to_pytorch_tensors(X_test, y_test, test_samples, X_noise, window_size=kernel2)
         logger.info(f"Shape of test_input, test_output: {test_input.shape}, {test_output.shape}")
         y_pred = model(test_input)
         test_loss = criterion(y_pred, test_output)
@@ -329,12 +369,12 @@ def run(X_train, train_samples, X_noise, X_test, test_samples,y_train, y_test, n
 
 
         # Calculate R2 scores
-        y_pred_np = y_pred.detach().cpu().numpy()
+        y_pred = y_pred.detach().cpu().numpy()
 
-        r2 = [r2_score(y_test[:, i], y_pred_np[:, i]) for i in range(len(y_pred_np[0]))]
+        r2 = [r2_score(y_test[:, i], y_pred[:, i]) for i in range(len(y_pred[0]))]
         logger.info("R2 Score: " + str(r2))
         # Calculate rmse scores
-        rms_scores = [mean_squared_error(y_test[:, i], y_pred_np[:, i]) for i in range(len(y_pred_np[0]))]
+        rms_scores = [mean_squared_error(y_test[:, i], y_pred[:, i]) for i in range(len(y_pred[0]))]
         rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test, axis=0)
         logger.info("RMS Error: " + str(rms_scores_percent))
  
@@ -342,7 +382,7 @@ def run(X_train, train_samples, X_noise, X_test, test_samples,y_train, y_test, n
         X_test, y_test = unscaleXy(X_test, y_test)
         logger.info(f"unscaled test result {X_test.shape} {y_test.shape} {y_pred.shape}")
     
-    base.summarize_test(y_pred_np[:,:2], y_test[:,:2], output_dir=output_dir, showplots=showplots, saveplots=saveplots)
+    base.summarize_test_1000(y_pred, y_test, output_dir=output_dir, showplots=showplots, saveplots=saveplots)
     logger.info(f"Finished run: {run_description}")
     return r2[2]
 
@@ -355,9 +395,11 @@ def scaleXy(X, y):
         # We know that higher xHI and lower logfx lead to a stronger signal, 
         # First we scale logfx to range of 0 to 1.
         # Then we take a product of xHI and (1 - logfx)
+        if args.trials == 1: logger.info(f"Before scaleXy: {y}")
         y[:,1] = 1 - (0.8 + y[:,1]/5.0)
-        product = (y[:,0] * y[:,1]).reshape(len(y), 1)
+        product = np.sqrt(y[:,0]**2 + y[:,1]**2).reshape(len(y), 1)
         y = np.hstack((y, product))
+        if args.trials == 1: logger.info(f"ScaledXy: {y}")
 
     if args.logscale_X: X = np.log(X)
     return X, y
@@ -367,8 +409,10 @@ def unscaleXy(X, y):
     if args.scale_y: y[:,1] = 5.0*(y[:,1] - 0.8)
     if args.scale_y0: y[:,0] = y[:,0]/5.0
     if args.scale_y1:
+        if args.trials == 1: logger.info(f"Before unscaleXy: {y}")
         y[:,1] = 5.0*(1 - y[:,1] - 0.8)
         y = y[:,:2]
+        if args.trials == 1: logger.info(f"UnscaledXy: {y}")
         
     if args.logscale_X: X = np.exp(X)
     return X, y
@@ -379,20 +423,22 @@ def unscale_y(y):
     if args.scale_y0: y[:,0] = y[:,0]/5.0
     if args.scale_y1:
         # calculate fx using product and xHI 
-        fx = y[:,2]/y[:,0] 
-        y[:,1] = 5.0*(1 - fx - 0.8)
+        if args.trials == 1: logger.info(f"Before unscale_y: {y}")
+        y[:,0] = np.sqrt(y[:,2]**2 - y[:,1]**2)
+        y[:,1] = 5.0*(1 - y[:,1] - 0.8)
+        if args.trials == 1: logger.info(f"Unscaled_y: {y}")
         y = y[:,:2]
     return y
 
 def objective(trial):
     # Define hyperparameter search space
     params = {
-        'num_epochs': 15, #trial.suggest_int('num_epochs', 10, 40),
-        'batch_size': 32, #trial.suggest_categorical('batch_size', [16, 32, 64, 128]),
-        'learning_rate': 0.0019437504084241922, #trial.suggest_float('learning_rate', 1e-5, 1e-2, log=True),
-        'kernel1': trial.suggest_int('kernel1', 191, 401, step=35),
+        'num_epochs': trial.suggest_int('num_epochs', 12, 24),
+        'batch_size': 32, #trial.suggest_categorical('batch_size', [16, 32, 48]),
+        'learning_rate': 0.002, # trial.suggest_float('learning_rate', 7e-4, 7e-3, log=True), # 0.0019437504084241922, 
+        'kernel1': trial.suggest_int('kernel1', 153, 321, step=21),
         'dropout': 0.5, #trial.suggest_categorical('dropout', [0.2, 0.3, 0.4, 0.5]),
-        'input_points_to_use': 915, #trial.suggest_int('input_points_to_use', 600, 2762),
+        'input_points_to_use': 915,#trial.suggest_int('input_points_to_use', 900, 1400),
     }    
     # Run training with the suggested parameters
     try:
@@ -404,7 +450,7 @@ def objective(trial):
                    dropout=params['dropout'],
                    input_points_to_use=params['input_points_to_use'],
                    showplots=False,
-                   saveplots=False)
+                   saveplots=True)
             
         return r2
     
@@ -438,9 +484,9 @@ parser.add_argument('--modelfile', type=str, default="output/cnn-torch-21cmfores
 parser.add_argument('--limitsamplesize', type=int, default=20, help='limit samples from one file to this number.')
 parser.add_argument('--interactive', action='store_true', help='run in interactive mode. show plots as modals.')
 parser.add_argument('--use_saved_los_data', action='store_true', help='load LoS data from pkl file.')
-parser.add_argument('--epochs', type=int, default=10, help='Number of epoch of training.')
-parser.add_argument('--trainingbatchsize', type=int, default=64, help='Size of batch for training.')
-parser.add_argument('--input_points_to_use', type=int, default=None, help='use the first n points of los. ie truncate the los to first 690 points')
+parser.add_argument('--epochs', type=int, default=15, help='Number of epoch of training.')
+parser.add_argument('--trainingbatchsize', type=int, default=32, help='Size of batch for training.')
+parser.add_argument('--input_points_to_use', type=int, default=915, help='use the first n points of los. ie truncate the los to first 690 points')
 parser.add_argument('--scale_y', action='store_true', help='Scale the y parameters (logfX).')
 parser.add_argument('--scale_y0', action='store_true', help='Scale the y parameters (xHI).')
 parser.add_argument('--scale_y1', action='store_true', help='Scale logfx and calculate product of logfx with xHI.')
@@ -450,6 +496,8 @@ parser.add_argument('--psbatchsize', type=int, default=None, help='batching for 
 parser.add_argument('--label', type=str, default='', help='just a descriptive text for the purpose of the run.')
 parser.add_argument('--trials', type=int, default=15, help='Optimization trials')
 parser.add_argument('--use_noise_channel', action='store_true', help='Use noise channel as input.')
+parser.add_argument('--xhi_only', action='store_true', help='calc loss for xhi only')
+parser.add_argument('--logfx_only', action='store_true', help='calc loss for logfx only')
 
 args = parser.parse_args()
 output_dir = str('output/cnn_torch_%s_%s_t%dh_b%d_%s' % (args.runmode, args.telescope,args.t_int, 1, datetime.now().strftime("%Y%m%d%H%M%S")))
@@ -483,14 +531,12 @@ if args.runmode == "train_test":
         X_train, y_train, train_samples = load_dataset_from_pkl()
     else:
         X_train, y_train, train_samples = load_dataset(train_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=True)
-    X_train, y_train = scaleXy(X_train, y_train)
     logger.info(f"Loaded dataset X_train:{X_train.shape} y:{y_train.shape}")
     logger.info(f"Loading test dataset {len(test_files)}")
     X_test, y_test, test_samples = load_dataset(test_files, psbatchsize=1, limitsamplesize=10, save=False)
     X_noise = load_noise()
-    X_test, y_test = scaleXy(X_test, y_test)
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
-    run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, args.epochs, args.trainingbatchsize, lr=0.0019437504084241922, kernel1=11, dropout=0.5, input_points_to_use=args.input_points_to_use, showplots=args.interactive)
+    run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, args.epochs, args.trainingbatchsize, lr=0.0019437504084241922, kernel1=263, dropout=0.5, input_points_to_use=args.input_points_to_use, showplots=args.interactive)
 
 elif args.runmode == "test_only": # test_only
     logger.info(f"Loading test dataset {len(test_files)}")
@@ -501,7 +547,7 @@ elif args.runmode == "test_only": # test_only
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
     model = load_model(args.modelfile)
     y_pred = model.predict(X_test)
-
+    y_pred = y_pred.detach().cpu().numpy()
     y_pred = unscale_y(y_pred)
     X_test, y_test = unscaleXy(X_test, y_test)
     base.summarize_test(y_pred[:,:2], y_test[:,:2], output_dir=output_dir, showplots=args.interactive)
@@ -515,15 +561,10 @@ elif args.runmode == "optimize":
         X_train, y_train, train_samples = load_dataset_from_pkl()
     else:
         X_train, y_train, train_samples = load_dataset(train_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize,save=True)
-    
-    X_train, y_train = scaleXy(X_train, y_train)
-    
+        
     X_noise = load_noise()
 
     X_test, y_test, test_samples = load_dataset(test_files, psbatchsize=1, limitsamplesize=10, save=False)
-  
-    X_test, y_test = scaleXy(X_test, y_test)
-    
 
     # Create study object
     study = optuna.create_study(direction="maximize")

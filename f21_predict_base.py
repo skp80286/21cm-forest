@@ -137,6 +137,83 @@ def plot_predictions(df_y, colors):
     plt.legend()
     plt.show()
 
+def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplots=True):
+    """
+    Analyze predictions by grouping them into sets of 10 for each unique test point.
+    
+    Parameters:
+    y_pred: numpy array of predictions (16000, 2)
+    y_test: numpy array of test values (16000, 2)
+    """
+    # Create unique identifier for each test point
+    unique_test_points = np.unique(y_test[:,:2], axis=0)
+    logger.info(f"Number of unique test points: {len(unique_test_points)}")
+    logger.info(f"Unique test points: {unique_test_points}")
+    
+    # Calculate mean predictions for each unique test point
+    mean_predictions = []
+    std_predictions = []
+    
+    for test_point in unique_test_points:
+        # Find all predictions corresponding to this test point
+        mask = np.all(y_test == test_point, axis=1)
+        corresponding_preds = y_pred[mask]
+
+        # Calculate mean and std of predictions
+        mean_pred = np.mean(corresponding_preds, axis=0)
+        std_pred = np.std(corresponding_preds, axis=0)
+        logger.info(f"Test point: {test_point}, Number of preds: {len(corresponding_preds)}, Mean: {mean_pred}, Std: {std_pred}")
+        
+        mean_predictions.append(mean_pred)
+        std_predictions.append(std_pred)
+    
+    mean_predictions = np.array(mean_predictions)
+    std_predictions = np.array(std_predictions)
+    
+    # Calculate R2 score using mean predictions
+    r2 = [r2_score(unique_test_points[:, i], mean_predictions[:, i]) for i in range(2)]
+    logger.info("R2 Score (using means): " + str(r2))
+    
+    # Plotting
+    if showplots or saveplots:
+        plt.rcParams['figure.figsize'] = [15, 9]
+        fig, ax = plt.subplots()
+        
+        # Plot mean predictions
+        plt.scatter(mean_predictions[:, 0], mean_predictions[:, 1], 
+                   marker="o", s=25, label='Mean Predicted', alpha=0.7)
+        
+        # Plot actual points
+        plt.scatter(unique_test_points[:, 0], unique_test_points[:, 1], 
+                   marker="*", s=200, label='Actual', color='red')
+        
+        plt.plot([mean_predictions[:, 0], unique_test_points[:, 0]], [mean_predictions[:, 1], unique_test_points[:, 1]], 'r--', alpha=0.2)
+        # Plot std dev contours
+        for i in range(len(unique_test_points)):
+            # Create ellipse points
+            theta = np.linspace(0, 2*np.pi, 100)
+            x = mean_predictions[i, 0] + std_predictions[i, 0] * np.cos(theta)
+            y = mean_predictions[i, 1] + std_predictions[i, 1] * np.sin(theta)
+            plt.plot(x, y, 'k--', alpha=0.2)
+        
+        plt.xlim(0, 1)
+        plt.ylim(-4, 1)
+        plt.xlabel('xHI')
+        plt.ylabel('logfX')
+        plt.title('Mean Predictions with ±1σ Contours')
+        plt.legend()
+        
+        if showplots: plt.show()
+        if saveplots: plt.savefig(f'{output_dir}/f21_prediction_means.png')
+        plt.clf()
+    
+    # Log statistics
+    logger.info("\nPrediction Statistics:")
+    logger.info(f"Mean xHI std: {np.mean(std_predictions[:, 0]):.4f}")
+    logger.info(f"Mean logfX std: {np.mean(std_predictions[:, 1]):.4f}")
+    
+    return np.mean(r2)    
+
 def summarize_test(y_pred, y_test, output_dir=".", showplots=False, saveplots=True):
     logger.info(f"y_pred: {y_pred}")
     logger.info(f"y_test: {y_test}")
