@@ -384,7 +384,10 @@ def run(X_train, train_samples, X_noise, X_test, test_samples,y_train, y_test, n
     
     base.summarize_test_1000(y_pred, y_test, output_dir=output_dir, showplots=showplots, saveplots=saveplots)
     logger.info(f"Finished run: {run_description}")
-    return r2[2]
+    if args.scale_y1: return r2[2]
+    if args.xhi_only: return r2[0]
+    if args.logfx_only: return r2[1]
+    return 0.5*(r2[0]+r2[1])
 
 def scaleXy(X, y):
     if args.scale_y: y[:,1] = 0.8 + y[:,1]/5.0
