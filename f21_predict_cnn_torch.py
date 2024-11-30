@@ -115,9 +115,9 @@ def calc_odd_thirds(n):
     return t1, t2
 
 class CNNModel(nn.Module):
-    def __init__(self, input_size, output_size, channels=1, kernel1=301, dropout=0.5):
+    def __init__(self, input_size, output_size, channels=1, kernel1=301, kernel2=151, dropout=0.5):
         super(CNNModel, self).__init__()
-        kernel2 = calc_odd_half(kernel1)
+        #kernel2 = calc_odd_half(kernel1)
         #kernel3 = calc_odd_half(kernel2)
 
         # Convolutional layers
@@ -273,8 +273,8 @@ def convert_to_pytorch_tensors(X, y, samples, X_noise, window_size):
     
     return X_tensor, y_tensor
 
-def run(X_train, train_samples, X_noise, X_test, test_samples,y_train, y_test, num_epochs, batch_size, lr, kernel1, dropout, input_points_to_use, showplots=False, saveplots=True):
-    run_description = f"Commandline: {' '.join(sys.argv)}\nParameters: epochs: {num_epochs}, batch_size: {batch_size}, lr: {lr}, kernel1: {kernel1}, dropout: {dropout}, points: {input_points_to_use}, label={args.label}"
+def run(X_train, train_samples, X_noise, X_test, test_samples,y_train, y_test, num_epochs, batch_size, lr, kernel1, kernel2, dropout, input_points_to_use, showplots=False, saveplots=True):
+    run_description = f"Commandline: {' '.join(sys.argv)}\nParameters: epochs: {num_epochs}, batch_size: {batch_size}, lr: {lr}, kernel1: {kernel1}, kernel2: {kernel2}, dropout: {dropout}, points: {input_points_to_use}, label={args.label}"
     logger.info(f"Starting new run: {run_description}")
     X_train, y_train = scaleXy(X_train, y_train)
     X_test, y_test = scaleXy(X_test, y_test)
@@ -287,7 +287,7 @@ def run(X_train, train_samples, X_noise, X_test, test_samples,y_train, y_test, n
         test_samples = test_samples[:,:, :input_points_to_use]
     logger.info(f"Starting training. {X_train.shape},{X_test.shape},{y_train.shape},{y_test.shape}")
 
-    kernel2 = calc_odd_half(kernel1)
+    #kernel2 = calc_odd_half(kernel1)
     # Convert data to PyTorch tensors
     inputs, outputs = convert_to_pytorch_tensors(X_train, y_train, train_samples, X_noise, window_size=kernel2)
 
@@ -311,7 +311,7 @@ def run(X_train, train_samples, X_noise, X_test, test_samples,y_train, y_test, n
 
     channels = args.channels
     
-    model = CNNModel(input_size=len(X_train[0]), output_size=len(y_train[0]), channels=channels, kernel1=kernel1, dropout=dropout)
+    model = CNNModel(input_size=len(X_train[0]), output_size=len(y_train[0]), channels=channels, kernel1=kernel1, kernel2=kernel2, dropout=dropout)
     logger.info(f"Created model: {model}")
     # Loss function and optimizer
     if args.xhi_only:
@@ -439,7 +439,8 @@ def objective(trial):
         'num_epochs': trial.suggest_int('num_epochs', 12, 24),
         'batch_size': 32, #trial.suggest_categorical('batch_size', [16, 32, 48]),
         'learning_rate': 0.002, # trial.suggest_float('learning_rate', 7e-4, 7e-3, log=True), # 0.0019437504084241922, 
-        'kernel1': trial.suggest_int('kernel1', 153, 321, step=21),
+        'kernel1': trial.suggest_int('kernel1', 3, 203, step=10),
+        'kernel2': trial.suggest_int('kernel2', 3, 203, step=10),
         'dropout': 0.5, #trial.suggest_categorical('dropout', [0.2, 0.3, 0.4, 0.5]),
         'input_points_to_use': 915,#trial.suggest_int('input_points_to_use', 900, 1400),
     }    
@@ -450,6 +451,7 @@ def objective(trial):
                    batch_size=params['batch_size'],
                    lr=params['learning_rate'],
                    kernel1=params['kernel1'],
+                   kernel2=params['kernel2'],
                    dropout=params['dropout'],
                    input_points_to_use=params['input_points_to_use'],
                    showplots=False,
@@ -539,7 +541,7 @@ if args.runmode == "train_test":
     X_test, y_test, test_samples = load_dataset(test_files, psbatchsize=1, limitsamplesize=10, save=False)
     X_noise = load_noise()
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
-    run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, args.epochs, args.trainingbatchsize, lr=0.0019437504084241922, kernel1=263, dropout=0.5, input_points_to_use=args.input_points_to_use, showplots=args.interactive)
+    run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, args.epochs, args.trainingbatchsize, lr=0.0019437504084241922, kernel1=263, kernel2=131, dropout=0.5, input_points_to_use=args.input_points_to_use, showplots=args.interactive)
 
 elif args.runmode == "test_only": # test_only
     logger.info(f"Loading test dataset {len(test_files)}")
