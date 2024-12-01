@@ -119,27 +119,37 @@ def calc_odd_thirds(n):
     t2 =  t2 + 1 if t2 % 2 == 0 else t2
     return t1, t2
 
-"""
 def calculate_stats_torch(X, y, kernel_size=33):
-    X_tensor = torch.tensor(X)
-
-    X_3d = X_tensor.view(X.shape[0], X.shape[1]//kernel_size, kernel_size)
-
-
     stat_calc = []
 
-    for i, row in enumerate(X):
-        pieces = np.array_split(row, len(row)//kernel_size)
-        # Calculate statistics for each piece
-        skewness = [stats.skew(p) for p in pieces]
-        mean_val = np.mean(skewness)
-        std_val = np.std(skewness)
-        skew2 = stats.skew(skewness)
-        if i < 10: logger.info(f'Mean, stdev. skew2 of skewness for xHI={y[i, 0]} logfx={y[i, 1]}, kernel_size={kernel_size} = {mean_val}, {std_val}, {skew2}')
-        stat_calc.append([mean_val, std_val, skew2])
+    for i,x in enumerate(X):
+        tensor_1d = torch.tensor(x)
+         # Pad the tensor if length is not divisible by 3
+        padding_needed = kernel_size - len(tensor_1d) % kernel_size
+        if padding_needed > 0:
+            tensor_1d = torch.nn.functional.pad(tensor_1d, (0, padding_needed))
+    
+        tensor_2d = tensor_1d.view(-1,kernel_size)
+        means = torch.mean(tensor_2d, dim=1)
+        std = torch.std(tensor_2d, dim=1, unbiased=False)
 
+        centered_x = tensor_2d - means.unsqueeze(1)
+        skewness = torch.mean((centered_x / (std.unsqueeze(1) + 1e-8)) ** 3, dim=1)
+
+        mean_skew = torch.mean(skewness)
+        std_skew = torch.std(skewness, unbiased=False)
+        
+        centered_skew = skewness - mean_skew
+        skew2 = torch.mean((centered_skew / (std_skew.unsqueeze(0) + 1e-8)) ** 3)
+                
+        min_skew = torch.min(skewness)
+
+        row = [mean_skew.item(), std_skew.item(), skew2.item(), min_skew.item()]
+        stat_calc.append(row)
+
+        if i < 5: logger.info(f'Mean, stdev. skew2 of skewness for xHI={y[i, 0]} logfx={y[i, 1]}, kernel_size={kernel_size} = {row}')
     return np.array(stat_calc)
-"""
+
 
 def calculate_stats(X, y, kernel_size=33):
     stat_calc = []
@@ -171,7 +181,7 @@ def run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, 
         X_test = X_test[:, :input_points_to_use]  
         if test_samples is not None: test_samples = test_samples[:,:, :input_points_to_use]
     
-    X_train = calculate_stats(X_train, y_train, kernel_size)
+    X_train = calculate_stats_torch(X_train, y_train, kernel_size)
     
     logger.info(f"Starting training. {X_train.shape},{X_test.shape},{y_train.shape},{y_test.shape}")
 
@@ -196,26 +206,27 @@ def run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, 
         reg.fit(X_train, y_train)
 
     logger.info(f"Testing")
-    X_test = calculate_stats(X_test, y_test, kernel_size)
+    X_test = calculate_stats_torch(X_test, y_test, kernel_size)
     #score = reg.score(X_test, y_test)
     #logger.info(f"Test score={score}, intercept={reg.intercept_}, coefficients=\n{reg.coef_}\n")
     y_pred = reg.predict(X_test)
+    print(f"y_pred:\n{y_pred[:5]}")
 
     if y_pred.ndim==1:
         y_pred = y_pred.reshape(len(y_pred),1)
         if args.scale_y2:
-            logger.info(f"Prediction vs Test data: \n{np.hstack((y_test[:, 2].reshape(len(y_test),1), y_pred))}")
+            logger.info(f"Prediction vs Test data: \n{np.hstack((y_test[:, 2].reshape(len(y_test),1), y_pred))[:5]}")
             r2 = r2_score(y_test[:, 2], y_pred)
         elif args.xhi_only:
-            logger.info(f"Prediction vs Test data: \n{np.hstack((y_test[:, 0].reshape(len(y_test),1), y_pred))}")
+            logger.info(f"Prediction vs Test data: \n{np.hstack((y_test[:, 0].reshape(len(y_test),1), y_pred))[:5]}")
             r2 = r2_score(y_test[:, 0], y_pred)
         elif args.logfx_only:
-            logger.info(f"Prediction vs Test data: \n{np.hstack((y_test[:, 1].reshape(len(y_test),1), y_pred))}")
+            logger.info(f"Prediction vs Test data: \n{np.hstack((y_test[:, 1].reshape(len(y_test),1), y_pred))[:5]}")
             r2 = r2_score(y_test[:, 1], y_pred)
         else:
             r2 = r2_score(y_test, y_pred)
     else:
-        logger.info("Prediction vs Test data: \n{np.hstack((y_pred, y_test))}")
+        logger.info(f"Prediction vs Test data: \n{np.hstack((y_pred, y_test))[:5]}")
         # Evaluate the model (on a test set, here we just use the training data for simplicity)
         r2 = [r2_score(y_test[:, i], y_pred[:, i]) for i in range(len(y_pred[0]))]
     logger.info("R2 Score: " + str(r2))
@@ -240,7 +251,10 @@ def run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, 
     return combined_r2
 
 def scaleXy(X, y):
-    if args.scale_y: y[:,1] = 0.8 + y[:,1]/5.0
+    if args.scale_y: 
+        xHI = y[:, 0].reshape(len(y), 1)
+        scaledfx = (0.8 + y[:,1]/5.0).reshape(len(y), 1)
+        y = np.hstack((xHI, scaledfx))
     if args.scale_y0: y[:,0] = y[:,0]*5.0
     if args.scale_y1:
         # we wish to create a single metric representing the expected
@@ -271,43 +285,48 @@ def scaleXy(X, y):
 
 def unscaleXy(X, y):
     # Undo what we did in scaleXy function
-    if args.scale_y: y[:,1] = 5.0*(y[:,1] - 0.8)
-    if args.scale_y0: y[:,0] = y[:,0]/5.0
-    if args.scale_y1:
+    if args.scale_y: 
+        xHI = y[:, 0].reshape(len(y), 1)
+        fx = 5.0*(y[:,1] - 0.8).reshape(len(y), 1)
+        y = np.hstack((xHI, fx))
+    elif args.scale_y0: y[:,0] = y[:,0]/5.0
+    elif args.scale_y1:
         if args.trials == 1: logger.info(f"Before unscaleXy: {y}")
         xHI = y[:, 0].reshape(len(y), 1)
         fx = 5.0*(1 - y[:,1] - 0.8)
         y = np.hstack((xHI, fx))
         if args.trials == 1: logger.info(f"UnscaledXy: {y}")
-    if args.scale_y2:
+    elif args.scale_y2:
         if args.trials == 1: logger.info(f"Before unscaleXy: {y}")
         xHI = y[:, 0].reshape(len(y), 1)
         fx = 5.0*(1 - y[:,1] - 0.8).reshape(len(y), 1)
         y = np.hstack((xHI, fx))
         if args.trials == 1: logger.info(f"UnscaledXy: {y}")
                 
-    if args.logscale_X: X = np.exp(X)
+    elif args.logscale_X: X = np.exp(X)
     return X, y
 
 def unscale_y(y):
     # Undo what we did in the scaleXy function
-    if args.scale_y: y[:,1] = 5.0*(y[:,1] - 0.8)
-    if args.scale_y0: y[:,0] = y[:,0]/5.0
-    if args.scale_y1:
+    if args.scale_y: 
+        xHI = y[:, 0].reshape(len(y), 1)
+        fx = 5.0*(y[:,1] - 0.8).reshape(len(y), 1)
+        y = np.hstack((xHI, fx))
+    elif args.scale_y0: y[:,0] = y[:,0]/5.0
+    elif args.scale_y1:
         # calculate fx using product and xHI 
         if args.trials == 1: logger.info(f"Before unscale_y: {y}")
         xHI = np.sqrt(y[:,2]**2 - y[:,1]**2)
         fx = 5.0*(1 - y[:,1] - 0.8)
         if args.trials == 1: logger.info(f"Unscaled_y: {y}")
         y = np.hstack((xHI, fx))
-    if args.scale_y2:
+    elif args.scale_y2:
         # calculate fx using product and xHI 
         if args.trials == 1: logger.info(f"Before unscale_y: {y}")
         xHI = np.sqrt(0.5*y**2).reshape((len(y), 1))
         fx = 5.0*(1 - xHI - 0.8)
         y = np.hstack((xHI, fx))
         if args.trials == 1: logger.info(f"Unscaled_y: {y}")
-    
     elif args.xhi_only:
         # calculate fx using xHI 
         if args.trials == 1: logger.info(f"Before unscale_y: {y}")
@@ -315,7 +334,6 @@ def unscale_y(y):
         fx = 5.0*(1 - xHI - 0.8)
         y = np.hstack((xHI, fx))
         if args.trials == 1: logger.info(f"Unscaled_y: {y}")
-
     elif args.logfx_only:
         # calculate fx using xHI 
         if args.trials == 1: logger.info(f"Before unscale_y: {y}")
