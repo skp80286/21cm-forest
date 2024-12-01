@@ -399,11 +399,23 @@ def scaleXy(X, y):
         # First we scale logfx to range of 0 to 1.
         # Then we take a product of xHI and (1 - logfx)
         if args.trials == 1: logger.info(f"Before scaleXy: {y}")
-        y[:,1] = 1 - (0.8 + y[:,1]/5.0)
-        product = np.sqrt(y[:,0]**2 + y[:,1]**2).reshape(len(y), 1)
-        y = np.hstack((y, product))
+        xHI = y[:, 0].reshape(len(y), 1)
+        scaledfx = 1 - (0.8 + y[:,1]/5.0)
+        product = np.sqrt(xHI**2 + scaledfx**2).reshape(len(y), 1)
+        y = np.hstack((xHI, scaledfx, product))
         if args.trials == 1: logger.info(f"ScaledXy: {y}")
-
+    if args.scale_y2:
+        # we wish to create a single metric representing the expected
+        # strength of the signal based on xHI (0 to 1) and logfx (-4 to +1)
+        # We know that higher xHI and lower logfx lead to a stronger signal, 
+        # First we scale logfx to range of 0 to 1.
+        # Then we take a product of xHI and (1 - logfx)
+        if args.trials == 1: logger.info(f"Before scaleXy: {y}")
+        xHI = y[:, 0].reshape(len(y), 1)
+        scaledfx = 1 - (0.8 + y[:,1]/5.0).reshape(len(y), 1)
+        product = np.sqrt(xHI**2 + scaledfx**2).reshape(len(y), 1)
+        y = np.hstack((xHI, scaledfx, product))
+        if args.trials == 1: logger.info(f"ScaledXy: {y}")
     if args.logscale_X: X = np.log(X)
     return X, y
 
@@ -413,10 +425,17 @@ def unscaleXy(X, y):
     if args.scale_y0: y[:,0] = y[:,0]/5.0
     if args.scale_y1:
         if args.trials == 1: logger.info(f"Before unscaleXy: {y}")
-        y[:,1] = 5.0*(1 - y[:,1] - 0.8)
-        y = y[:,:2]
+        xHI = y[:, 0].reshape(len(y), 1)
+        fx = 5.0*(1 - y[:,1] - 0.8)
+        y = np.hstack((xHI, fx))
         if args.trials == 1: logger.info(f"UnscaledXy: {y}")
-        
+    if args.scale_y2:
+        if args.trials == 1: logger.info(f"Before unscaleXy: {y}")
+        xHI = y[:, 0].reshape(len(y), 1)
+        fx = 5.0*(1 - y[:,1] - 0.8).reshape(len(y), 1)
+        y = np.hstack((xHI, fx))
+        if args.trials == 1: logger.info(f"UnscaledXy: {y}")
+                
     if args.logscale_X: X = np.exp(X)
     return X, y
 
@@ -427,11 +446,20 @@ def unscale_y(y):
     if args.scale_y1:
         # calculate fx using product and xHI 
         if args.trials == 1: logger.info(f"Before unscale_y: {y}")
-        y[:,0] = np.sqrt(y[:,2]**2 - y[:,1]**2)
-        y[:,1] = 5.0*(1 - y[:,1] - 0.8)
+        xHI = np.sqrt(y[:,2]**2 - y[:,1]**2)
+        logfx = 5.0*(1 - y[:,1] - 0.8)
         if args.trials == 1: logger.info(f"Unscaled_y: {y}")
-        y = y[:,:2]
+        y = np.hstack((xHI, fx))
+    if args.scale_y2:
+        # calculate fx using product and xHI 
+        if args.trials == 1: logger.info(f"Before unscale_y: {y}")
+        xHI = np.sqrt(0.5*y**2).reshape((len(y), 1))
+        fx = 5.0*(1 - xHI - 0.8)
+        y = np.hstack((xHI, fx))
+        if args.trials == 1: logger.info(f"Unscaled_y: {y}")
+    
     return y
+
 
 def objective(trial):
     # Define hyperparameter search space
