@@ -119,57 +119,45 @@ def calc_odd_thirds(n):
     t2 =  t2 + 1 if t2 % 2 == 0 else t2
     return t1, t2
 
-def calculate_stats_torch(X, y, kernel_size=33):
+def calculate_stats_torch(X, y, kernel_sizes=[179, 268]):
     stat_calc = []
 
     for i,x in enumerate(X):
-        tensor_1d = torch.tensor(x)
-         # Pad the tensor if length is not divisible by 3
-        padding_needed = kernel_size - len(tensor_1d) % kernel_size
-        if padding_needed > 0:
-            tensor_1d = torch.nn.functional.pad(tensor_1d, (0, padding_needed))
-    
-        tensor_2d = tensor_1d.view(-1,kernel_size)
-        means = torch.mean(tensor_2d, dim=1)
-        std = torch.std(tensor_2d, dim=1, unbiased=False)
-
-        centered_x = tensor_2d - means.unsqueeze(1)
-        skewness = torch.mean((centered_x / (std.unsqueeze(1) + 1e-8)) ** 3, dim=1)
-
-        mean_skew = torch.mean(skewness)
-        std_skew = torch.std(skewness, unbiased=False)
+        row = []
+        for kernel_size in kernel_sizes:
+            tensor_1d = torch.tensor(x)
+            # Pad the tensor if length is not divisible by 3
+            padding_needed = kernel_size - len(tensor_1d) % kernel_size
+            if padding_needed > 0:
+                tensor_1d = torch.nn.functional.pad(tensor_1d, (0, padding_needed))
         
-        centered_skew = skewness - mean_skew
-        skew2 = torch.mean((centered_skew / (std_skew.unsqueeze(0) + 1e-8)) ** 3)
-                
-        min_skew = torch.min(skewness)
+            tensor_2d = tensor_1d.view(-1,kernel_size)
+            means = torch.mean(tensor_2d, dim=1)
+            std = torch.std(tensor_2d, dim=1, unbiased=False)
 
-        row = [mean_skew.item(), std_skew.item(), skew2.item(), min_skew.item()]
+            centered_x = tensor_2d - means.unsqueeze(1)
+            skewness = torch.mean((centered_x / (std.unsqueeze(1) + 1e-8)) ** 3, dim=1)
+
+            mean_skew = torch.mean(skewness)
+            std_skew = torch.std(skewness, unbiased=False)
+            
+            centered_skew = skewness - mean_skew
+            skew2 = torch.mean((centered_skew / (std_skew.unsqueeze(0) + 1e-8)) ** 3)
+                    
+            min_skew = torch.min(skewness)
+
+            skew5 = torch.mean((centered_x / (std.unsqueeze(1) + 1e-8)) ** 5)
+            #skew7 = torch.mean((centered_x / (std.unsqueeze(1) + 1e-8)) ** 7)
+
+            row += [mean_skew.item(), std_skew.item(), skew2.item(), min_skew.item()]
         stat_calc.append(row)
 
         if i < 5: logger.info(f'Mean, stdev. skew2 of skewness for xHI={y[i, 0]} logfx={y[i, 1]}, kernel_size={kernel_size} = {row}')
     return np.array(stat_calc)
 
 
-def calculate_stats(X, y, kernel_size=33):
-    stat_calc = []
-
-    for i, row in enumerate(X):
-        pieces = np.array_split(row, len(row)//kernel_size)
-        # Calculate statistics for each piece
-        skewness = [stats.skew(p) for p in pieces]
-        mean_skew = np.mean(skewness)
-        std_skew = np.std(skewness)
-        min_skew = np.min(skewness)
-        skew2 = stats.skew(skewness)
-        if i < 5: 
-            logger.info(f'Mean, stdev. skew2 of skewness for xHI={y[i, 0]} logfx={y[i, 1]}, kernel_size={kernel_size} = {mean_skew}, {std_skew}, {skew2}, {min_skew}')
-        stat_calc.append([mean_skew, std_skew, skew2, min_skew])
-
-    return np.array(stat_calc)
-
-def run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, num_epochs, kernel_size=33, input_points_to_use=2762, showplots=False, saveplots=True):
-    run_description = f"Commandline: {' '.join(sys.argv)}\nParameters: epochs: {num_epochs}, kernel_size: {kernel_size}, points: {input_points_to_use}, label={args.label}"
+def run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, num_epochs, kernel_sizes=[179, 268], input_points_to_use=2762, showplots=False, saveplots=True):
+    run_description = f"Commandline: {' '.join(sys.argv)}. Parameters: epochs: {num_epochs}, kernel_sizes: {kernel_sizes}, points: {input_points_to_use}, label={args.label}"
     logger.info(f"Starting new run: {run_description}")
     X_train, y_train = scaleXy(X_train, y_train)
     X_test, y_test = scaleXy(X_test, y_test)
@@ -181,7 +169,7 @@ def run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, 
         X_test = X_test[:, :input_points_to_use]  
         if test_samples is not None: test_samples = test_samples[:,:, :input_points_to_use]
     
-    X_train = calculate_stats_torch(X_train, y_train, kernel_size)
+    X_train = calculate_stats_torch(X_train, y_train, kernel_sizes)
     
     logger.info(f"Starting training. {X_train.shape},{X_test.shape},{y_train.shape},{y_test.shape}")
 
@@ -206,7 +194,7 @@ def run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, 
         reg.fit(X_train, y_train)
 
     logger.info(f"Testing")
-    X_test = calculate_stats_torch(X_test, y_test, kernel_size)
+    X_test = calculate_stats_torch(X_test, y_test, kernel_sizes)
     #score = reg.score(X_test, y_test)
     #logger.info(f"Test score={score}, intercept={reg.intercept_}, coefficients=\n{reg.coef_}\n")
     y_pred = reg.predict(X_test)
@@ -247,7 +235,7 @@ def run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, 
     elif args.logfx_only: combined_r2 = r2
     else: combined_r2 = 0.5*(r2[0]+r2[1])
     
-    logger.info(f"Finished run: score={combined_r2}. {run_description}")
+    logger.info(f"Finished run: score={combined_r2}, r2={r2}. {run_description}")
     return combined_r2
 
 def scaleXy(X, y):
@@ -357,14 +345,14 @@ def objective(trial):
     # Define hyperparameter search space
     params = {
         'num_epochs': 1, #trial.suggest_int('num_epochs', 12, 24),
-        'kernel_size': trial.suggest_int('kernel_size', 17, 49),
-        'input_points_to_use': trial.suggest_int('input_points_to_use', 800, 2762),
+        'kernel_size': trial.suggest_int('kernel_size', 400, 600),
+        'input_points_to_use': trial.suggest_int('input_points_to_use', 1800, 2762),
     }    
     # Run training with the suggested parameters
     try:
         r2 = run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, 
                    num_epochs=params['num_epochs'],
-                   kernel_size=params['kernel_size'],
+                   kernel_sizes=[params['kernel_size']],
                    input_points_to_use=params['input_points_to_use'],
                    showplots=False,
                    saveplots=True)
@@ -455,7 +443,7 @@ if args.runmode == "train_test":
     X_test, y_test, test_samples = load_dataset(test_files, psbatchsize=1, limitsamplesize=10, save=False)
     X_noise = load_noise()
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
-    run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, args.epochs, kernel_size=33, input_points_to_use=args.input_points_to_use, showplots=args.interactive)
+    run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, args.epochs, kernel_sizes=[179, 268], input_points_to_use=args.input_points_to_use, showplots=args.interactive)
 
 elif args.runmode == "test_only": # test_only
     logger.info(f"Loading test dataset {len(test_files)}")
