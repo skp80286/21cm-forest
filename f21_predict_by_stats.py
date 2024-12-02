@@ -178,7 +178,7 @@ class BayesianNN(nn.Module):
     def kl_divergence(self):
         return self.fc1.kl_divergence() + self.fc2.kl_divergence()
     
-    def train(X, y, epochs, lr):
+    def fit(X, y, epochs, lr):
         optimizer = optim.Adam(model.parameters(), lr=lr)
 
         for epoch in range(epochs):
@@ -198,7 +198,83 @@ class BayesianNN(nn.Module):
                 print(f"Epoch {epoch + 1}/{epochs}, Loss: {loss.item():.4f}")
 
     print("BNN Training complete.")
+
+
+def convert_to_torch_tensors(X, y):
+        # Convert data to torch tensors
+        X_tensor = torch.tensor(X, dtype=torch.float32)
+        y_tensor = torch.tensor(y, dtype=torch.float32)
+        return X_tensor, y_tensor
+
+class SimpleNN(nn.Module):
+    def __init__(self, input_dim, hidden_dim1, hidden_dim2, output_dim, epochs, lr, batch_size):
+        super(SimpleNN, self).__init__()
+        self.fc1 = nn.Linear(input_dim, hidden_dim1)
+        self.fc2 = nn.Linear(hidden_dim1, hidden_dim2)
+        self.fc3 = nn.Linear(hidden_dim2, output_dim)
+        self.epochs = epochs
+        self.lr = lr
+        self.batch_size = batch_size
+        self.criterion = nn.MSELoss()
+
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        x = torch.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
     
+
+    def fit(self, X_train, y_train):
+        optimizer = optim.Adam(self.parameters(), lr=self.lr)
+        # Convert data to torch tensors
+        inputs, outputs = convert_to_torch_tensors(X_train, y_train)
+        logger.info(f"Shape of inouts, outputs: {inputs.shape}, {outputs.shape}")
+        # Create DataLoader for batching
+        train_dataset = TensorDataset(inputs, outputs)
+        dataloader = DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)
+
+        # Initialize the network
+        device = (
+            "cuda"
+            if torch.cuda.is_available()
+            else "mps"
+            if torch.backends.mps.is_available()
+            else "cpu"
+        )
+
+        logger.info("####")
+        logger.info(f"### Using \"{device}\" device ###")
+        logger.info("####")
+        # Train the neural network
+        for epoch in range(self.epochs):
+            self.train()
+            running_loss = 0.0
+            for i, (input_batch, output_batch) in enumerate(dataloader):
+                # Zero the gradients
+                optimizer.zero_grad()
+                if epoch==0 and i==0: logger.info(f"Shape of input_batch, output_batch: {input_batch.shape}, {output_batch.shape}")
+                # Forward pass
+                predictions = self(input_batch)                
+                # Compute the loss
+                loss = self.criterion(predictions, output_batch)
+                # Backpropagation
+                loss.backward()
+                # Update weights
+                optimizer.step()
+                running_loss += loss.item()
+            logger.info(f'Epoch [{epoch+1}/{self.epochs}], Loss: {running_loss / len(dataloader):.4f}')
+        logger.info("NN Training complete.")
+
+    def predict(self, X_test, y_test):
+        with torch.no_grad():
+            # Test the model
+            logger.info("Testing prediction")
+            test_inputs, test_outputs = convert_to_torch_tensors(X_test, y_test)
+            y_pred = self(test_inputs)
+            test_loss = self.criterion(y_pred, test_outputs)
+            logger.info(f'Test Loss: {test_loss.item():.4f}')
+            return y_pred.detach().cpu().numpy()
+
 def calculate_stats_torch(X, y, kernel_sizes=[268]):
     stat_calc = []
 
@@ -246,7 +322,7 @@ def calculate_stats_torch(X, y, kernel_sizes=[268]):
     return np.array(stat_calc)
 
 
-def run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, num_epochs, kernel_sizes=[268], input_points_to_use=2546, model_param1=140, model_param2=5, showplots=False, saveplots=True):
+def run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, num_epochs=50, lr=1e-3, batch_size=16, kernel_sizes=[268], input_points_to_use=2546, model_param1=140, model_param2=5, showplots=False, saveplots=True):
     run_description = f"Commandline: {' '.join(sys.argv)}. Parameters: epochs: {num_epochs}, kernel_sizes: {kernel_sizes}, points: {input_points_to_use}, model_param1={model_param1}, model_param2={model_param2}, label={args.label}"
     logger.info(f"Starting new run: {run_description}")
     X_train, y_train = scaleXy(X_train, y_train)
@@ -272,7 +348,13 @@ def run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, 
             max_depth=model_param2,
             random_state=42
         )
-
+    elif args.regressor == 'nn':
+        # Initialize the neural network
+        input_dim = X_train.shape[1]
+        hidden_dim1 = model_param1  # Use model_param1 as hidden layer size
+        hidden_dim2 = model_param2  # Use model_param1 as hidden layer size
+        output_dim = y_train.shape[1]
+        reg = SimpleNN(input_dim, hidden_dim1, hidden_dim2, output_dim, num_epochs, lr, batch_size)
                     #linear_model.QuantileRegressor(quantile=0.9, alpha=0.5) ]:
     logger.info(f"Fitting regressor: {reg}")
     if args.scale_y2:
@@ -288,7 +370,7 @@ def run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, 
     X_test = calculate_stats_torch(X_test, y_test, kernel_sizes)
     #score = reg.score(X_test, y_test)
     #logger.info(f"Test score={score}, intercept={reg.intercept_}, coefficients=\n{reg.coef_}\n")
-    y_pred = reg.predict(X_test)
+    y_pred = reg.predict(X_test, y_test)
     print(f"y_pred:\n{y_pred[:5]}")
 
     if y_pred.ndim==1:
@@ -435,16 +517,21 @@ def squared_log(predictions: np.ndarray,
 def objective(trial):
     # Define hyperparameter search space
     params = {
-        'num_epochs': 1, #trial.suggest_int('num_epochs', 12, 24),
+        'num_epochs': 50, #trial.suggest_int('num_epochs', 12, 24),
+        'lr': 1e-3, #trial.suggest_int('num_epochs', 12, 24),
+        'batch_size': 16, #trial.suggest_int('num_epochs', 12, 24),
         'kernel_size': 268, #trial.suggest_int('kernel_size', 250, 280),
         'input_points_to_use': trial.suggest_int('input_points_to_use', 1800, 2762),
         'model_param1': 140, #trial.suggest_int('model_param1', 120, 160),
         'model_param2': 5, #trial.suggest_int('model_param2', 3, 8),
+
     }    
     # Run training with the suggested parameters
     try:
         r2 = run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, 
                    num_epochs=params['num_epochs'],
+                   lr=params['lr'],
+                   batch_size=params['batch_size'],
                    kernel_sizes=[params['kernel_size']],
                    input_points_to_use=params['input_points_to_use'],
                    model_param1=params['model_param1'],
@@ -487,6 +574,8 @@ parser.add_argument('--interactive', action='store_true', help='run in interacti
 parser.add_argument('--use_saved_los_data', action='store_true', help='load LoS data from pkl file.')
 parser.add_argument('--epochs', type=int, default=15, help='Number of epoch of training.')
 parser.add_argument('--trainingbatchsize', type=int, default=32, help='Size of batch for training.')
+parser.add_argument('--model_param1', type=int, default=140, help='')
+parser.add_argument('--model_param2', type=int, default=5, help='')
 parser.add_argument('--input_points_to_use', type=int, default=2762, help='use the first n points of los. ie truncate the los to first 690 points')
 parser.add_argument('--scale_y', action='store_true', help='Scale the y parameters (logfX).')
 parser.add_argument('--scale_y0', action='store_true', help='Scale the y parameters (xHI).')
@@ -504,7 +593,7 @@ parser.add_argument('--filter_test', action='store_true', help='Filter test poin
 parser.add_argument('--filter_train', action='store_true', help='Filter training points in important range of xHI')
 
 args = parser.parse_args()
-output_dir = str('output/f21_pred_stats_%s_%s_t%dh_b%d_%s' % (args.runmode, args.telescope,args.t_int, 1, datetime.now().strftime("%Y%m%d%H%M%S")))
+output_dir = str('output/f21_pred_stats_%s_%s_%s_t%dh_b%d_%s' % (args.regressor, args.runmode, args.telescope,args.t_int, 1, datetime.now().strftime("%Y%m%d%H%M%S")))
 if not os.path.exists(output_dir):
     os.mkdir(output_dir)
     print("created " + output_dir)
@@ -556,7 +645,7 @@ if args.runmode == "train_test":
         logger.info(f"Filtered test dataset to {len(X_test)} samples with 0.1 <= xHI <= 0.4")
     X_noise = load_noise()
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
-    run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, args.epochs, kernel_sizes=[268], input_points_to_use=args.input_points_to_use, showplots=args.interactive)
+    run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, num_epochs=args.epochs, kernel_sizes=[268], input_points_to_use=args.input_points_to_use, model_param1=args.model_param1, model_param2=args.model_param2, showplots=args.interactive)
 
 elif args.runmode == "test_only": # test_only
     logger.info(f"Loading test dataset {len(test_files)}")
@@ -566,7 +655,7 @@ elif args.runmode == "test_only": # test_only
     X_test, y_test = scaleXy(X_test, y_test)
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
     model = load_model(args.modelfile)
-    y_pred = model.predict(X_test)
+    y_pred = model.predict(X_test, y_test)
     y_pred = y_pred.detach().cpu().numpy()
     y_pred = unscale_y(y_pred)
     X_test, y_test = unscaleXy(X_test, y_test)
