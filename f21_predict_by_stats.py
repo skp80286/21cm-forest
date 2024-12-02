@@ -200,10 +200,11 @@ class BayesianNN(nn.Module):
     print("BNN Training complete.")
 
 
-def convert_to_torch_tensors(X, y):
+def convert_to_torch_tensors(X, y=None):
         # Convert data to torch tensors
         X_tensor = torch.tensor(X, dtype=torch.float32)
-        y_tensor = torch.tensor(y, dtype=torch.float32)
+        y_tensor = None
+        if y is not None: y_tensor = torch.tensor(y, dtype=torch.float32)
         return X_tensor, y_tensor
 
 class SimpleNN(nn.Module):
@@ -265,14 +266,12 @@ class SimpleNN(nn.Module):
             logger.info(f'Epoch [{epoch+1}/{self.epochs}], Loss: {running_loss / len(dataloader):.4f}')
         logger.info("NN Training complete.")
 
-    def predict(self, X_test, y_test):
+    def predict(self, X_test):
         with torch.no_grad():
             # Test the model
             logger.info("Testing prediction")
-            test_inputs, test_outputs = convert_to_torch_tensors(X_test, y_test)
+            test_inputs,_ = convert_to_torch_tensors(X_test, None)
             y_pred = self(test_inputs)
-            test_loss = self.criterion(y_pred, test_outputs)
-            logger.info(f'Test Loss: {test_loss.item():.4f}')
             return y_pred.detach().cpu().numpy()
 
 def calculate_stats_torch(X, y, kernel_sizes=[268]):
@@ -370,7 +369,7 @@ def run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, 
     X_test = calculate_stats_torch(X_test, y_test, kernel_sizes)
     #score = reg.score(X_test, y_test)
     #logger.info(f"Test score={score}, intercept={reg.intercept_}, coefficients=\n{reg.coef_}\n")
-    y_pred = reg.predict(X_test, y_test)
+    y_pred = reg.predict(X_test)
     print(f"y_pred:\n{y_pred[:5]}")
 
     if y_pred.ndim==1:
@@ -520,8 +519,8 @@ def objective(trial):
         'num_epochs': 50, #trial.suggest_int('num_epochs', 12, 24),
         'lr': 1e-3, #trial.suggest_int('num_epochs', 12, 24),
         'batch_size': 16, #trial.suggest_int('num_epochs', 12, 24),
-        'kernel_size': 268, #trial.suggest_int('kernel_size', 250, 280),
-        'input_points_to_use': trial.suggest_int('input_points_to_use', 1800, 2762),
+        'kernel_size': trial.suggest_int('kernel_size', 100, 300),
+        'input_points_to_use': 2762,#trial.suggest_int('input_points_to_use', 1800, 2762),
         'model_param1': 140, #trial.suggest_int('model_param1', 120, 160),
         'model_param2': 5, #trial.suggest_int('model_param2', 3, 8),
 

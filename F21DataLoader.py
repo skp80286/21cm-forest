@@ -77,7 +77,7 @@ class F21DataLoader:
 
     def process_file(self, datafile: str) -> None:
         try:
-            print(f"Reading file: {datafile}")
+            #print(f"Reading file: {datafile}")
             (z, xHI_mean, logfX, freq_axis, los_arr) = self.get_los(datafile)
             # Store the data
             #all_F21.append(F21_current)
@@ -92,8 +92,8 @@ class F21DataLoader:
             Nlos = len(los_arr)
  
  
-            print('z=%.2f, <x_HI>=%.6f, log10(f_X)=%.2f, %d LOS, %d pixels' % 
-                (z, xHI_mean, logfX, Nlos, len(los_arr[0])))
+            #print('z=%.2f, <x_HI>=%.6f, log10(f_X)=%.2f, %d LOS, %d pixels' % 
+            #    (z, xHI_mean, logfX, Nlos, len(los_arr[0])))
             
             for los in los_arr:
                 psbatchnum += 1
@@ -125,7 +125,8 @@ class F21DataLoader:
                     cumulative_los = []
 
         except Exception as e:
-            print(f"Error processing {datafile}: {str(e)}")
+            print(f"Error processing {datafile}")
+            print(f"{str(e)}")
             
     def process_all_files(self, file_list: List[str]) -> Dict[str, np.ndarray]:
         # Process files in parallel using ThreadPoolExecutor
