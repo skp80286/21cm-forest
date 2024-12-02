@@ -115,7 +115,7 @@ def calc_odd_thirds(n):
     return t1, t2
 
 class CNNModel(nn.Module):
-    def __init__(self, input_size, output_size, channels=1, kernel1=301, kernel2=151, dropout=0.5):
+    def __init__(self, input_size, output_size, channels=1, kernel1=269, kernel2=135, dropout=0.5):
         super(CNNModel, self).__init__()
         #kernel2 = calc_odd_half(kernel1)
         #kernel3 = calc_odd_half(kernel2)
@@ -390,7 +390,10 @@ def run(X_train, train_samples, X_noise, X_test, test_samples,y_train, y_test, n
     return 0.5*(r2[0]+r2[1])
 
 def scaleXy(X, y):
-    if args.scale_y: y[:,1] = 0.8 + y[:,1]/5.0
+    if args.scale_y: 
+        xHI = y[:, 0].reshape(len(y), 1)
+        scaledfx = (0.8 + y[:,1]/5.0).reshape(len(y), 1)
+        y = np.hstack((xHI, scaledfx))
     if args.scale_y0: y[:,0] = y[:,0]*5.0
     if args.scale_y1:
         # we wish to create a single metric representing the expected
@@ -421,7 +424,10 @@ def scaleXy(X, y):
 
 def unscaleXy(X, y):
     # Undo what we did in scaleXy function
-    if args.scale_y: y[:,1] = 5.0*(y[:,1] - 0.8)
+    if args.scale_y: 
+        xHI = y[:, 0].reshape(len(y), 1)
+        fx = 5.0*(y[:,1] - 0.8).reshape(len(y), 1)
+        y = np.hstack((xHI, fx))
     if args.scale_y0: y[:,0] = y[:,0]/5.0
     if args.scale_y1:
         if args.trials == 1: logger.info(f"Before unscaleXy: {y}")
@@ -441,7 +447,10 @@ def unscaleXy(X, y):
 
 def unscale_y(y):
     # Undo what we did in the scaleXy function
-    if args.scale_y: y[:,1] = 5.0*(1 - y[:,1] - 0.8)
+    if args.scale_y: 
+        xHI = y[:, 0].reshape(len(y), 1)
+        fx = 5.0*(y[:,1] - 0.8).reshape(len(y), 1)
+        y = np.hstack((xHI, fx))
     if args.scale_y0: y[:,0] = y[:,0]/5.0
     if args.scale_y1:
         # calculate fx using product and xHI 
@@ -467,8 +476,8 @@ def objective(trial):
         'num_epochs': trial.suggest_int('num_epochs', 12, 24),
         'batch_size': 32, #trial.suggest_categorical('batch_size', [16, 32, 48]),
         'learning_rate': 0.002, # trial.suggest_float('learning_rate', 7e-4, 7e-3, log=True), # 0.0019437504084241922, 
-        'kernel1': trial.suggest_int('kernel1', 3, 203, step=10),
-        'kernel2': trial.suggest_int('kernel2', 3, 203, step=10),
+        'kernel1': trial.suggest_int('kernel1', 33, 33, step=10),
+        'kernel2': trial.suggest_int('kernel2', 33, 33, step=10),
         'dropout': 0.5, #trial.suggest_categorical('dropout', [0.2, 0.3, 0.4, 0.5]),
         'input_points_to_use': 915,#trial.suggest_int('input_points_to_use', 900, 1400),
     }    
@@ -523,6 +532,7 @@ parser.add_argument('--input_points_to_use', type=int, default=915, help='use th
 parser.add_argument('--scale_y', action='store_true', help='Scale the y parameters (logfX).')
 parser.add_argument('--scale_y0', action='store_true', help='Scale the y parameters (xHI).')
 parser.add_argument('--scale_y1', action='store_true', help='Scale logfx and calculate product of logfx with xHI.')
+parser.add_argument('--scale_y2', action='store_true', help='Scale logfx and calculate pythogorean sum of logfx with xHI.')
 parser.add_argument('--logscale_X', action='store_true', help='Log scale the signal strength.')
 parser.add_argument('--channels', type=int, default=1, help='Use multiple channel inputs for the CNN.')
 parser.add_argument('--psbatchsize', type=int, default=None, help='batching for PS data.')
@@ -569,7 +579,7 @@ if args.runmode == "train_test":
     X_test, y_test, test_samples = load_dataset(test_files, psbatchsize=1, limitsamplesize=10, save=False)
     X_noise = load_noise()
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
-    run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, args.epochs, args.trainingbatchsize, lr=0.0019437504084241922, kernel1=263, kernel2=131, dropout=0.5, input_points_to_use=args.input_points_to_use, showplots=args.interactive)
+    run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, args.epochs, args.trainingbatchsize, lr=0.0019437504084241922, kernel1=269, kernel2=135, dropout=0.5, input_points_to_use=args.input_points_to_use, showplots=args.interactive)
 
 elif args.runmode == "test_only": # test_only
     logger.info(f"Loading test dataset {len(test_files)}")

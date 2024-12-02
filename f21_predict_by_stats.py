@@ -31,6 +31,7 @@ from scipy import stats
 from typing import Tuple
 
 import math
+import torch.distributions as dist
 
 def load_dataset_from_pkl():
     # Lists to store combined data
@@ -119,19 +120,106 @@ def calc_odd_thirds(n):
     t2 =  t2 + 1 if t2 % 2 == 0 else t2
     return t1, t2
 
-def calculate_stats_torch(X, y, kernel_sizes=[179, 268]):
+
+# Define Bayesian Linear Layer
+class BayesianLinear(nn.Module):
+    def __init__(self, in_features, out_features, prior_std=1.0):
+        super(BayesianLinear, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+
+        # Weight and bias parameters (mean and log of variance)
+        self.weight_mu = nn.Parameter(torch.zeros(out_features, in_features))
+        self.weight_log_var = nn.Parameter(torch.zeros(out_features, in_features))
+        self.bias_mu = nn.Parameter(torch.zeros(out_features))
+        self.bias_log_var = nn.Parameter(torch.zeros(out_features))
+
+        # Prior distribution
+        self.prior = Normal(0, prior_std)
+
+    def forward(self, x):
+        # Sample weights and biases
+        weight_std = torch.exp(0.5 * self.weight_log_var)
+        bias_std = torch.exp(0.5 * self.bias_log_var)
+        weight = self.weight_mu + weight_std * torch.randn_like(weight_std)
+        bias = self.bias_mu + bias_std * torch.randn_like(bias_std)
+
+        # Compute output
+        output = torch.matmul(x, weight.t()) + bias
+        return output
+
+    def kl_divergence(self):
+        # KL divergence between posterior and prior
+        weight_std = torch.exp(0.5 * self.weight_log_var)
+        bias_std = torch.exp(0.5 * self.bias_log_var)
+
+        weight_kl = torch.sum(
+            dist.Normal(self.weight_mu, weight_std).log_prob(self.weight_mu) 
+            - self.prior.log_prob(self.weight_mu)
+        )
+        bias_kl = torch.sum(
+            dist.Normal(self.bias_mu, bias_std).log_prob(self.bias_mu)
+            - self.prior.log_prob(self.bias_mu)
+        )
+        return weight_kl + bias_kl
+
+# Define Bayesian Neural Network
+class BayesianNN(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim, prior_std=1.0):
+        super(BayesianNN, self).__init__()
+        self.fc1 = BayesianLinear(input_dim, hidden_dim, prior_std)
+        self.fc2 = BayesianLinear(hidden_dim, output_dim, prior_std)
+
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+    def kl_divergence(self):
+        return self.fc1.kl_divergence() + self.fc2.kl_divergence()
+    
+    def train(X, y, epochs, lr):
+        optimizer = optim.Adam(model.parameters(), lr=lr)
+
+        for epoch in range(epochs):
+            optimizer.zero_grad()
+
+            # Forward pass
+            outputs = model(X)
+            likelihood_loss = nn.MSELoss()(outputs, y)
+            kl_div = model.kl_divergence() / len(X)
+            loss = likelihood_loss + kl_div
+
+            # Backward pass
+            loss.backward()
+            optimizer.step()
+
+            if (epoch + 1) % 100 == 0:
+                print(f"Epoch {epoch + 1}/{epochs}, Loss: {loss.item():.4f}")
+
+    print("BNN Training complete.")
+    
+def calculate_stats_torch(X, y, kernel_sizes=[268]):
     stat_calc = []
 
     for i,x in enumerate(X):
         row = []
+        tensor_1d = torch.tensor(x)
+        # Pad the tensor if length is not divisible by 3
+        total_mean = torch.mean(tensor_1d)
+        total_std = torch.std(tensor_1d, unbiased=False)
+        #total_centered_x = tensor_1d - total_mean
+        #total_skewness = torch.mean((total_centered_x / (total_std)) ** 3)
+
+        row += [total_mean, total_std] # total_skewness
+
         for kernel_size in kernel_sizes:
-            tensor_1d = torch.tensor(x)
-            # Pad the tensor if length is not divisible by 3
             padding_needed = kernel_size - len(tensor_1d) % kernel_size
             if padding_needed > 0:
                 tensor_1d = torch.nn.functional.pad(tensor_1d, (0, padding_needed))
-        
+            
             tensor_2d = tensor_1d.view(-1,kernel_size)
+
             means = torch.mean(tensor_2d, dim=1)
             std = torch.std(tensor_2d, dim=1, unbiased=False)
 
@@ -150,14 +238,16 @@ def calculate_stats_torch(X, y, kernel_sizes=[179, 268]):
             #skew7 = torch.mean((centered_x / (std.unsqueeze(1) + 1e-8)) ** 7)
 
             row += [mean_skew.item(), std_skew.item(), skew2.item(), min_skew.item()]
+        
         stat_calc.append(row)
 
-        if i < 5: logger.info(f'Mean, stdev. skew2 of skewness for xHI={y[i, 0]} logfx={y[i, 1]}, kernel_size={kernel_size} = {row}')
+        if i < 5: logger.info(f'Stats for xHI={y[i, 0]} logfx={y[i, 1]}, kernel_size={kernel_size} = {row}')
+    
     return np.array(stat_calc)
 
 
-def run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, num_epochs, kernel_sizes=[179, 268], input_points_to_use=2762, showplots=False, saveplots=True):
-    run_description = f"Commandline: {' '.join(sys.argv)}. Parameters: epochs: {num_epochs}, kernel_sizes: {kernel_sizes}, points: {input_points_to_use}, label={args.label}"
+def run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, num_epochs, kernel_sizes=[268], input_points_to_use=2546, model_param1=140, model_param2=5, showplots=False, saveplots=True):
+    run_description = f"Commandline: {' '.join(sys.argv)}. Parameters: epochs: {num_epochs}, kernel_sizes: {kernel_sizes}, points: {input_points_to_use}, model_param1={model_param1}, model_param2={model_param2}, label={args.label}"
     logger.info(f"Starting new run: {run_description}")
     X_train, y_train = scaleXy(X_train, y_train)
     X_test, y_test = scaleXy(X_test, y_test)
@@ -177,11 +267,12 @@ def run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, 
         reg = linear_model.ElasticNet(alpha=0.1, max_iter=5000, fit_intercept=True)
     elif args.regressor == 'xgb':
         reg = xgb.XGBRegressor(
-            #n_estimators=1000,
+            n_estimators=model_param1,
             #learning_rate=0.1,
-            #max_depth=50,
+            max_depth=model_param2,
             random_state=42
         )
+
                     #linear_model.QuantileRegressor(quantile=0.9, alpha=0.5) ]:
     logger.info(f"Fitting regressor: {reg}")
     if args.scale_y2:
@@ -345,8 +436,10 @@ def objective(trial):
     # Define hyperparameter search space
     params = {
         'num_epochs': 1, #trial.suggest_int('num_epochs', 12, 24),
-        'kernel_size': trial.suggest_int('kernel_size', 400, 600),
+        'kernel_size': 268, #trial.suggest_int('kernel_size', 250, 280),
         'input_points_to_use': trial.suggest_int('input_points_to_use', 1800, 2762),
+        'model_param1': 140, #trial.suggest_int('model_param1', 120, 160),
+        'model_param2': 5, #trial.suggest_int('model_param2', 3, 8),
     }    
     # Run training with the suggested parameters
     try:
@@ -354,6 +447,8 @@ def objective(trial):
                    num_epochs=params['num_epochs'],
                    kernel_sizes=[params['kernel_size']],
                    input_points_to_use=params['input_points_to_use'],
+                   model_param1=params['model_param1'],
+                   model_param2=params['model_param2'],
                    showplots=False,
                    saveplots=True)
             
@@ -405,6 +500,8 @@ parser.add_argument('--trials', type=int, default=15, help='Optimization trials'
 parser.add_argument('--use_noise_channel', action='store_true', help='Use noise channel as input.')
 parser.add_argument('--xhi_only', action='store_true', help='calc loss for xhi only')
 parser.add_argument('--logfx_only', action='store_true', help='calc loss for logfx only')
+parser.add_argument('--filter_test', action='store_true', help='Filter test points in important range of xHI')
+parser.add_argument('--filter_train', action='store_true', help='Filter training points in important range of xHI')
 
 args = parser.parse_args()
 output_dir = str('output/f21_pred_stats_%s_%s_t%dh_b%d_%s' % (args.runmode, args.telescope,args.t_int, 1, datetime.now().strftime("%Y%m%d%H%M%S")))
@@ -438,12 +535,28 @@ if args.runmode == "train_test":
         X_train, y_train, train_samples = load_dataset_from_pkl()
     else:
         X_train, y_train, train_samples = load_dataset(train_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=False)
+    if args.filter_train:
+        # Filter for xHI between 0.1 and 0.4
+        mask = (y_train[:,0] >= 0.1) & (y_train[:,0] <= 0.4)
+        X_train = X_train[mask]
+        y_train = y_train[mask]
+        if train_samples is not None:
+            train_samples = train_samples[mask]
+        logger.info(f"Filtered train dataset to {len(X_train)} samples with 0.1 <= xHI <= 0.4")
     logger.info(f"Loaded dataset X_train:{X_train.shape} y:{y_train.shape}")
     logger.info(f"Loading test dataset {len(test_files)}")
     X_test, y_test, test_samples = load_dataset(test_files, psbatchsize=1, limitsamplesize=10, save=False)
+    if args.filter_test:
+        # Filter for xHI between 0.1 and 0.4
+        mask = (y_test[:,0] >= 0.1) & (y_test[:,0] <= 0.4)
+        X_test = X_test[mask]
+        y_test = y_test[mask]
+        if test_samples is not None:
+            test_samples = test_samples[mask]
+        logger.info(f"Filtered test dataset to {len(X_test)} samples with 0.1 <= xHI <= 0.4")
     X_noise = load_noise()
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
-    run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, args.epochs, kernel_sizes=[179, 268], input_points_to_use=args.input_points_to_use, showplots=args.interactive)
+    run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, args.epochs, kernel_sizes=[268], input_points_to_use=args.input_points_to_use, showplots=args.interactive)
 
 elif args.runmode == "test_only": # test_only
     logger.info(f"Loading test dataset {len(test_files)}")
@@ -472,6 +585,16 @@ elif args.runmode == "optimize":
     X_noise = load_noise()
 
     X_test, y_test, test_samples = load_dataset(test_files, psbatchsize=1, limitsamplesize=10, save=False)
+    if args.filter_test:
+        # Filter for xHI between 0.1 and 0.4
+        mask = (y_test[:,0] >= 0.1) & (y_test[:,0] <= 0.4)
+        X_test = X_test[mask]
+        y_test = y_test[mask]
+        if test_samples is not None:
+            test_samples = test_samples[mask]
+        logger.info(f"Filtered test dataset to {len(X_test)} samples with 0.1 <= xHI <= 0.4")
+        #if y_test[0] >= 0.1 and test_point[0] <= 0.4:
+            # Lets plot only the points in important xHI zone to reduce clutter
 
     # Create study object
     study = optuna.create_study(direction="maximize")

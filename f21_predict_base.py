@@ -158,6 +158,7 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
         # Find all predictions corresponding to this test point
         mask = np.all(y_test == test_point, axis=1)
         corresponding_preds = y_pred[mask]
+        logger.info(f"Test point: {test_point}, Number of preds: {len(corresponding_preds)}")
 
         # Calculate mean and std of predictions
         mean_pred = np.mean(corresponding_preds, axis=0)
