@@ -28,6 +28,8 @@ import sys
 import logging
 import f21_predict_base as base
 
+import optuna
+
 def load_dataset_from_pkl():
     # Lists to store combined data
     all_ks = []
@@ -67,7 +69,7 @@ def load_dataset(datafiles, psbatchsize, save=False):
     all_ps = []
     all_params = []
     # Create processor with desired number of worker threads
-    processor = dl.F21DataLoader(max_workers=8, psbatchsize=psbatchsize, limitsamplesize=args.limitsamplesize, ps_bins=args.psbins)
+    processor = dl.F21DataLoader(max_workers=8, psbatchsize=psbatchsize, limitsamplesize=args.limitsamplesize, ps_bins=None)
         
     # Process all files and get results
     results = processor.process_all_files(datafiles)
@@ -104,79 +106,187 @@ def save_model(model):
     logger.info(f'Saving model to: {output_dir}/{args.modelfile}')
     model_json = model.save_model(f"{output_dir}/{args.modelfile}")
 
-def run(X_train, X_test, y_train, y_test):
-    logger.info("Starting training")
+def  bin_ps_data(X_train, X_test, ps_bins_to_make, ps_bins_to_use):
+    num_bins = ps_bins_to_make*ps_bins_to_use//100
+    fake_ks = range(X_train.shape[1])
+    logger.info(f"Binning PS data: original_size={X_train.shape[1]}, ps_bins_to_make={ps_bins_to_make}, num bins to use={num_bins}")
+    X_train_binned = []
+    for X in X_train:
+        ps, _, _ = binned_statistic(fake_ks, X, statistic='mean', bins=num_bins)
+        X_train_binned.append(ps[:ps_bins_to_use])
 
-    # Split the data into training and testing sets
-    #X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    X_test_binned = []
+    for X in X_test:
+        ps, _, _ = binned_statistic(fake_ks, X, statistic='mean', bins=num_bins)
+        X_test_binned.append(ps[:ps_bins_to_use])
+
+    return np.array(X_train_binned), np.array(X_test_binned)
 
 
-    # Define a list to store training loss and validation loss
-    training_loss = []
-    validation_loss = []
-    test_loss = []
-    r2_scores = []
-    
-    """
-    We can specify sample sizes in ascending order here if we want to see 
-    the training and test loss curve trend as sample size increases. By default, 
-    we will train for only the full length of the available samples.
-    """
-    num_samples = len(X_train)
-    min_sample_size = num_samples//args.numsamplebatches
-    sample_sizes = []
-    for i in range(args.numsamplebatches - 1):
-        sample_sizes.append((i+1)*min_sample_size)
-    sample_sizes.append(num_samples)  
-    
+def scaleXy(X, y):
+    if args.scale_y: 
+        xHI = y[:, 0].reshape(len(y), 1)
+        scaledfx = (0.8 + y[:,1]/5.0).reshape(len(y), 1)
+        y = np.hstack((xHI, scaledfx))
+    if args.scale_y0: y[:,0] = y[:,0]*5.0
+    if args.scale_y1:
+        # we wish to create a single metric representing the expected
+        # strength of the signal based on xHI (0 to 1) and logfx (-4 to +1)
+        # We know that higher xHI and lower logfx lead to a stronger signal, 
+        # First we scale logfx to range of 0 to 1.
+        # Then we take a product of xHI and (1 - logfx)
+        if args.trials == 1: logger.info(f"Before scaleXy: {y}")
+        xHI = y[:, 0].reshape(len(y), 1)
+        scaledfx = 1 - (0.8 + y[:,1]/5.0)
+        product = np.sqrt(xHI**2 + scaledfx**2).reshape(len(y), 1)
+        y = np.hstack((xHI, scaledfx, product))
+        if args.trials == 1: logger.info(f"ScaledXy: {y}")
+    if args.scale_y2:
+        # we wish to create a single metric representing the expected
+        # strength of the signal based on xHI (0 to 1) and logfx (-4 to +1)
+        # We know that higher xHI and lower logfx lead to a stronger signal, 
+        # First we scale logfx to range of 0 to 1.
+        # Then we take a product of xHI and (1 - logfx)
+        if args.trials == 1: logger.info(f"Before scaleXy: {y}")
+        xHI = y[:, 0].reshape(len(y), 1)
+        scaledfx = 1 - (0.8 + y[:,1]/5.0).reshape(len(y), 1)
+        product = np.sqrt(xHI**2 + scaledfx**2).reshape(len(y), 1)
+        y = np.hstack((xHI, scaledfx, product))
+        if args.trials == 1: logger.info(f"ScaledXy: {y}")
+    if args.logscale_X: X = np.log(X)
+    return X, y
+
+def unscaleXy(X, y):
+    # Undo what we did in scaleXy function
+    if args.scale_y: 
+        xHI = y[:, 0].reshape(len(y), 1)
+        fx = 5.0*(y[:,1] - 0.8).reshape(len(y), 1)
+        y = np.hstack((xHI, fx))
+    elif args.scale_y0: y[:,0] = y[:,0]/5.0
+    elif args.scale_y1:
+        xHI = y[:, 0].reshape(len(y), 1)
+        fx = 5.0*(1 - y[:,1] - 0.8)
+        y = np.hstack((xHI, fx))
+    elif args.scale_y2:
+        xHI = y[:, 0].reshape(len(y), 1)
+        fx = 5.0*(1 - y[:,1] - 0.8).reshape(len(y), 1)
+        y = np.hstack((xHI, fx))
+                
+    elif args.logscale_X: X = np.exp(X)
+    return X, y
+
+def run(X_train, X_test, y_train, y_test, 
+                    ps_bins_to_make,
+                    ps_bins_to_use,
+                    model_param1,
+                    model_param2,
+                    showplots=False,
+                    saveplots=True):
+    run_description = f"Commandline: {' '.join(sys.argv)}. Parameters: ps_bin_to_make={ps_bins_to_make}, ps_bin_to_use={ps_bins_to_use}, model_param1={model_param1}, model_param2={model_param2}, label={args.label}"
+    logger.info(f"Starting new run: {run_description}")
+
+    X_train, X_test = bin_ps_data(X_train, X_test, ps_bins_to_make, ps_bins_to_use)
+    logger.info(f"Before scale train: {y_train[:1]}")
+    X_train, y_train = scaleXy(X_train, y_train)
+    logger.info(f"After scale train: {y_train[:1]}")
+    logger.info(f"Before scale y_test: {y_test[:1]}")
+    X_test, y_test = scaleXy(X_test, y_test)
+    logger.info(f"After scale y_test: {y_test[:1]}")
+    logger.info(f"Training dataset: X:{X_train.shape} y:{y_train.shape}")
+    logger.info(f"Testing dataset: X:{X_test.shape} y:{y_test.shape}")
+
     y_pred = None
-    history = None
     rms_scores = None
-    y_train_subset = None
 
     # Train model with different sample sizes
-    for size in sample_sizes:
-        print (f'## Sample size: {size}')
-        X_train_subset = X_train[:size]
-        y_train_subset = y_train[:size]
-        logger.info(f"Training dataset: X:{X_train_subset.shape} y:{y_train_subset.shape}")
 
-        model = xgb.XGBRegressor(
-            #n_estimators=1000,
+    reg = xgb.XGBRegressor(
+            n_estimators=model_param1,
             #learning_rate=0.1,
-            #max_depth=50,
+            max_depth=model_param2,
             random_state=42
         )
 
-        logger.info("Fitting model")
-        history = model.fit(X_train_subset, y_train_subset)
+    logger.info(f"Fitting regressor: {reg}")
+    if args.scale_y2:
+        reg.fit(X_train, y_train[:,2])
+    elif args.xhi_only:
+        reg.fit(X_train, y_train[:,0])
+    elif args.logfx_only:
+        reg.fit(X_train, y_train[:,1])
+    else:
+        reg.fit(X_train, y_train)
 
-        #logger.info(f"History: {history}")
-            
-        #training_loss.append(history.best_score)  # Store last training loss for each iteration
-        #validation_loss.append(history.history['val_loss'][-1])  
-        # Test the model
-        logger.info("Testing prediction")
-        y_pred = model.predict(X_test)
+    logger.info("Testing prediction")
+    y_pred = reg.predict(X_test)
 
-        # Calculate R2 scores
-        r2 = [r2_score(y_test[:, i], y_pred[:, i]) for i in range(2)]
-        logger.info("R2 Score: " + str(r2))
-        r2_scores.append(50*(r2[0]+r2[1]))
-        # Calculate rmse scores
-        rms_scores = [mean_squared_error(y_test[:, i], y_pred[:, i]) for i in range(2)]
-        rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test, axis=0)
-        logger.info("RMS Error: " + str(rms_scores_percent))
-        test_loss.append(0.5*(rms_scores_percent[0]+rms_scores_percent[1]))
+    if y_pred.ndim==1:
+        y_pred = y_pred.reshape(len(y_pred),1)
+        if args.scale_y2:
+            logger.info(f"Prediction vs Test data: \n{np.hstack((y_test[:, 2].reshape(len(y_test),1), y_pred))[:5]}")
+            r2 = r2_score(y_test[:, 2], y_pred)
+        elif args.xhi_only:
+            logger.info(f"Prediction vs Test data: \n{np.hstack((y_test[:, 0].reshape(len(y_test),1), y_pred))[:5]}")
+            r2 = r2_score(y_test[:, 0], y_pred)
+        elif args.logfx_only:
+            logger.info(f"Prediction vs Test data: \n{np.hstack((y_test[:, 1].reshape(len(y_test),1), y_pred))[:5]}")
+            r2 = r2_score(y_test[:, 1], y_pred)
+        else:
+            r2 = r2_score(y_test, y_pred)
+    else:
+        logger.info(f"Prediction vs Test data: \n{np.hstack((y_pred, y_test))[:5]}")
+        # Evaluate the model (on a test set, here we just use the training data for simplicity)
+        r2 = [r2_score(y_test[:, i], y_pred[:, i]) for i in range(len(y_pred[0]))]
+    logger.info("R2 Score: " + str(r2))
 
+    logger.info(f"Before unscale y_pred: {y_pred[:1]}")
+    y_pred = unscale_y(y_pred)
+    logger.info(f"After unscale y_pred: {y_pred[:1]}")
+    logger.info(f"Before unscale y_test: {y_test[:1]}")
+    X_test, y_test = unscaleXy(X_test, y_test)
+    logger.info(f"After unscale y_test: {y_test[:1]}")
+    logger.info(f"unscaled test result {X_test.shape} {y_test.shape} {y_pred.shape}")
+
+    # Calculate rmse scores
+    rms_scores = [mean_squared_error(y_test[:, i], y_pred[:, i]) for i in range(len(y_pred[0]))]
+    rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test, axis=0)
+    logger.info("RMS Error: " + str(rms_scores_percent))    
     
-        y_pred = unscale_y(y_pred)
-        X_test, y_test = unscaleXy(X_test, y_test)
-    base.summarize_test(y_pred, y_test, output_dir=output_dir, showplots=args.interactive)
-    logger.info('Plotting Decision Tree')
-    plot_tree(model)
-    plt.savefig(f"{output_dir}/xgboost_tree.png", dpi=600) 
-    save_model(model)
+    base.summarize_test_1000(y_pred, y_test, output_dir=output_dir, showplots=showplots, saveplots=saveplots)
+    if args.scale_y1: combined_r2 = r2[2]
+    elif args.scale_y2: combined_r2 = r2
+    elif args.xhi_only: combined_r2 = r2
+    elif args.logfx_only: combined_r2 = r2
+    else: combined_r2 = 0.5*(r2[0]+r2[1])
+    
+    logger.info(f"Finished run: score={combined_r2}, r2={r2}. {run_description}")
+    return combined_r2
+
+def objective(trial):
+    # Define hyperparameter search space
+    params = {
+        'input_points_to_use': 2762,#trial.suggest_int('input_points_to_use', 1800, 2762),
+        'model_param1': trial.suggest_int('model_param1', 10, 200, step=5), # num XGB trees
+        'model_param2': trial.suggest_int('model_param2', 3, 10), # xgb tree depth
+        'ps_bins_to_make': trial.suggest_int('ps_bins_to_make', 20, 1381, log=True),
+        'ps_bins_to_use': trial.suggest_int('ps_bins_to_use', 1, 100, log=True),
+    }    
+    # Run training with the suggested parameters
+    try:
+        r2 = run(X_train, X_test, y_train, y_test, 
+                   ps_bins_to_make=params['ps_bins_to_make'],
+                   ps_bins_to_use=params['ps_bins_to_use'],
+                   model_param1=params['model_param1'],
+                   model_param2=params['model_param2'],
+                   showplots=False,
+                   saveplots=True)
+            
+        return r2
+    
+    except Exception as e:
+        logger.error(f"Trial failed with error: {str(e)}")
+        return float('-inf')
+    
 
 
 def scaleXy(X, y):
@@ -196,19 +306,6 @@ def unscale_y(y):
     return y
 
 # main code start here
-output_dir = str('output/xgb_%s' % (datetime.now().strftime("%Y%m%d%H%M%S")))
-if not os.path.exists(output_dir):
-    os.mkdir(output_dir)
-    print("created " + output_dir)
-
-file_handler = logging.FileHandler(filename=f"{output_dir}/f21_predict_xgb.log")
-stdout_handler = logging.StreamHandler(stream=sys.stdout)
-handlers = [file_handler, stdout_handler]
-
-logging.basicConfig(level=logging.INFO, handlers=handlers)
-logger = logging.getLogger(__name__)
-logger.info(f"Commandline: {' '.join(sys.argv)}")
-
 parser = argparse.ArgumentParser(description='Predict reionization parameters from 21cm forest')
 parser.add_argument('-p', '--path', type=str, default='../data/21cmFAST_los/F21_noisy/', help='filepath')
 parser.add_argument('-z', '--redshift', type=float, default=6, help='redshift')
@@ -230,13 +327,36 @@ parser.add_argument('--limitsamplesize', type=int, default=None, help='limit sam
 parser.add_argument('--interactive', action='store_true', help='run in interactive mode. show plots as modals.')
 parser.add_argument('--use_saved_ps_data', action='store_true', help='load PS data from pkl file.')
 parser.add_argument('--subtractnoise', action='store_true', help='subtract noise.')
-parser.add_argument('--psbins', type=int, default=None, help='bin the powerspectrum into n bins ')
-parser.add_argument('--psbins_to_use', type=int, default=None, help='use the first n bins specified')
+parser.add_argument('--ps_bins_to_make', type=int, default=100, help='bin the PS into n bins')
+parser.add_argument('--ps_bins_to_use', type=int, default=10, help='use the first n bins in the model')
 parser.add_argument('--scale_y', action='store_true', help='Scale the y parameters (logfX).')
 parser.add_argument('--scale_y0', action='store_true', help='Scale the y parameters (xHI).')
+parser.add_argument('--scale_y1', action='store_true', help='Scale logfx and calculate product of logfx with xHI.')
+parser.add_argument('--scale_y2', action='store_true', help='Scale logfx and calculate pythogorean sum of logfx with xHI.')
 parser.add_argument('--logscale_X', action='store_true', help='Log scale the signal strength.')
+parser.add_argument('--model_param1', type=int, default=83, help='')
+parser.add_argument('--model_param2', type=int, default=4, help='')
+parser.add_argument('--xhi_only', action='store_true', help='calc loss for xhi only')
+parser.add_argument('--logfx_only', action='store_true', help='calc loss for logfx only')
+parser.add_argument('--filter_test', action='store_true', help='Filter test points in important range of xHI')
+parser.add_argument('--filter_train', action='store_true', help='Filter training points in important range of xHI')
+parser.add_argument('--label', type=str, default='', help='just a descriptive text for the purpose of the run.')
+parser.add_argument('--trials', type=int, default=15, help='Optimization trials')
 
 args = parser.parse_args()
+output_dir = str('output/f21_ps_xgb_%s_%s_t%dh_b%d_%s' % (args.runmode, args.telescope,args.t_int, 1, datetime.now().strftime("%Y%m%d%H%M%S")))
+
+if not os.path.exists(output_dir):
+    os.mkdir(output_dir)
+    print("created " + output_dir)
+
+file_handler = logging.FileHandler(filename=f"{output_dir}/f21_predict_xgb.log")
+stdout_handler = logging.StreamHandler(stream=sys.stdout)
+handlers = [file_handler, stdout_handler]
+
+logging.basicConfig(level=logging.INFO, handlers=handlers)
+logger = logging.getLogger(__name__)
+logger.info(f"Commandline: {' '.join(sys.argv)}")
 
 filepattern = str('%sF21_noisy_21cmFAST_200Mpc_z%.1f_fX%s_xHI%s_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
                (args.path, args.redshift,args.log_fx, args.xHI, args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
@@ -246,21 +366,24 @@ test_size = 16
 if args.maxfiles is not None:
     datafiles = datafiles[:args.maxfiles]
     test_size = 1
-print(f"Found {len(datafiles)} files matching pattern")
+logger.info(f"Found {len(datafiles)} files matching pattern")
 datafiles = sorted(datafiles)
 train_files, test_files = train_test_split(datafiles, test_size=test_size, random_state=42)
 
-if args.runmode == "train_test":
+if args.runmode in ("train_test", "optimize") :
     logger.info(f"Loading train dataset {len(train_files)}")
     X_train, y_train = None, None
     if args.use_saved_ps_data:
         X_train, y_train = load_dataset_from_pkl()
     else:
         X_train, y_train = load_dataset(train_files, psbatchsize=args.psbatchsize, save=True)
-    if args.psbins_to_use is not None:
-        X_train = X_train[:, :args.psbins_to_use]
-    X_train, y_train = scaleXy(X_train, y_train)
     logger.info(f"Loaded dataset X_train:{X_train.shape} y:{y_train.shape}")
+    if args.filter_train:
+        # Filter for xHI between 0.1 and 0.4
+        mask = (y_train[:,0] >= 0.1) & (y_train[:,0] <= 0.4)
+        X_train = X_train[mask]
+        y_train = y_train[mask]
+        logger.info(f"Filtered train dataset to {len(X_train)} samples with 0.1 <= xHI <= 0.4")
     X_noise = None
     if args.subtractnoise:
         noisefilepattern = str('%sF21_noiseonly_21cmFAST_200Mpc_z%.1f_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
@@ -268,22 +391,47 @@ if args.runmode == "train_test":
         logger.info(f"Loading noise files with pattern {noisefilepattern}")
         noisefiles = glob.glob(noisefilepattern)
         X_noise, y_noise = load_dataset(noisefiles, psbatchsize=1000, save=False)
-        if args.psbins_to_use is not None:
-            X_noise = X_noise[:, :args.psbins_to_use]
         if X_noise[:,0] == 0: X_noise[:,0] = 1 # Avoid div by zero
-        print(f"Loaded noise: {X_noise.shape}")
-        print(f"Sample PS before noise subtraction: \n{X_train[:2]}")
+        logger.info(f"Loaded noise: {X_noise.shape}")
+        logger.info(f"Sample PS before noise subtraction: \n{X_train[:2]}")
         X_train /= X_noise
-        print(f"Sample PS after noise subtraction: \n{X_train[:2]}")
+        logger.info(f"Sample PS after noise subtraction: \n{X_train[:2]}")
     logger.info(f"Loading test dataset {len(test_files)}")
     X_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
-    if args.psbins_to_use is not None:
-        X_test = X_test[:, :args.psbins_to_use]
     if args.subtractnoise:
         X_test /= X_noise
+    if args.filter_test:
+        # Filter for xHI between 0.1 and 0.4
+        mask = (y_test[:,0] >= 0.1) & (y_test[:,0] <= 0.4)
+        X_test = X_test[mask]
+        y_test = y_test[mask]
     X_test, y_test = scaleXy(X_test, y_test)
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
-    run(X_train, X_test, y_train, y_test)
+
+    if args.runmode == "train_test":
+        run(X_train, X_test, y_train, y_test, ps_bins_to_make=args.ps_bins_to_make, ps_bins_to_use=args.ps_bins_to_use, model_param1=args.model_param1, model_param2=args.model_param2, showplots=args.interactive, saveplots=True)
+    elif args.runmode == "optimize":
+        # Create study object
+        study = optuna.create_study(direction="maximize")
+        study.optimize(objective, n_trials=args.trials)  # Adjust n_trials as needed
+
+        # Print optimization results
+        logger.info("Optuna: Number of finished trials: {}".format(len(study.trials)))
+        logger.info("Best trial:")
+        trial = study.best_trial
+
+        logger.info("  Value: {}".format(trial.value))
+        logger.info("  Params: ")
+        for key, value in trial.params.items():
+            logger.info("    {}: {}".format(key, value))
+
+        # Save optimization results
+        with open(f"{output_dir}/optuna_results.txt", "w") as f:
+            f.write("Best parameters:\n")
+            for key, value in trial.params.items():
+                f.write(f"{key}: {value}\n")
+            f.write(f"\nBest R2 score: {trial.value}")
+
 elif args.runmode == "test_only": # test_only
     logger.info(f"Loading test dataset {len(test_files)}")
     X_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
