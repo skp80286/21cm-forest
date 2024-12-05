@@ -125,25 +125,32 @@ class CNNModel(nn.Module):
             # First conv block
             nn.Conv1d(channels, 32, kernel_size=kernel1, padding='same'),
             nn.LeakyReLU(),
-            nn.Conv1d(32, 32, kernel_size=kernel2, padding='same'),
+            nn.Conv1d(32, 32, kernel_size=kernel1, padding='same'),
             nn.LeakyReLU(),
             nn.BatchNorm1d(32),
             nn.MaxPool1d(4),
             nn.Dropout(dropout),
-            
+
             # Second conv block
-            nn.Conv1d(32, 64, kernel_size=kernel1, padding='same'),
+            nn.Conv1d(32, 64, kernel_size=kernel1//4, padding='same'),
             nn.LeakyReLU(),
-            nn.Conv1d(64, 64, kernel_size=kernel2, padding='same'),
+            nn.Conv1d(64, 64, kernel_size=kernel1//4, padding='same'),
             nn.LeakyReLU(),
             nn.BatchNorm1d(64),
             nn.MaxPool1d(4),
             nn.Dropout(dropout),
 
+            nn.Conv1d(64, 128, kernel_size=kernel1//16, padding='same'),
+            nn.LeakyReLU(),
+            nn.Conv1d(128, 128, kernel_size=kernel1//16, padding='same'),
+            nn.LeakyReLU(),
+            nn.BatchNorm1d(128),
+            nn.MaxPool1d(4),
+            nn.Dropout(dropout),
         )
         
         # Calculate the size of flattened features
-        self.flatten_size = ((input_size//4)//4)*64
+        self.flatten_size = ((((input_size)//4)//4)//4)*128
         # Dense layers
         self.dense_layers = nn.Sequential(
             nn.Linear(self.flatten_size, 1024),
@@ -274,7 +281,7 @@ def convert_to_pytorch_tensors(X, y, samples, X_noise, window_size):
     return X_tensor, y_tensor
 
 def run(X_train, train_samples, X_noise, X_test, test_samples,y_train, y_test, num_epochs, batch_size, lr, kernel1, kernel2, dropout, input_points_to_use, showplots=False, saveplots=True):
-    run_description = f"Commandline: {' '.join(sys.argv)}\nParameters: epochs: {num_epochs}, batch_size: {batch_size}, lr: {lr}, kernel1: {kernel1}, kernel2: {kernel2}, dropout: {dropout}, points: {input_points_to_use}, label={args.label}"
+    run_description = f"Commandline: {' '.join(sys.argv)}. Parameters: epochs: {num_epochs}, kernel_size: {kernel1}, points: {input_points_to_use}, label={args.label}"
     logger.info(f"Starting new run: {run_description}")
     X_train, y_train = scaleXy(X_train, y_train)
     X_test, y_test = scaleXy(X_test, y_test)
@@ -289,7 +296,7 @@ def run(X_train, train_samples, X_noise, X_test, test_samples,y_train, y_test, n
 
     #kernel2 = calc_odd_half(kernel1)
     # Convert data to PyTorch tensors
-    inputs, outputs = convert_to_pytorch_tensors(X_train, y_train, train_samples, X_noise, window_size=kernel2)
+    inputs, outputs = convert_to_pytorch_tensors(X_train, y_train, train_samples, X_noise, window_size=kernel1)
 
     logger.info(f"Shape of inouts, outputs: {inputs.shape}, {outputs.shape}")
     # Create DataLoader for batching
@@ -383,11 +390,14 @@ def run(X_train, train_samples, X_noise, X_test, test_samples,y_train, y_test, n
         logger.info(f"unscaled test result {X_test.shape} {y_test.shape} {y_pred.shape}")
     
     base.summarize_test_1000(y_pred, y_test, output_dir=output_dir, showplots=showplots, saveplots=saveplots)
-    logger.info(f"Finished run: {run_description}")
-    if args.scale_y1: return r2[2]
-    if args.xhi_only: return r2[0]
-    if args.logfx_only: return r2[1]
-    return 0.5*(r2[0]+r2[1])
+    if args.scale_y1: combined_r2 = r2[2]
+    elif args.scale_y2: combined_r2 = r2
+    elif args.xhi_only: combined_r2 = r2
+    elif args.logfx_only: combined_r2 = r2
+    else: combined_r2 = 0.5*(r2[0]+r2[1])
+    
+    logger.info(f"Finished run: score={combined_r2}, r2={r2}. {run_description}")
+    return combined_r2
 
 def scaleXy(X, y):
     if args.scale_y: 
