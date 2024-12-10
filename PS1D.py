@@ -28,6 +28,6 @@ def get_P(signal,max_size):
       PowSpec[p+1] = (np.abs(dft[p+1])**2 + np.abs(dft[n_pixels-p-1])**2)/2.0
   PowSpec[int(n_pixels/2)] = (np.abs(dft[int(n_pixels/2)]))**2
 
-  PowSpec = PowSpec*max_size*kbins
+  #PowSpec = PowSpec*max_size*kbins
 
   return kbins,PowSpec

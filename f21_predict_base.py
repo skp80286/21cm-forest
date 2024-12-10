@@ -9,7 +9,17 @@ from sklearn.metrics import r2_score
 
 import scipy.fftpack as fftpack
 from scipy.stats import binned_statistic
+
+import argparse
 import logging
+from datetime import datetime
+
+import os
+import sys
+import glob
+import pickle
+
+import F21DataLoader as dl
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +147,7 @@ def plot_predictions(df_y, colors):
     plt.legend()
     plt.show()
 
-def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplots=True):
+def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplots=True, label=""):
     """
     Analyze predictions by grouping them into sets of 10 for each unique test point.
     
@@ -205,7 +215,7 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
         plt.legend()
         
         if showplots: plt.show()
-        if saveplots: plt.savefig(f'{output_dir}/f21_prediction_means.png')
+        if saveplots: plt.savefig(f'{output_dir}/f21_prediction_means{label}.png')
         plt.clf()
     
     # Log statistics
@@ -215,7 +225,7 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
     
     return np.mean(r2)    
 
-def summarize_test(y_pred, y_test, output_dir=".", showplots=False, saveplots=True):
+def summarize_test(y_pred, y_test, output_dir=".", showplots=False, saveplots=True, label=""):
     logger.info(f"y_pred: {y_pred}")
     logger.info(f"y_test: {y_test}")
 
@@ -274,7 +284,7 @@ def summarize_test(y_pred, y_test, output_dir=".", showplots=False, saveplots=Tr
         plt.legend()
         plt.colorbar(label=f'RMS Error ({rmse_min:.2f} to {rmse_max:.2f})')
         if showplots: plt.show()
-        if saveplots: plt.savefig(f'{output_dir}/f21_prediction.png')
+        if saveplots: plt.savefig(f'{output_dir}/f21_prediction{label}.png')
         plt.clf()
     return mean_r2_score
     
@@ -334,3 +344,215 @@ def summarize_test(y_pred, y_test, output_dir=".", showplots=False):
     plt.savefig(f'{output_dir}/f21_prediction.png')
     plt.clf()
 """
+
+def create_output_dir(args):
+    param_str = f'{args.runmode}_{args.telescope}_t{args.t_int}'
+    output_dir = f'output/{sys.argv[0].split(sep=os.sep)[-1]}_{param_str}_{datetime.now().strftime("%Y%m%d%H%M%S")}'
+    if not os.path.exists(output_dir):
+        os.mkdir(output_dir)
+        print("created " + output_dir)
+    return output_dir
+
+def setup_logging(output_dir):
+    file_handler = logging.FileHandler(filename=f"{output_dir}/{sys.argv[0].split(sep=os.sep)[-1]}.log")
+    stdout_handler = logging.StreamHandler(stream=sys.stdout)
+    handlers = [file_handler, stdout_handler]
+    logging.basicConfig(level=logging.INFO, handlers=handlers)
+    logger = logging.getLogger(__name__)
+    logger.info(f"Commandline: {' '.join(sys.argv)}")
+    return logger
+
+def setup_args_parser():
+    parser = argparse.ArgumentParser(description='Predict reionization parameters from 21cm forest')
+    parser.add_argument('-p', '--path', type=str, default='../data/21cmFAST_los/F21_noisy/', help='filepath')
+    parser.add_argument('-z', '--redshift', type=float, default=6, help='redshift')
+    parser.add_argument('-d', '--dvH', type=float, default=0.0, help='rebinning width in km/s')
+    parser.add_argument('-r', '--spec_res', type=int, default=8, help='spectral resolution of telescope (i.e. frequency channel width) in kHz')
+    parser.add_argument('-t', '--telescope', type=str, default='uGMRT', help='telescope')
+    parser.add_argument('-s', '--s147', type=float, default=64.2, help='intrinsic flux of QSO at 147Hz in mJy')
+    parser.add_argument('-a', '--alpha_r', type=float, default=-0.44, help='radio spectral index of QSO')
+    parser.add_argument('-i', '--t_int', type=float, default=500, help='integration time of obsevation in hours')
+    parser.add_argument('-f', '--log_fx', type=str, default='*', help='log10(f_X)')
+    parser.add_argument('-x', '--xHI', type=str, default='*', help='mean neutral hydrogen fraction')
+    parser.add_argument('-n', '--nlos', type=int, default=1000, help='num lines of sight')
+    parser.add_argument('-m', '--runmode', type=str, default='train_test', help='one of train_test, test_only, grid_search, plot_only')
+    parser.add_argument('-b', '--numsamplebatches', type=int, default=1, help='Number of batches of sample data to use for plotting learning curve by sample size.')
+    parser.add_argument('--maxfiles', type=int, default=None, help='Max num files to read')
+    parser.add_argument('--modelfile', type=str, default="output/cnn-torch-21cmforest-model.pth", help='model file')
+    parser.add_argument('--limitsamplesize', type=int, default=20, help='limit samples from one file to this number.')
+    parser.add_argument('--interactive', action='store_true', help='run in interactive mode. show plots as modals.')
+    parser.add_argument('--use_saved_los_data', action='store_true', help='load LoS data from pkl file.')
+    parser.add_argument('--epochs', type=int, default=15, help='Number of epoch of training.')
+    parser.add_argument('--trainingbatchsize', type=int, default=32, help='Size of batch for training.')
+    parser.add_argument('--input_points_to_use', type=int, default=915, help='use the first n points of los. ie truncate the los to first 690 points')
+    parser.add_argument('--scale_y', action='store_true', help='Scale the y parameters (logfX).')
+    parser.add_argument('--scale_y0', action='store_true', help='Scale the y parameters (xHI).')
+    parser.add_argument('--scale_y1', action='store_true', help='Scale logfx and calculate product of logfx with xHI.')
+    parser.add_argument('--scale_y2', action='store_true', help='Scale logfx and calculate pythogorean sum of logfx with xHI.')
+    parser.add_argument('--logscale_X', action='store_true', help='Log scale the signal strength.')
+    parser.add_argument('--channels', type=int, default=1, help='Use multiple channel inputs for the CNN.')
+    parser.add_argument('--psbatchsize', type=int, default=None, help='batching for PS data.')
+    parser.add_argument('--label', type=str, default='', help='just a descriptive text for the purpose of the run.')
+    parser.add_argument('--trials', type=int, default=15, help='Optimization trials')
+    parser.add_argument('--use_noise_channel', action='store_true', help='Use noise channel as input.')
+    parser.add_argument('--xhi_only', action='store_true', help='calc loss for xhi only')
+    parser.add_argument('--logfx_only', action='store_true', help='calc loss for logfx only')
+    parser.add_argument('--filter_test', action='store_true', help='Filter test points in important range of xHI')
+    parser.add_argument('--filter_train', action='store_true', help='Filter training points in important range of xHI')
+
+    return parser
+
+def get_datafile_list(type, args):
+    if type == 'noisy':
+        filepattern = str('%sF21_noisy_21cmFAST_200Mpc_z%.1f_fX%s_xHI%s_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
+               (args.path, args.redshift,args.log_fx, args.xHI, args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
+    elif type == 'signalonly':
+        filepattern = str('%sF21_signalonly_21cmFAST_200Mpc_z%.1f_fX%s_xHI%s_%dkHz.dat' % 
+               (args.path, args.redshift,args.log_fx, args.xHI, args.spec_res))
+    elif type == 'noiseonly':
+        filepattern = str('%sF21_noiseonly_21cmFAST_200Mpc_z%.1f_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
+               (args.path, args.redshift,args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
+
+    if args.maxfiles is not None:
+        datafiles = datafiles[:args.maxfiles]
+
+
+    logger.info(f"Loading files with pattern {filepattern}")
+    datafiles = glob.glob(filepattern)
+
+    logger.info(f"Found {len(datafiles)} files matching pattern")
+    datafiles = sorted(datafiles) # sorting is important because we want to reliably reproduce the test results 
+    return datafiles
+
+
+def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False, skip_ps=True):
+    # Lists to store combined data
+    all_params = []
+    # Create processor with desired number of worker threads
+    processor = dl.F21DataLoader(max_workers=8, psbatchsize=psbatchsize, limitsamplesize=limitsamplesize, skip_ps=skip_ps)
+
+    # Process all files and get results
+    results = processor.process_all_files(datafiles)
+    logger.info(f"Finished data loading.")
+    # Access results
+    all_los = results['los']
+    los_samples = results['los_samples']
+    all_params = results['params']
+    logger.info(f"sample los:{all_los[0]}")
+    logger.info(f"sample params:{all_params[0]}")
+    
+    # Combine all data
+    logger.info(f"\nCombined data shape: {all_los.shape}")
+    logger.info(f"Combined parameters shape: {all_params.shape}")
+        
+    if save:
+        logger.info(f"Saving LoS data to file")
+        with open('los-21cm-forest.pkl', 'w+b') as f:  # open a text file
+            pickle.dump({"all_los": all_los, "all_params": all_params}, f)
+            
+    return (all_los, all_params, los_samples)
+
+def test_multiple(modeltester, datafiles, reps=1000, size=10, save=False):
+    # Create processor with desired number of worker threads
+    processor = dl.F21DataLoader(max_workers=8, psbatchsize=1, limitsamplesize=None, ps_bins=None)
+    all_y_test = []
+    all_y_pred = []
+    # Process all files and get results
+    for i, f in enumerate(datafiles):
+        results = processor.process_all_files([f])        
+        # Access results
+        los = results['los']
+        ks = results['ks']
+        ps = results['ps']
+        params = results['params']
+
+        if i == 0:
+            logger.info(f"sample test los:{los}")
+            logger.info(f"sample test ks:{ks}")
+            logger.info(f"sample test ps:{ps}")
+            logger.info(f"sample test params:{params}")
+        y_pred_for_test_point = []
+        y_test = None
+        for j in range(reps):
+            #pick 10 samples
+            rdm = np.random.randint(len(los), size=size)
+            los_set = los[rdm]
+            _, y_test, y_pred, r2 = modeltester.test(los, ps, params, silent=True)
+            y_pred_for_test_point.append(y_pred)
+        y_pred_mean = np.mean(y_pred_for_test_point)
+        all_y_pred.append(y_pred_mean)
+        all_y_test.append(y_test)
+
+        return all_y_pred, all_y_test
+
+
+def scaleXy(X, y, args):
+    if args.scale_y: 
+        xHI = y[:, 0].reshape(len(y), 1)
+        scaledfx = (0.8 + y[:,1]/5.0).reshape(len(y), 1)
+        y = np.hstack((xHI, scaledfx))
+    if args.scale_y0: y[:,0] = y[:,0]*5.0
+    if args.scale_y1:
+        # we wish to create a single metric representing the expected
+        # strength of the signal based on xHI (0 to 1) and logfx (-4 to +1)
+        # We know that higher xHI and lower logfx lead to a stronger signal, 
+        # First we scale logfx to range of 0 to 1.
+        # Then we take a product of xHI and (1 - logfx)
+        if args.trials == 1: logger.info(f"Before scaleXy: {y}")
+        xHI = y[:, 0].reshape(len(y), 1)
+        scaledfx = 1 - (0.8 + y[:,1]/5.0)
+        product = np.sqrt(xHI**2 + scaledfx**2).reshape(len(y), 1)
+        y = np.hstack((xHI, scaledfx, product))
+        if args.trials == 1: logger.info(f"ScaledXy: {y}")
+    if args.scale_y2:
+        # we wish to create a single metric representing the expected
+        # strength of the signal based on xHI (0 to 1) and logfx (-4 to +1)
+        # We know that higher xHI and lower logfx lead to a stronger signal, 
+        # First we scale logfx to range of 0 to 1.
+        # Then we take a product of xHI and (1 - logfx)
+        if args.trials == 1: logger.info(f"Before scaleXy: {y}")
+        xHI = y[:, 0].reshape(len(y), 1)
+        scaledfx = 1 - (0.8 + y[:,1]/5.0).reshape(len(y), 1)
+        product = np.sqrt(xHI**2 + scaledfx**2).reshape(len(y), 1)
+        y = np.hstack((xHI, scaledfx, product))
+    if args.logscale_X: X = np.log(X)
+    return X, y
+
+def unscaleXy(X, y, args):
+    # Undo what we did in scaleXy function
+    if args.scale_y: 
+        xHI = y[:, 0].reshape(len(y), 1)
+        fx = 5.0*(y[:,1] - 0.8).reshape(len(y), 1)
+        y = np.hstack((xHI, fx))
+    if args.scale_y0: y[:,0] = y[:,0]/5.0
+    if args.scale_y1:
+        xHI = y[:, 0].reshape(len(y), 1)
+        fx = 5.0*(1 - y[:,1] - 0.8)
+        y = np.hstack((xHI, fx))
+    if args.scale_y2:
+        xHI = y[:, 0].reshape(len(y), 1)
+        fx = 5.0*(1 - y[:,1] - 0.8).reshape(len(y), 1)
+        y = np.hstack((xHI, fx))
+                
+    if args.logscale_X: X = np.exp(X)
+    return X, y
+
+def unscale_y(y, args):
+    # Undo what we did in the scaleXy function
+    if args.scale_y: 
+        xHI = y[:, 0].reshape(len(y), 1)
+        fx = 5.0*(y[:,1] - 0.8).reshape(len(y), 1)
+        y = np.hstack((xHI, fx))
+    if args.scale_y0: y[:,0] = y[:,0]/5.0
+    if args.scale_y1:
+        # calculate fx using product and xHI 
+        xHI = np.sqrt(y[:,2]**2 - y[:,1]**2)
+        logfx = 5.0*(1 - y[:,1] - 0.8)
+        y = np.hstack((xHI, fx))
+    if args.scale_y2:
+        # calculate fx using product and xHI 
+        xHI = np.sqrt(0.5*y**2).reshape((len(y), 1))
+        fx = 5.0*(1 - xHI - 0.8)
+        y = np.hstack((xHI, fx))
+    
+    return y

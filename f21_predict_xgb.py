@@ -106,21 +106,16 @@ def save_model(model):
     logger.info(f'Saving model to: {output_dir}/{args.modelfile}')
     model_json = model.save_model(f"{output_dir}/{args.modelfile}")
 
-def  bin_ps_data(X_train, X_test, ps_bins_to_make, ps_bins_to_use):
+def  bin_ps_data(X, ps_bins_to_make, ps_bins_to_use):
     num_bins = ps_bins_to_make*ps_bins_to_use//100
-    fake_ks = range(X_train.shape[1])
-    logger.info(f"Binning PS data: original_size={X_train.shape[1]}, ps_bins_to_make={ps_bins_to_make}, num bins to use={num_bins}")
-    X_train_binned = []
-    for X in X_train:
-        ps, _, _ = binned_statistic(fake_ks, X, statistic='mean', bins=num_bins)
-        X_train_binned.append(ps[:ps_bins_to_use])
+    fake_ks = range(X.shape[1])
+    logger.info(f"Binning PS data: original_size={X.shape[1]}, ps_bins_to_make={ps_bins_to_make}, num bins to use={num_bins}")
+    X_binned = []
+    for x in X:
+        ps, _, _ = binned_statistic(fake_ks, x, statistic='mean', bins=num_bins)
+        X_binned.append(ps[:ps_bins_to_use])
 
-    X_test_binned = []
-    for X in X_test:
-        ps, _, _ = binned_statistic(fake_ks, X, statistic='mean', bins=num_bins)
-        X_test_binned.append(ps[:ps_bins_to_use])
-
-    return np.array(X_train_binned), np.array(X_test_binned)
+    return np.array(X_binned)
 
 
 def scaleXy(X, y):
@@ -175,25 +170,80 @@ def unscaleXy(X, y):
     elif args.logscale_X: X = np.exp(X)
     return X, y
 
-def run(X_train, X_test, y_train, y_test, 
+class ModelTester:
+    def __init__(self, model, X_noise, ps_bins_to_make, ps_bins_to_use):
+        self.model = model
+        self.X_noise = X_noise
+        self.ps_bins_to_make = ps_bins_to_make
+        self.ps_bins_to_use = ps_bins_to_use
+    
+    def test(self, los, X_test, y_test, silent=False):
+        X_test = bin_ps_data(X_test, self.ps_bins_to_make, self.ps_bins_to_use)
+        if not silent: logger.info(f"Testing dataset: X:{X_test.shape} y:{y_test.shape}")
+
+
+        if args.subtractnoise:
+            X_test /= self.X_noise
+        if args.filter_test:
+            # Filter for xHI between 0.1 and 0.4
+            mask = (y_test[:,0] >= 0.1) & (y_test[:,0] <= 0.4)
+            X_test = X_test[mask]
+            y_test = y_test[mask]
+        if not silent: logger.info(f"Before scale y_test: {y_test[:1]}")
+        X_test, y_test = scaleXy(X_test, y_test)
+        if not silent: logger.info(f"After scale y_test: {y_test[:1]}")
+
+        if not silent: logger.info("Testing prediction")
+        y_pred = self.model.predict(X_test)
+
+        if y_pred.ndim==1:
+            y_pred = y_pred.reshape(len(y_pred),1)
+            if args.scale_y2:
+                if not silent: logger.info(f"Prediction vs Test data: \n{np.hstack((y_test[:, 2].reshape(len(y_test),1), y_pred))[:5]}")
+                r2 = r2_score(y_test[:, 2], y_pred)
+            elif args.xhi_only:
+                if not silent: logger.info(f"Prediction vs Test data: \n{np.hstack((y_test[:, 0].reshape(len(y_test),1), y_pred))[:5]}")
+                r2 = r2_score(y_test[:, 0], y_pred)
+            elif args.logfx_only:
+                if not silent: logger.info(f"Prediction vs Test data: \n{np.hstack((y_test[:, 1].reshape(len(y_test),1), y_pred))[:5]}")
+                r2 = r2_score(y_test[:, 1], y_pred)
+            else:
+                r2 = r2_score(y_test, y_pred)
+        else:
+            if not silent: logger.info(f"Prediction vs Test data: \n{np.hstack((y_pred, y_test))[:5]}")
+            # Evaluate the model (on a test set, here we just use the training data for simplicity)
+            r2 = [r2_score(y_test[:, i], y_pred[:, i]) for i in range(len(y_pred[0]))]
+        if not silent: logger.info("R2 Score: " + str(r2))
+
+        if not silent: logger.info(f"Before unscale y_pred: {y_pred[:1]}")
+        y_pred = unscale_y(y_pred)
+        if not silent: logger.info(f"After unscale y_pred: {y_pred[:1]}")
+        if not silent: logger.info(f"Before unscale y_test: {y_test[:1]}")
+        X_test, y_test = unscaleXy(X_test, y_test)
+        if not silent: logger.info(f"After unscale y_test: {y_test[:1]}")
+        if not silent: logger.info(f"unscaled test result {X_test.shape} {y_test.shape} {y_pred.shape}")
+
+        # Calculate rmse scores
+        rms_scores = [mean_squared_error(y_test[:, i], y_pred[:, i]) for i in range(len(y_pred[0]))]
+        rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test, axis=0)
+        if not silent: logger.info("RMS Error: " + str(rms_scores_percent))    
+        return X_test, y_test, y_pred, r2
+
+def run(X_train, X_test, X_noise, y_train, y_test, 
                     ps_bins_to_make,
                     ps_bins_to_use,
                     model_param1,
                     model_param2,
                     showplots=False,
                     saveplots=True):
-    run_description = f"Commandline: {' '.join(sys.argv)}. Parameters: ps_bin_to_make={ps_bins_to_make}, ps_bin_to_use={ps_bins_to_use}, model_param1={model_param1}, model_param2={model_param2}, label={args.label}"
+    run_description = f"Commandline: {' '.join(sys.argv)}. Parameters: ps_bins_to_make={ps_bins_to_make}, ps_bins_to_use={ps_bins_to_use}, model_param1={model_param1}, model_param2={model_param2}, label={args.label}"
     logger.info(f"Starting new run: {run_description}")
-
-    X_train, X_test = bin_ps_data(X_train, X_test, ps_bins_to_make, ps_bins_to_use)
+        
+    X_train = bin_ps_data(X_train, ps_bins_to_make, ps_bins_to_use)
     logger.info(f"Before scale train: {y_train[:1]}")
     X_train, y_train = scaleXy(X_train, y_train)
     logger.info(f"After scale train: {y_train[:1]}")
-    logger.info(f"Before scale y_test: {y_test[:1]}")
-    X_test, y_test = scaleXy(X_test, y_test)
-    logger.info(f"After scale y_test: {y_test[:1]}")
     logger.info(f"Training dataset: X:{X_train.shape} y:{y_train.shape}")
-    logger.info(f"Testing dataset: X:{X_test.shape} y:{y_test.shape}")
 
     y_pred = None
     rms_scores = None
@@ -217,41 +267,11 @@ def run(X_train, X_test, y_train, y_test,
     else:
         reg.fit(X_train, y_train)
 
-    logger.info("Testing prediction")
-    y_pred = reg.predict(X_test)
+    X_train, y_train = unscaleXy(X_train, y_train)
 
-    if y_pred.ndim==1:
-        y_pred = y_pred.reshape(len(y_pred),1)
-        if args.scale_y2:
-            logger.info(f"Prediction vs Test data: \n{np.hstack((y_test[:, 2].reshape(len(y_test),1), y_pred))[:5]}")
-            r2 = r2_score(y_test[:, 2], y_pred)
-        elif args.xhi_only:
-            logger.info(f"Prediction vs Test data: \n{np.hstack((y_test[:, 0].reshape(len(y_test),1), y_pred))[:5]}")
-            r2 = r2_score(y_test[:, 0], y_pred)
-        elif args.logfx_only:
-            logger.info(f"Prediction vs Test data: \n{np.hstack((y_test[:, 1].reshape(len(y_test),1), y_pred))[:5]}")
-            r2 = r2_score(y_test[:, 1], y_pred)
-        else:
-            r2 = r2_score(y_test, y_pred)
-    else:
-        logger.info(f"Prediction vs Test data: \n{np.hstack((y_pred, y_test))[:5]}")
-        # Evaluate the model (on a test set, here we just use the training data for simplicity)
-        r2 = [r2_score(y_test[:, i], y_pred[:, i]) for i in range(len(y_pred[0]))]
-    logger.info("R2 Score: " + str(r2))
+    tester = ModelTester(reg, X_noise, ps_bins_to_make, ps_bins_to_use)
+    X_test, y_test, y_pred, r2 = tester.test(None, X_test, y_test)
 
-    logger.info(f"Before unscale y_pred: {y_pred[:1]}")
-    y_pred = unscale_y(y_pred)
-    logger.info(f"After unscale y_pred: {y_pred[:1]}")
-    logger.info(f"Before unscale y_test: {y_test[:1]}")
-    X_test, y_test = unscaleXy(X_test, y_test)
-    logger.info(f"After unscale y_test: {y_test[:1]}")
-    logger.info(f"unscaled test result {X_test.shape} {y_test.shape} {y_pred.shape}")
-
-    # Calculate rmse scores
-    rms_scores = [mean_squared_error(y_test[:, i], y_pred[:, i]) for i in range(len(y_pred[0]))]
-    rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test, axis=0)
-    logger.info("RMS Error: " + str(rms_scores_percent))    
-    
     base.summarize_test_1000(y_pred, y_test, output_dir=output_dir, showplots=showplots, saveplots=saveplots)
     if args.scale_y1: combined_r2 = r2[2]
     elif args.scale_y2: combined_r2 = r2
@@ -260,20 +280,21 @@ def run(X_train, X_test, y_train, y_test,
     else: combined_r2 = 0.5*(r2[0]+r2[1])
     
     logger.info(f"Finished run: score={combined_r2}, r2={r2}. {run_description}")
-    return combined_r2
+
+    return combined_r2, tester
 
 def objective(trial):
     # Define hyperparameter search space
     params = {
         'input_points_to_use': 2762,#trial.suggest_int('input_points_to_use', 1800, 2762),
-        'model_param1': trial.suggest_int('model_param1', 10, 200, step=5), # num XGB trees
-        'model_param2': trial.suggest_int('model_param2', 3, 10), # xgb tree depth
+        'model_param1': trial.suggest_int('model_param1', 80, 150, step=5), # num XGB trees
+        'model_param2': trial.suggest_int('model_param2', 3, 6), # xgb tree depth
         'ps_bins_to_make': trial.suggest_int('ps_bins_to_make', 20, 1381, log=True),
-        'ps_bins_to_use': trial.suggest_int('ps_bins_to_use', 1, 100, log=True),
+        'ps_bins_to_use': 20 #trial.suggest_int('ps_bins_to_use', 1, 100, log=True),
     }    
     # Run training with the suggested parameters
     try:
-        r2 = run(X_train, X_test, y_train, y_test, 
+        r2, _ = run(X_train, X_test, X_noise, y_train, y_test, 
                    ps_bins_to_make=params['ps_bins_to_make'],
                    ps_bins_to_use=params['ps_bins_to_use'],
                    model_param1=params['model_param1'],
@@ -284,11 +305,9 @@ def objective(trial):
         return r2
     
     except Exception as e:
-        logger.error(f"Trial failed with error: {str(e)}")
+        logger.error(f"Trial failed with error:", exc_info=True)  
         return float('-inf')
     
-
-
 def scaleXy(X, y):
     if args.scale_y: y[:,1] = 0.8 + y[:,1]/5.0
     if args.scale_y0: y[:,0] = y[:,0]*5.0
@@ -342,6 +361,7 @@ parser.add_argument('--filter_test', action='store_true', help='Filter test poin
 parser.add_argument('--filter_train', action='store_true', help='Filter training points in important range of xHI')
 parser.add_argument('--label', type=str, default='', help='just a descriptive text for the purpose of the run.')
 parser.add_argument('--trials', type=int, default=15, help='Optimization trials')
+parser.add_argument('--test_multiple', action='store_true', help='Test 1000 sets of 10 LoS for each test point and plot it')
 
 args = parser.parse_args()
 output_dir = str('output/f21_ps_xgb_%s_%s_t%dh_b%d_%s' % (args.runmode, args.telescope,args.t_int, 1, datetime.now().strftime("%Y%m%d%H%M%S")))
@@ -368,7 +388,19 @@ if args.maxfiles is not None:
     test_size = 1
 logger.info(f"Found {len(datafiles)} files matching pattern")
 datafiles = sorted(datafiles)
-train_files, test_files = train_test_split(datafiles, test_size=test_size, random_state=42)
+#train_files, test_files = train_test_split(datafiles, test_size=test_size, random_state=42)
+test_points = [[-3.00,0.25],[-2.00,0.25],[-1.00,0.25],[-3.00,0.52],[-2.00,0.52],[-1.00,0.52], [-3.00,0.80],[-2.00,0.80],[-1.00,0.80]]
+train_files = []
+test_files = []
+for f in datafiles:
+    is_test_file = False
+    for p in test_points:
+        if f.find(f"fX{p[0]:.2f}_xHI{p[1]:.2f}") >= 0:
+            test_files.append(f)
+            is_test_file = True
+            break
+    if not is_test_file:
+        train_files.append(f)
 
 if args.runmode in ("train_test", "optimize") :
     logger.info(f"Loading train dataset {len(train_files)}")
@@ -398,18 +430,14 @@ if args.runmode in ("train_test", "optimize") :
         logger.info(f"Sample PS after noise subtraction: \n{X_train[:2]}")
     logger.info(f"Loading test dataset {len(test_files)}")
     X_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
-    if args.subtractnoise:
-        X_test /= X_noise
-    if args.filter_test:
-        # Filter for xHI between 0.1 and 0.4
-        mask = (y_test[:,0] >= 0.1) & (y_test[:,0] <= 0.4)
-        X_test = X_test[mask]
-        y_test = y_test[mask]
-    X_test, y_test = scaleXy(X_test, y_test)
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
 
     if args.runmode == "train_test":
-        run(X_train, X_test, y_train, y_test, ps_bins_to_make=args.ps_bins_to_make, ps_bins_to_use=args.ps_bins_to_use, model_param1=args.model_param1, model_param2=args.model_param2, showplots=args.interactive, saveplots=True)
+        r2, modeltester = run(X_train, X_test, X_noise, y_train, y_test, ps_bins_to_make=args.ps_bins_to_make, ps_bins_to_use=args.ps_bins_to_use, model_param1=args.model_param1, model_param2=args.model_param2, showplots=args.interactive, saveplots=True)
+        if args.test_multiple:
+            all_y_pred, all_y_test = base.test_multiple(modeltester, test_files)
+            base.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
+
     elif args.runmode == "optimize":
         # Create study object
         study = optuna.create_study(direction="maximize")
