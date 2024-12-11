@@ -107,15 +107,21 @@ def save_model(model):
     model_json = model.save_model(f"{output_dir}/{args.modelfile}")
 
 def  bin_ps_data(X, ps_bins_to_make, ps_bins_to_use):
-    num_bins = ps_bins_to_make*ps_bins_to_use//100
-    fake_ks = range(X.shape[1])
-    logger.info(f"Binning PS data: original_size={X.shape[1]}, ps_bins_to_make={ps_bins_to_make}, num bins to use={num_bins}")
-    X_binned = []
-    for x in X:
-        ps, _, _ = binned_statistic(fake_ks, x, statistic='mean', bins=num_bins)
-        X_binned.append(ps[:ps_bins_to_use])
+    if X.shape[1] <  ps_bins_to_make:
+        ps_bins_to_make = X.shape[1]
 
-    return np.array(X_binned)
+    num_bins = ps_bins_to_make*ps_bins_to_use//100
+
+    if ps_bins_to_make < X.shape[1]:
+        fake_ks = range(X.shape[1])
+        X_binned = []
+        for x in X:
+            ps, _, _ = binned_statistic(fake_ks, x, statistic='mean', bins=num_bins)
+            X_binned.append(ps)
+        X_binned = np.array(X_binned)
+    else:
+        X_binned = X
+    return X_binned[:,:ps_bins_to_use]
 
 
 def scaleXy(X, y):
@@ -178,6 +184,7 @@ class ModelTester:
         self.ps_bins_to_use = ps_bins_to_use
     
     def test(self, los, X_test, y_test, silent=False):
+        if not silent: logger.info(f"Binning PS data: original_size={X_test.shape[1]}, ps_bins_to_make={self.ps_bins_to_make}, num bins to use={self.ps_bins_to_use}")
         X_test = bin_ps_data(X_test, self.ps_bins_to_make, self.ps_bins_to_use)
         if not silent: logger.info(f"Testing dataset: X:{X_test.shape} y:{y_test.shape}")
 
@@ -236,7 +243,7 @@ def run(X_train, X_test, X_noise, y_train, y_test,
                     model_param2,
                     showplots=False,
                     saveplots=True):
-    run_description = f"Commandline: {' '.join(sys.argv)}. Parameters: ps_bins_to_make={ps_bins_to_make}, ps_bins_to_use={ps_bins_to_use}, model_param1={model_param1}, model_param2={model_param2}, label={args.label}"
+    run_description = f"output_dir={output_dir} Commandline: {' '.join(sys.argv)}. Parameters: ps_bins_to_make={ps_bins_to_make}, ps_bins_to_use={ps_bins_to_use}, model_param1={model_param1}, model_param2={model_param2}, label={args.label}"
     logger.info(f"Starting new run: {run_description}")
         
     X_train = bin_ps_data(X_train, ps_bins_to_make, ps_bins_to_use)
@@ -270,9 +277,13 @@ def run(X_train, X_test, X_noise, y_train, y_test,
     X_train, y_train = unscaleXy(X_train, y_train)
 
     tester = ModelTester(reg, X_noise, ps_bins_to_make, ps_bins_to_use)
-    X_test, y_test, y_pred, r2 = tester.test(None, X_test, y_test)
+    if args.test_multiple:
+        all_y_pred, all_y_test = base.test_multiple(tester, test_files)
+        r2 = base.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
+    else:
+        X_test, y_test, y_pred, r2 = tester.test(None, X_test, y_test)
+        base.summarize_test_1000(y_pred, y_test, output_dir=output_dir, showplots=showplots, saveplots=saveplots)
 
-    base.summarize_test_1000(y_pred, y_test, output_dir=output_dir, showplots=showplots, saveplots=saveplots)
     if args.scale_y1: combined_r2 = r2[2]
     elif args.scale_y2: combined_r2 = r2
     elif args.xhi_only: combined_r2 = r2
@@ -434,9 +445,6 @@ if args.runmode in ("train_test", "optimize") :
 
     if args.runmode == "train_test":
         r2, modeltester = run(X_train, X_test, X_noise, y_train, y_test, ps_bins_to_make=args.ps_bins_to_make, ps_bins_to_use=args.ps_bins_to_use, model_param1=args.model_param1, model_param2=args.model_param2, showplots=args.interactive, saveplots=True)
-        if args.test_multiple:
-            all_y_pred, all_y_test = base.test_multiple(modeltester, test_files)
-            base.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
 
     elif args.runmode == "optimize":
         # Create study object

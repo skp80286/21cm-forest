@@ -155,6 +155,7 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
     y_pred: numpy array of predictions (16000, 2)
     y_test: numpy array of test values (16000, 2)
     """
+    logger.info(f"summarize_test_1000: Summarizing results pred shape:{y_pred.shape} actual shape: {y_test.shape}")
     # Create unique identifier for each test point
     unique_test_points = np.unique(y_test[:,:2], axis=0)
     logger.info(f"Number of unique test points: {len(unique_test_points)}")
@@ -206,6 +207,14 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
             x = mean_predictions[i, 0] + std_predictions[i, 0] * np.cos(theta)
             y = mean_predictions[i, 1] + std_predictions[i, 1] * np.sin(theta)
             plt.plot(x, y, 'k--', alpha=0.2)
+
+        # Plot all 1000 predctions
+        for test_point in unique_test_points:
+            # Find all predictions corresponding to this test point
+            mask = np.all(y_test == test_point, axis=1)
+            corresponding_preds = y_pred[mask]
+            plt.scatter(corresponding_preds[:, 0], corresponding_preds[:, 1], 
+                   marker="o", s=25, label='Predicted', alpha=0.3)
         
         plt.xlim(0, 1)
         plt.ylim(-4, 1)
@@ -223,7 +232,7 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
     logger.info(f"Mean xHI std: {np.mean(std_predictions[:, 0]):.4f}")
     logger.info(f"Mean logfX std: {np.mean(std_predictions[:, 1]):.4f}")
     
-    return np.mean(r2)    
+    return r2
 
 def summarize_test(y_pred, y_test, output_dir=".", showplots=False, saveplots=True, label=""):
     logger.info(f"y_pred: {y_pred}")
@@ -453,12 +462,14 @@ def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False, skip_ps=Tr
     return (all_los, all_params, los_samples)
 
 def test_multiple(modeltester, datafiles, reps=1000, size=10, save=False):
+    logger.info(f"Test_multiple started. {reps} reps x {size} points will be tested for {len(datafiles)} parameter combinations")
     # Create processor with desired number of worker threads
-    processor = dl.F21DataLoader(max_workers=8, psbatchsize=1, limitsamplesize=None, ps_bins=None)
     all_y_test = []
     all_y_pred = []
     # Process all files and get results
     for i, f in enumerate(datafiles):
+        logger.info(f"Working on param combination #{i+1}: {f.split('/')[-1]}")
+        processor = dl.F21DataLoader(max_workers=8, psbatchsize=1, limitsamplesize=None, ps_bins=None)
         results = processor.process_all_files([f])        
         # Access results
         los = results['los']
@@ -467,23 +478,31 @@ def test_multiple(modeltester, datafiles, reps=1000, size=10, save=False):
         params = results['params']
 
         if i == 0:
-            logger.info(f"sample test los:{los}")
-            logger.info(f"sample test ks:{ks}")
-            logger.info(f"sample test ps:{ps}")
-            logger.info(f"sample test params:{params}")
+            logger.info(f"sample test los:{los[:1]}")
+            logger.info(f"sample test ks:{ks[:1]}")
+            logger.info(f"sample test ps:{ps[:1]}")
+            logger.info(f"sample test params:{params[:1]}")
         y_pred_for_test_point = []
         y_test = None
         for j in range(reps):
             #pick 10 samples
             rdm = np.random.randint(len(los), size=size)
             los_set = los[rdm]
-            _, y_test, y_pred, r2 = modeltester.test(los, ps, params, silent=True)
-            y_pred_for_test_point.append(y_pred)
-        y_pred_mean = np.mean(y_pred_for_test_point)
-        all_y_pred.append(y_pred_mean)
-        all_y_test.append(y_test)
+            ps_set = ps[rdm]
+            params_set = params[rdm]
+            _, y_test, y_pred, r2 = modeltester.test(los_set, ps_set, params_set, silent=True)
+            y_pred_mean = np.mean(y_pred, axis=0)
+            all_y_pred.append(y_pred_mean)
+            all_y_test.append(params[0])
+        logger.info(f"Test_multiple: param combination:{params[0]} predicted mean:{y_pred_mean}")
+        if i==0: 
+            logger.info(f"Test_multiple: param combination min, max should be the same:{np.min(params, axis=0)}, {np.min(params, axis=0)}")
 
-        return all_y_pred, all_y_test
+    y_test_np = np.array(all_y_test)
+    y_pred_np = np.array(all_y_pred)
+    logger.info(f"Test_multiple completed. actual shape {y_test_np.shape} predicted shape {y_pred_np.shape}")
+
+    return y_pred_np, y_test_np
 
 
 def scaleXy(X, y, args):
