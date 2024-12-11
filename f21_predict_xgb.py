@@ -87,7 +87,7 @@ def load_dataset(datafiles, psbatchsize, save=False):
     #logger.info(f"sample ps_std:{ps_std[0]}")
     logger.info(f"sample params:{all_params[0]}")
     
-    if args.runmode == 'train_test' and save:
+    if args.runmode == 'train_test' and save and False:
         base.plot_power_spectra(all_ps, all_ks, all_params, output_dir=output_dir, showplots=args.interactive)
         logger.info(f"Saving PS data to file")
         with open('ps-21cm-forest.pkl', 'w+b') as f:  # open a text file
@@ -190,7 +190,8 @@ class ModelTester:
 
 
         if args.subtractnoise:
-            X_test /= self.X_noise
+            logger.info("Subtracting noise from test data. Shapes: {X_test.shape} {X_noise.shape}")
+            X_test -= self.X_noise[:,:X_test.shape[1]]
         if args.filter_test:
             # Filter for xHI between 0.1 and 0.4
             mask = (y_test[:,0] >= 0.1) & (y_test[:,0] <= 0.4)
@@ -280,10 +281,13 @@ def run(X_train, X_test, X_noise, y_train, y_test,
     if args.test_multiple:
         all_y_pred, all_y_test = base.test_multiple(tester, test_files)
         r2 = base.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
+        base.save_test_results(all_y_pred, all_y_test, output_dir)
     else:
         X_test, y_test, y_pred, r2 = tester.test(None, X_test, y_test)
         base.summarize_test_1000(y_pred, y_test, output_dir=output_dir, showplots=showplots, saveplots=saveplots)
+        base.save_test_results(y_pred, y_test, output_dir)
 
+    
     if args.scale_y1: combined_r2 = r2[2]
     elif args.scale_y2: combined_r2 = r2
     elif args.xhi_only: combined_r2 = r2
@@ -437,7 +441,7 @@ if args.runmode in ("train_test", "optimize") :
         if X_noise[:,0] == 0: X_noise[:,0] = 1 # Avoid div by zero
         logger.info(f"Loaded noise: {X_noise.shape}")
         logger.info(f"Sample PS before noise subtraction: \n{X_train[:2]}")
-        X_train /= X_noise
+        X_train -= X_noise
         logger.info(f"Sample PS after noise subtraction: \n{X_train[:2]}")
     logger.info(f"Loading test dataset {len(test_files)}")
     X_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)

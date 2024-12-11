@@ -21,6 +21,9 @@ import pickle
 
 import F21DataLoader as dl
 
+from scipy.stats import gaussian_kde
+
+
 logger = logging.getLogger(__name__)
 
 def power_spectrum_1d(data, bins=10):
@@ -147,6 +150,50 @@ def plot_predictions(df_y, colors):
     plt.legend()
     plt.show()
 
+def save_test_results(y_pred, y_test, output_dir, label=""):
+    """
+    Save test results to a CSV file.
+    
+    Parameters:
+    y_pred: numpy array of predictions
+    y_test: numpy array of test values
+    output_dir: directory to save the file
+    label: optional label to add to filename
+    """
+    filename = f"{output_dir}/test_results{label}.csv"
+    
+    # Combine predictions and test values
+    header = "pred_xHI,pred_logfX,test_xHI,test_logfX"
+    combined = np.hstack((y_pred, y_test))
+    
+    # Save to CSV
+    np.savetxt(filename, combined, delimiter=',', header=header, comments='')
+    logger.info(f"Saved test results to {filename}")
+
+def load_test_results(filepath):
+    """
+    Load test results from a CSV file.
+    
+    Parameters:
+    filepath: path to the CSV file
+    
+    Returns:
+    y_pred: numpy array of predictions
+    y_test: numpy array of test values
+    """
+    # Load the data
+    data = np.loadtxt(filepath, delimiter=',', skiprows=1)
+    
+    # Split into predictions and test values
+    y_pred = data[:, :2]  # First two columns are predictions
+    y_test = data[:, 2:]  # Last two columns are test values
+    
+    logger.info(f"Loaded test results from {filepath}")
+    return y_pred, y_test
+
+def distance(pred_point, mean_point):
+    return (pred_point[0]-mean_point[0])**2 + ((pred_point[1]-mean_point[1])**2)/25.0
+
 def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplots=True, label=""):
     """
     Analyze predictions by grouping them into sets of 10 for each unique test point.
@@ -156,6 +203,7 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
     y_test: numpy array of test values (16000, 2)
     """
     logger.info(f"summarize_test_1000: Summarizing results pred shape:{y_pred.shape} actual shape: {y_test.shape}")
+
     # Create unique identifier for each test point
     unique_test_points = np.unique(y_test[:,:2], axis=0)
     logger.info(f"Number of unique test points: {len(unique_test_points)}")
@@ -191,36 +239,107 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
         plt.rcParams['figure.figsize'] = [15, 9]
         fig, ax = plt.subplots()
         
-        # Plot mean predictions
-        plt.scatter(mean_predictions[:, 0], mean_predictions[:, 1], 
-                   marker="o", s=25, label='Mean Predicted', alpha=0.7)
-        
-        # Plot actual points
-        plt.scatter(unique_test_points[:, 0], unique_test_points[:, 1], 
-                   marker="*", s=200, label='Actual', color='red')
-        
-        plt.plot([mean_predictions[:, 0], unique_test_points[:, 0]], [mean_predictions[:, 1], unique_test_points[:, 1]], 'r--', alpha=0.2)
+        num_points = len(unique_test_points)
+        colors = plt.cm.rainbow(np.linspace(0, 1, num_points))
+        """
         # Plot std dev contours
         for i in range(len(unique_test_points)):
             # Create ellipse points
             theta = np.linspace(0, 2*np.pi, 100)
             x = mean_predictions[i, 0] + std_predictions[i, 0] * np.cos(theta)
             y = mean_predictions[i, 1] + std_predictions[i, 1] * np.sin(theta)
-            plt.plot(x, y, 'k--', alpha=0.2)
+            plt.plot(x, y, 'k--', alpha=0.4)
 
-        # Plot all 1000 predctions
-        for test_point in unique_test_points:
+            theta = np.linspace(0, 2*np.pi, 100)
+            x = mean_predictions[i, 0] + 2 * std_predictions[i, 0] * np.cos(theta)
+            y = mean_predictions[i, 1] + 2 * std_predictions[i, 1] * np.sin(theta)
+            plt.plot(x, y, 'k--', alpha=0.2)
+        
+        # Plot all 10000 predctions
+        for i, test_point in enumerate(unique_test_points):
             # Find all predictions corresponding to this test point
             mask = np.all(y_test == test_point, axis=1)
             corresponding_preds = y_pred[mask]
             plt.scatter(corresponding_preds[:, 0], corresponding_preds[:, 1], 
-                   marker="o", s=25, label='Predicted', alpha=0.3)
+                   marker="o", s=25, alpha=0.01, c=colors[i])
+        """
+    
+        """
+        # Make a line from the actual point to the mean of the predictions
+        plt.plot([mean_predictions[:, 0], unique_test_points[:, 0]], 
+                 [mean_predictions[:, 1], unique_test_points[:, 1]], 
+                 'k--', alpha=0.4)
+
+        """
+        
+
+        # For each unique test point, create contours of predictions
+        for i, test_point in enumerate(unique_test_points):
+            # Find all predictions corresponding to this test point
+            mask = np.all(y_test == test_point, axis=1)
+            corresponding_preds = y_pred[mask]
+
+            x, y = corresponding_preds[:, 0], corresponding_preds[:, 1]
+
+            # Create a 2D KDE
+            values = np.vstack([x, y])
+            kde = gaussian_kde(values)
+            xmin, xmax = x.min(), x.max()
+            ymin, ymax = y.min(), y.max()
+
+            # Create a grid for evaluation
+            X, Y = np.meshgrid(np.linspace(xmin, xmax, 500), np.linspace(ymin, ymax, 500))
+            positions = np.vstack([X.ravel(), Y.ravel()])
+            Z = np.reshape(kde(positions).T, X.shape)
+
+            # Sort the density values to compute contour levels
+            sorted_Z = np.sort(Z.ravel())
+            cumulative_Z = np.cumsum(sorted_Z) / np.sum(sorted_Z)
+
+            # Find density levels for 68% and 95%
+            level_68 = sorted_Z[np.searchsorted(cumulative_Z, 0.68)]
+            level_95 = sorted_Z[np.searchsorted(cumulative_Z, 0.95)]
+
+            # Plot the filled contours
+            plt.figure(figsize=(8, 6))
+            plt.contourf(X, Y, Z, levels=[0, level_68], c=colors[i], alpha=0.5)
+
+
+            """
+            if i == 0: print(f"## {test_point}, {corresponding_preds.shape} {corresponding_preds[0]}")
+            mean_point = np.mean(corresponding_preds, axis=0)
+            
+            sorted_indices = np.argsort(np.apply_along_axis(distance, 1, corresponding_preds, mean_point))
+            sorted_points = corresponding_preds[sorted_indices]
+                        
+            # Calculate cumulative distribution
+            # Find thresholds for 68% and 95% confidence levels
+
+            threshold_68 = int(0.68 * len(sorted_points))
+            threshold_95 = int(0.95 * len(sorted_points))
+            if i == 0: print(f"{threshold_68}, {threshold_95}")
+
+            # Create grid for contour plotting
+            #print(f"{threshold_68},{threshold_95}")
+            """
+        
+
+        # Plot mean predictions
+        plt.scatter(mean_predictions[:, 0], mean_predictions[:, 1], 
+                   marker="x", s=200, label='Mean Predicted', alpha=1, c=colors)
+
+        # Plot actual points
+        plt.scatter(unique_test_points[:, 0], unique_test_points[:, 1], 
+                   marker="*", s=200, label='Actual', c=colors)
         
         plt.xlim(0, 1)
         plt.ylim(-4, 1)
-        plt.xlabel('xHI')
-        plt.ylabel('logfX')
-        plt.title('Mean Predictions with ±1σ Contours')
+        
+        plt.xlabel(r'$\langle x_{HI}\rangle$', fontsize=18)
+        plt.ylabel(r'$log_{10}(f_X)$', fontsize=18)
+        plt.yticks(fontsize=18)
+        plt.xticks(fontsize=18)
+        plt.title('Mean Predictions with  ±1σ and ±2σ Contours', fontsize=18)
         plt.legend()
         
         if showplots: plt.show()
@@ -287,9 +406,9 @@ def summarize_test(y_pred, y_test, output_dir=".", showplots=False, saveplots=Tr
         plt.scatter(actual_xHI, actual_logfX, marker="x", s=100, label='Actual', c=colors)
         plt.xlim(0, 1)
         plt.ylim(-4, 1)
-        plt.xlabel('xHI')
-        plt.ylabel('logfX')
-        plt.title('Predictions')
+        plt.xlabel(r'\textlangle xHI\textrangle', fontsize=18)
+        plt.ylabel(r'log_10(f_X)', fontsize=18)
+        plt.title('Predictions', fontsize=18)
         plt.legend()
         plt.colorbar(label=f'RMS Error ({rmse_min:.2f} to {rmse_max:.2f})')
         if showplots: plt.show()
@@ -461,7 +580,7 @@ def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False, skip_ps=Tr
             
     return (all_los, all_params, los_samples)
 
-def test_multiple(modeltester, datafiles, reps=1000, size=10, save=False):
+def test_multiple(modeltester, datafiles, reps=100000, size=10, save=False):
     logger.info(f"Test_multiple started. {reps} reps x {size} points will be tested for {len(datafiles)} parameter combinations")
     # Create processor with desired number of worker threads
     all_y_test = []
