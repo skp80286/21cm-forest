@@ -27,6 +27,7 @@ import sys
 
 import logging
 import f21_predict_base as base
+import f21_predict_by_stats as f21stats
 
 import optuna
 

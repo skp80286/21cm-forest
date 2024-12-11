@@ -280,30 +280,22 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
             corresponding_preds = y_pred[mask]
 
             x, y = corresponding_preds[:, 0], corresponding_preds[:, 1]
-
-            # Create a 2D KDE
-            values = np.vstack([x, y])
-            kde = gaussian_kde(values)
-            xmin, xmax = x.min(), x.max()
-            ymin, ymax = y.min(), y.max()
-
-            # Create a grid for evaluation
-            X, Y = np.meshgrid(np.linspace(xmin, xmax, 500), np.linspace(ymin, ymax, 500))
-            positions = np.vstack([X.ravel(), Y.ravel()])
-            Z = np.reshape(kde(positions).T, X.shape)
-
-            # Sort the density values to compute contour levels
-            sorted_Z = np.sort(Z.ravel())
-            cumulative_Z = np.cumsum(sorted_Z) / np.sum(sorted_Z)
-
-            # Find density levels for 68% and 95%
-            level_68 = sorted_Z[np.searchsorted(cumulative_Z, 0.68)]
-            level_95 = sorted_Z[np.searchsorted(cumulative_Z, 0.95)]
-
-            # Plot the filled contours
-            plt.figure(figsize=(8, 6))
-            plt.contourf(X, Y, Z, levels=[0, level_68], c=colors[i], alpha=0.5)
-
+            # Step 2: Normalize the histogram to get the probability density
+            # Get the bin counts and edges
+            counts, xedges, yedges = np.histogram2d(x, y, bins=18)
+            # Normalize the counts to create a probability density function
+            pdf = counts / np.sum(counts)
+            # Find the levels that correspond to 68% and 95% confidence intervals
+            level_68 = np.percentile(pdf, 68)
+            level_95 = np.percentile(pdf, 95)
+            # Step 4: Create the contour plot
+            plt.contourf(xedges[:-1], yedges[:-1], pdf.T, levels=[level_68,level_95,np.max(pdf)],colors=[colors[i],colors[i]],alpha=[0.3,0.6])
+            plt.contour(xedges[:-1], yedges[:-1], pdf.T, levels=[level_68,level_95,np.max(pdf)],colors=[colors[i],colors[i]],linewidths=0.5)
+            plt.xlim(0,1)
+            plt.ylim(-4,0)
+            plt.tick_params(axis='both', direction='in', length=10)  # Inward ticks with length 10
+            plt.xlabel("$\langle x_{HI}\rangle$")
+            plt.ylabel("$log_{10}(f_X)$")
 
             """
             if i == 0: print(f"## {test_point}, {corresponding_preds.shape} {corresponding_preds[0]}")
@@ -580,7 +572,7 @@ def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False, skip_ps=Tr
             
     return (all_los, all_params, los_samples)
 
-def test_multiple(modeltester, datafiles, reps=100000, size=10, save=False):
+def test_multiple(modeltester, datafiles, reps=10000, size=10, save=False):
     logger.info(f"Test_multiple started. {reps} reps x {size} points will be tested for {len(datafiles)} parameter combinations")
     # Create processor with desired number of worker threads
     all_y_test = []
