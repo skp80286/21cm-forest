@@ -5,10 +5,8 @@ Predict parameters fX and xHI from the 21cm forest data.
 import numpy as np
 
 import matplotlib.pyplot as plt
+import matplotlib.colors as clr
 from sklearn.metrics import r2_score
-
-import scipy.fftpack as fftpack
-from scipy.stats import binned_statistic
 
 import argparse
 import logging
@@ -21,63 +19,86 @@ import pickle
 
 import F21DataLoader as dl
 
-from scipy.stats import gaussian_kde
-
 
 logger = logging.getLogger(__name__)
 
-def power_spectrum_1d(data, bins=10):
-    """
-    Calculate the 1D binned power spectrum of an array.
 
-    Parameters:
-    data: 1D array of data
-    bins: Number of bins, or array of bin edges
-
-    Returns:
-    k: Array of wavenumbers (bin centers)
-    power: Array of power spectrum values
-    """
-
-    # Calculate the Fourier transform of the data
-    fft_data = fftpack.fft(data)
-
-    # Calculate the power spectrum
-    power = np.abs(fft_data)**2
-
-    # Calculate the wavenumbers
-    k = fftpack.fftfreq(len(data))
-
-    # Bin the power spectrum
-    power, bin_edges, _ = binned_statistic(np.abs(k), power, statistic='mean', bins=bins)
-    k = 0.5 * (bin_edges[1:] + bin_edges[:-1])  # Bin centers
-
-    return k, power
-
-def plot_single_power_spectrum(ps, ks, showplots=False, label=""):
+def plot_single_power_spectrum(ps, ks, output_dir=".", showplots=False, saveplots=True, label=""):
     plt.rcParams['figure.figsize'] = [15, 9]
     plt.title(f'{label} - power spectrum')
     plt.loglog(ks[1:]*1e6, ps[1:], linewidth=0.5)
-    plt.xlabel('k (MHz$^{-1}$)')
-    plt.ylabel('P$_{21}$(k)')
+    plt.xlabel(r'k (MHz$^{-1}$)')
+    plt.ylabel(r'P$_{21}$(k)')
     if showplots: plt.show()
+    if saveplots: plt.savefig(f"{output_dir}/power_spectra.png")
     plt.clf()
 
-def plot_power_spectra(ps, ks, params, output_dir=".", showplots=False, saveplots=True, label=""):
+def decide_alpha(num_ps):
+    if num_ps >= 1000: return 0.01
+    if num_ps <= 10: return 1
+    logn = np.log10(num_ps)
+    return 1 - (logn - 1) * 0.495
+
+def initplt():
+    plt.rcParams['figure.figsize'] = [12, 6]
+    plt.rcParams['axes.titlesize'] = 18
+    plt.rcParams['axes.labelsize'] = 18
+    plt.rcParams['xtick.labelsize'] = 18
+    plt.rcParams['ytick.labelsize'] = 18
+    plt.rcParams['legend.fontsize'] = 18
+
+def logbin_power_spectrum_by_k(ks, ps, num_bins):
+    log_bins = np.linspace(np.log10(ks[0,1]/2.0), np.log10(ks[0,-1]), num_bins+1)
+    #print(f"log_bins: {log_bins}")
+    bins = np.power(10, log_bins)
+    #print(f"bins: {bins}")
+    widths = (bins[1:] - bins[:-1])
+    #print(f"widths: {widths}")
+    log_centers = 0.5*(log_bins[:-1]+log_bins[1:])
+    bin_centers = np.power(10, log_centers)
+    #print(f"bin_centers: {bin_centers}")
+    binlist=np.zeros((ps.shape[0], num_bins))
+    pslist=np.zeros((ps.shape[0], num_bins))
+    # Calculate histogram
+    for i, (k, p) in enumerate(zip(ks, ps)):
+        hist = np.histogram(k, bins=bins, weights=p)
+        #print(f"hist: {hist}")
+        # normalize by bin width
+        #hist_norm = hist[0]/widths
+        #print(f"hist_norm: {hist_norm}")
+        binlist[i,:] = bin_centers
+        pslist[i,:] = hist[0]
+    return binlist, pslist
+
+colorlabels=[r'$\langle x_{HI}\rangle$', r'$log_{10}fX$']
+colormaps=[plt.cm.inferno, plt.cm.viridis]
+def plot_power_spectra(ps, ks, params, colorind=1, output_dir=".", showplots=False, saveplots=True, label=""):
     #logger.info(f'shapes ps:{ps.shape} ks:{ks.shape}')
+    initplt()
+    alpha = decide_alpha(len(ps))
     logger.info(params[0:2])
-    logfxs = params[:,1]
-    minfx = min(logfxs)
-    maxfx = max(logfxs)
-    plt.rcParams['figure.figsize'] = [15, 9]
-    plt.title(f'{label} - power spectra')
-    for i, (row_ps, row_ks, row_fx) in enumerate(zip(ps, ks, logfxs)):
-        color = None
-        if maxfx > minfx: color=plt.cm.coolwarm((row_fx-minfx)/(maxfx-minfx))
-        plt.loglog(row_ks[1:]*1e6, row_ps[1:], linewidth=0.5, color=color)
-        if i> 10: break
-    plt.xlabel('k (MHz$^{-1}$)')
-    plt.ylabel('P$_{21}$(k)')
+    coloraxs = params[:,colorind]
+    mincoloraxs = min(coloraxs)
+    maxcoloraxs = max(coloraxs)
+    print(f"min-max range: {mincoloraxs}-{maxcoloraxs}")
+
+    fig, ax = plt.subplots(nrows=1, ncols=1) 
+
+    sm = plt.cm.ScalarMappable(cmap=colormaps[colorind], norm=clr.Normalize(vmin=mincoloraxs, vmax=maxcoloraxs))
+    cbar = plt.colorbar(sm, ax=ax, label=colorlabels[colorind])
+
+    plt.title('Power spectra: ' + label)
+    for i, (row_ps, row_ks, row_coloraxs) in enumerate(zip(ps, ks, coloraxs)):
+        color=sm.to_rgba(row_coloraxs)
+        #if i%1000==0: print(f"color mapping: {row_coloraxs} : {color}")
+        ax.loglog(row_ks[1:]*1e6, row_ps[1:], linewidth=0.5, color=color, alpha=alpha)
+        #ax.set_yscale('log')
+        #if i> 10: break
+    plt.xlabel(r"k (MHz$^{-1}$)")
+    plt.ylabel("$kP_{21}$")
+    plt.ylim((1e-11, 1e-2))
+    plt.xticks(fontsize=18)
+    plt.yticks(fontsize=18)
     if showplots: plt.show()
     if saveplots: plt.savefig(f"{output_dir}/power_spectra.png")
     plt.clf()
@@ -88,7 +109,7 @@ def plot_single_los(los, freq_axis, output_dir=".", showplots=False, saveplots=T
     plt.plot(freq_axis/1e6, los)
     plt.xlabel('frequency[MHz]'), plt.ylabel('flux/S147')
     if showplots: plt.show()
-    if saveplots: plt.savefig(f"{output_dir}/los.png")
+    if saveplots: plt.savefig(f"{output_dir}/los_{label}.png")
     plt.clf()
 
 def plot_los(los, freq_axis, output_dir=".", showplots=False, saveplots=True, label=""):
@@ -294,8 +315,8 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
             plt.xlim(0,1)
             plt.ylim(-4,0)
             plt.tick_params(axis='both', direction='in', length=10)  # Inward ticks with length 10
-            plt.xlabel("$\langle x_{HI}\rangle$")
-            plt.ylabel("$log_{10}(f_X)$")
+            plt.xlabel(r"$\langle x_{HI}\rangle$")
+            plt.ylabel(r"$log_{10}(f_X)$")
 
             """
             if i == 0: print(f"## {test_point}, {corresponding_preds.shape} {corresponding_preds[0]}")

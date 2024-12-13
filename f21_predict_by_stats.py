@@ -274,7 +274,7 @@ class SimpleNN(nn.Module):
             y_pred = self(test_inputs)
             return y_pred.detach().cpu().numpy()
 
-def calculate_stats_torch(X, y, kernel_sizes=[268]):
+def calculate_stats_torch(X, y, kernel_sizes):
     stat_calc = []
 
     for i,x in enumerate(X):
@@ -321,8 +321,8 @@ def calculate_stats_torch(X, y, kernel_sizes=[268]):
     return np.array(stat_calc)
 
 
-def run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, num_epochs=50, lr=1e-3, batch_size=16, kernel_sizes=[268], input_points_to_use=2546, model_param1=140, model_param2=5, showplots=False, saveplots=True):
-    run_description = f"Commandline: {' '.join(sys.argv)}. Parameters: epochs: {num_epochs}, kernel_sizes: {kernel_sizes}, points: {input_points_to_use}, model_param1={model_param1}, model_param2={model_param2}, label={args.label}"
+def run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, num_epochs=50, lr=1e-3, batch_size=16, kernel_sizes=[268], input_points_to_use=2546, model_param1=83, model_param2=4, showplots=False, saveplots=True):
+    run_description = f"output_dir={output_dir} Commandline: {' '.join(sys.argv)}. Parameters: epochs: {num_epochs}, kernel_sizes: {kernel_sizes}, points: {input_points_to_use}, model_param1={model_param1}, model_param2={model_param2}, label={args.label}"
     logger.info(f"Starting new run: {run_description}")
     X_train, y_train = scaleXy(X_train, y_train)
     X_test, y_test = scaleXy(X_test, y_test)
@@ -519,10 +519,10 @@ def objective(trial):
         'num_epochs': 50, #trial.suggest_int('num_epochs', 12, 24),
         'lr': 1e-3, #trial.suggest_int('num_epochs', 12, 24),
         'batch_size': 16, #trial.suggest_int('num_epochs', 12, 24),
-        'kernel_size': trial.suggest_int('kernel_size', 100, 300),
+        'kernel_size': trial.suggest_int('kernel_size', 5, 2400, log=True),
         'input_points_to_use': 2762,#trial.suggest_int('input_points_to_use', 1800, 2762),
-        'model_param1': 140, #trial.suggest_int('model_param1', 120, 160),
-        'model_param2': 5, #trial.suggest_int('model_param2', 3, 8),
+        'model_param1': 83, #trial.suggest_int('model_param1', 120, 160),
+        'model_param2': 4, #trial.suggest_int('model_param2', 3, 8),
 
     }    
     # Run training with the suggested parameters
@@ -573,8 +573,8 @@ parser.add_argument('--interactive', action='store_true', help='run in interacti
 parser.add_argument('--use_saved_los_data', action='store_true', help='load LoS data from pkl file.')
 parser.add_argument('--epochs', type=int, default=15, help='Number of epoch of training.')
 parser.add_argument('--trainingbatchsize', type=int, default=32, help='Size of batch for training.')
-parser.add_argument('--model_param1', type=int, default=140, help='')
-parser.add_argument('--model_param2', type=int, default=5, help='')
+parser.add_argument('--model_param1', type=int, default=83, help='')
+parser.add_argument('--model_param2', type=int, default=4, help='')
 parser.add_argument('--input_points_to_use', type=int, default=2762, help='use the first n points of los. ie truncate the los to first 690 points')
 parser.add_argument('--scale_y', action='store_true', help='Scale the y parameters (logfX).')
 parser.add_argument('--scale_y0', action='store_true', help='Scale the y parameters (xHI).')
@@ -590,6 +590,8 @@ parser.add_argument('--xhi_only', action='store_true', help='calc loss for xhi o
 parser.add_argument('--logfx_only', action='store_true', help='calc loss for logfx only')
 parser.add_argument('--filter_test', action='store_true', help='Filter test points in important range of xHI')
 parser.add_argument('--filter_train', action='store_true', help='Filter training points in important range of xHI')
+parser.add_argument('--kernel_size', type=int, default=268, help='kernel size')
+parser.add_argument('--pure_signal', action='store_true', help='Process pure signal')
 
 args = parser.parse_args()
 output_dir = str('output/f21_pred_stats_%s_%s_%s_t%dh_b%d_%s' % (args.regressor, args.runmode, args.telescope,args.t_int, 1, datetime.now().strftime("%Y%m%d%H%M%S")))
@@ -605,7 +607,12 @@ logging.basicConfig(level=logging.INFO, handlers=handlers)
 logger = logging.getLogger(__name__)
 logger.info(f"Commandline: {' '.join(sys.argv)}")
 
-filepattern = str('%sF21_noisy_21cmFAST_200Mpc_z%.1f_fX%s_xHI%s_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
+filepattern = None
+if args.pure_signal:
+    filepattern = str('%sF21_signalonly_21cmFAST_200Mpc_z%.1f_fX%s_xHI%s_%dkHz.dat' % 
+               (args.path, args.redshift,args.log_fx, args.xHI, args.spec_res))
+else: # noisy signal
+    filepattern = str('%sF21_noisy_21cmFAST_200Mpc_z%.1f_fX%s_xHI%s_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
                (args.path, args.redshift,args.log_fx, args.xHI, args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
 logger.info(f"Loading files with pattern {filepattern}")
 test_size = 16
@@ -644,7 +651,7 @@ if args.runmode == "train_test":
         logger.info(f"Filtered test dataset to {len(X_test)} samples with 0.1 <= xHI <= 0.4")
     X_noise = load_noise()
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
-    run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, num_epochs=args.epochs, kernel_sizes=[268], input_points_to_use=args.input_points_to_use, model_param1=args.model_param1, model_param2=args.model_param2, showplots=args.interactive)
+    run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, num_epochs=args.epochs, kernel_sizes=[3,5,33,268,910], input_points_to_use=args.input_points_to_use, model_param1=args.model_param1, model_param2=args.model_param2, showplots=args.interactive)
 
 elif args.runmode == "test_only": # test_only
     logger.info(f"Loading test dataset {len(test_files)}")

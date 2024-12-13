@@ -27,7 +27,7 @@ import sys
 
 import logging
 import f21_predict_base as base
-import f21_predict_by_stats as f21stats
+#from f21_predict_by_stats import calculate_stats_torch
 
 import optuna
 
@@ -76,6 +76,7 @@ def load_dataset(datafiles, psbatchsize, save=False):
     results = processor.process_all_files(datafiles)
         
     # Access results
+    all_los = results['los']
     all_ks = results['ks']
     all_ps = results['ps']
     #ps_std = results['ps_std']
@@ -100,6 +101,9 @@ def load_dataset(datafiles, psbatchsize, save=False):
 
     logger.info(f"\nCombined data shape: {ps_combined.shape}")
     logger.info(f"Combined parameters shape: {params_combined.shape}")
+
+    #stats = f21stats.calculate_stats_torch()
+
     return (ps_combined, params_combined)
 
 def save_model(model):
@@ -155,7 +159,7 @@ def scaleXy(X, y):
         product = np.sqrt(xHI**2 + scaledfx**2).reshape(len(y), 1)
         y = np.hstack((xHI, scaledfx, product))
         if args.trials == 1: logger.info(f"ScaledXy: {y}")
-    if args.logscale_X: X = np.log(X)
+    if args.logscale_X: X = np.log(np.clip(X, 1e-20, None))
     return X, y
 
 def unscaleXy(X, y):
@@ -177,6 +181,29 @@ def unscaleXy(X, y):
     elif args.logscale_X: X = np.exp(X)
     return X, y
 
+def unscale_y(y):
+    # Undo what we did in the scaleXy function
+    if args.scale_y: 
+        xHI = y[:, 0].reshape(len(y), 1)
+        fx = 5.0*(y[:,1] - 0.8).reshape(len(y), 1)
+        y = np.hstack((xHI, fx))
+    elif args.scale_y0: y[:,0] = y[:,0]/5.0
+    elif args.scale_y1:
+        # calculate fx using product and xHI 
+        if args.trials == 1: logger.info(f"Before unscale_y: {y}")
+        xHI = np.sqrt(y[:,2]**2 - y[:,1]**2)
+        fx = 5.0*(1 - y[:,1] - 0.8)
+        if args.trials == 1: logger.info(f"Unscaled_y: {y}")
+        y = np.hstack((xHI, fx))
+    elif args.scale_y2:
+        # calculate fx using product and xHI 
+        if args.trials == 1: logger.info(f"Before unscale_y: {y}")
+        xHI = np.sqrt(0.5*y**2).reshape((len(y), 1))
+        fx = 5.0*(1 - xHI - 0.8)
+        y = np.hstack((xHI, fx))
+        if args.trials == 1: logger.info(f"Unscaled_y: {y}")
+    return y
+
 class ModelTester:
     def __init__(self, model, X_noise, ps_bins_to_make, ps_bins_to_use):
         self.model = model
@@ -185,14 +212,18 @@ class ModelTester:
         self.ps_bins_to_use = ps_bins_to_use
     
     def test(self, los, X_test, y_test, silent=False):
+        #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Unbinned_PS_with_noise")
         if not silent: logger.info(f"Binning PS data: original_size={X_test.shape[1]}, ps_bins_to_make={self.ps_bins_to_make}, num bins to use={self.ps_bins_to_use}")
         X_test = bin_ps_data(X_test, self.ps_bins_to_make, self.ps_bins_to_use)
         if not silent: logger.info(f"Testing dataset: X:{X_test.shape} y:{y_test.shape}")
+        #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Binned_PS_with_noise")
 
 
         if args.subtractnoise:
-            logger.info("Subtracting noise from test data. Shapes: {X_test.shape} {X_noise.shape}")
+            #logger.info(f"Subtracting noise from test data. Shapes: {X_test.shape} {X_noise.shape}")
             X_test -= self.X_noise[:,:X_test.shape[1]]
+            #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Unbinned_PS_noise_subtracted")
+
         if args.filter_test:
             # Filter for xHI between 0.1 and 0.4
             mask = (y_test[:,0] >= 0.1) & (y_test[:,0] <= 0.4)
@@ -233,9 +264,9 @@ class ModelTester:
         if not silent: logger.info(f"unscaled test result {X_test.shape} {y_test.shape} {y_pred.shape}")
 
         # Calculate rmse scores
-        rms_scores = [mean_squared_error(y_test[:, i], y_pred[:, i]) for i in range(len(y_pred[0]))]
-        rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test, axis=0)
-        if not silent: logger.info("RMS Error: " + str(rms_scores_percent))    
+        #rms_scores = [mean_squared_error(y_test[:, i], y_pred[:, i]) for i in range(len(y_pred[0]))]
+        #rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test, axis=0)
+        #if not silent: logger.info("RMS Error: " + str(rms_scores_percent))    
         return X_test, y_test, y_pred, r2
 
 def run(X_train, X_test, X_noise, y_train, y_test, 
@@ -306,7 +337,7 @@ def objective(trial):
         'model_param1': trial.suggest_int('model_param1', 80, 150, step=5), # num XGB trees
         'model_param2': trial.suggest_int('model_param2', 3, 6), # xgb tree depth
         'ps_bins_to_make': trial.suggest_int('ps_bins_to_make', 20, 1381, log=True),
-        'ps_bins_to_use': 20 #trial.suggest_int('ps_bins_to_use', 1, 100, log=True),
+        'ps_bins_to_use': trial.suggest_int('ps_bins_to_use', 20, 100, log=True),
     }    
     # Run training with the suggested parameters
     try:
@@ -324,21 +355,6 @@ def objective(trial):
         logger.error(f"Trial failed with error:", exc_info=True)  
         return float('-inf')
     
-def scaleXy(X, y):
-    if args.scale_y: y[:,1] = 0.8 + y[:,1]/5.0
-    if args.scale_y0: y[:,0] = y[:,0]*5.0
-    if args.logscale_X: X = np.log(X)
-    return X, y
-
-def unscaleXy(X, y):
-    if args.scale_y: y[:,1] = 5.0*(y[:,1] - 0.8)
-    if args.scale_y0: y[:,0] = y[:,0]/5.0
-    if args.logscale_X: X = np.exp(X)
-    return X, y
-
-def unscale_y(y):
-    if args.scale_y: y[:,1] = 5.0*(y[:,1] - 0.8)
-    return y
 
 # main code start here
 parser = argparse.ArgumentParser(description='Predict reionization parameters from 21cm forest')
@@ -362,8 +378,8 @@ parser.add_argument('--limitsamplesize', type=int, default=None, help='limit sam
 parser.add_argument('--interactive', action='store_true', help='run in interactive mode. show plots as modals.')
 parser.add_argument('--use_saved_ps_data', action='store_true', help='load PS data from pkl file.')
 parser.add_argument('--subtractnoise', action='store_true', help='subtract noise.')
-parser.add_argument('--ps_bins_to_make', type=int, default=100, help='bin the PS into n bins')
-parser.add_argument('--ps_bins_to_use', type=int, default=10, help='use the first n bins in the model')
+parser.add_argument('--ps_bins_to_make', type=int, default=1381, help='bin the PS into n bins')
+parser.add_argument('--ps_bins_to_use', type=int, default=100, help='use the first n bins in the model')
 parser.add_argument('--scale_y', action='store_true', help='Scale the y parameters (logfX).')
 parser.add_argument('--scale_y0', action='store_true', help='Scale the y parameters (xHI).')
 parser.add_argument('--scale_y1', action='store_true', help='Scale logfx and calculate product of logfx with xHI.')
@@ -380,6 +396,9 @@ parser.add_argument('--trials', type=int, default=15, help='Optimization trials'
 parser.add_argument('--test_multiple', action='store_true', help='Test 1000 sets of 10 LoS for each test point and plot it')
 
 args = parser.parse_args()
+print(args)
+if args.ps_bins_to_use < 10 or args.ps_bins_to_use > 100: raise ValueError("--ps_bins_to_use not in acceptable range!")
+
 output_dir = str('output/f21_ps_xgb_%s_%s_t%dh_b%d_%s' % (args.runmode, args.telescope,args.t_int, 1, datetime.now().strftime("%Y%m%d%H%M%S")))
 
 if not os.path.exists(output_dir):
@@ -405,7 +424,7 @@ if args.maxfiles is not None:
 logger.info(f"Found {len(datafiles)} files matching pattern")
 datafiles = sorted(datafiles)
 #train_files, test_files = train_test_split(datafiles, test_size=test_size, random_state=42)
-test_points = [[-3.00,0.25],[-2.00,0.25],[-1.00,0.25],[-3.00,0.52],[-2.00,0.52],[-1.00,0.52], [-3.00,0.80],[-2.00,0.80],[-1.00,0.80]]
+test_points = [[-3.00,0.25],[-2.00,0.25],[-1.00,0.25],[-3.00,0.52],[-2.00,0.52],[-1.00,0.52], [-3.00,0.80],[-2.00,0.80],[-1.00,0.80],[0.00,0.80]]
 train_files = []
 test_files = []
 for f in datafiles:

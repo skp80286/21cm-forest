@@ -10,22 +10,13 @@ from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score
 
-import argparse
-import glob
-from datetime import datetime
 
-import F21DataLoader as dl
 import f21_predict_base as base
 import numpy as np
-import os
 import sys
-import logging
 import pickle
 
 import optuna
-from optuna.trial import TrialState
-
-import math
 
 def load_dataset_from_pkl():
     # Lists to store combined data
@@ -44,49 +35,11 @@ def load_dataset_from_pkl():
 
     return (all_los, all_params, [])
 
-def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False):
-    #Input parameters
-    #Read LOS data from 21cmFAST 50cMpc box
-    if args.maxfiles is not None:
-        datafiles = datafiles[:args.maxfiles]
-    freq_axis = None
-    # Lists to store combined data
-    all_ks = []
-    all_F21 = []
-    all_params = []
-    # Create processor with desired number of worker threads
-    processor = dl.F21DataLoader(max_workers=8, psbatchsize=psbatchsize, limitsamplesize=limitsamplesize, skip_ps=True)
-
-    # Process all files and get results
-    results = processor.process_all_files(datafiles)
-    logger.info(f"Finished data loading.")
-    # Access results
-    all_los = results['los']
-    los_samples = results['los_samples']
-    all_params = results['params']
-    logger.info(f"sample los:{all_los[0]}")
-    logger.info(f"sample params:{all_params[0]}")
-    
-    # Combine all data
-    logger.info(f"\nCombined data shape: {all_los.shape}")
-    logger.info(f"Combined parameters shape: {all_params.shape}")
-        
-    if args.runmode == 'train_test' and save:
-        logger.info(f"Saving LoS data to file")
-        with open('los-21cm-forest.pkl', 'w+b') as f:  # open a text file
-            pickle.dump({"all_los": all_los, "all_params": all_params}, f)
-            
-    return (all_los, all_params, los_samples)
-
 def load_noise():
     X_noise = None
     if args.use_noise_channel:
-        noisefilepattern = str('%sF21_noiseonly_21cmFAST_200Mpc_z%.1f_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
-               (args.path, args.redshift,args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
-        logger.info(f"Loading noise files with pattern {noisefilepattern}")
-        noisefiles = glob.glob(noisefilepattern)
-        X_noise, _, _ = load_dataset(noisefiles, psbatchsize=1000, limitsamplesize=1000, save=False)
-
+        noisefiles = base.get_datafile_list(type='noiseonly', args=args)
+        X_noise, _, _ = base.load_dataset(noisefiles, psbatchsize=1000, limitsamplesize=1000, save=False)
     return X_noise
     
 def save_model(model):
@@ -281,10 +234,10 @@ def convert_to_pytorch_tensors(X, y, samples, X_noise, window_size):
     return X_tensor, y_tensor
 
 def run(X_train, train_samples, X_noise, X_test, test_samples,y_train, y_test, num_epochs, batch_size, lr, kernel1, kernel2, dropout, input_points_to_use, showplots=False, saveplots=True):
-    run_description = f"Commandline: {' '.join(sys.argv)}. Parameters: epochs: {num_epochs}, kernel_size: {kernel1}, points: {input_points_to_use}, label={args.label}"
+    run_description = f"output_dir={output_dir} Commandline: {' '.join(sys.argv)}. Parameters: epochs: {num_epochs}, kernel_size: {kernel1}, points: {input_points_to_use}, label={args.label}"
     logger.info(f"Starting new run: {run_description}")
-    X_train, y_train = scaleXy(X_train, y_train)
-    X_test, y_test = scaleXy(X_test, y_test)
+    X_train, y_train = base.scaleXy(X_train, y_train, args)
+    X_test, y_test = base.scaleXy(X_test, y_test, args)
 
     if input_points_to_use is not None:
         X_train = X_train[:, :input_points_to_use]
@@ -399,86 +352,6 @@ def run(X_train, train_samples, X_noise, X_test, test_samples,y_train, y_test, n
     logger.info(f"Finished run: score={combined_r2}, r2={r2}. {run_description}")
     return combined_r2
 
-def scaleXy(X, y):
-    if args.scale_y: 
-        xHI = y[:, 0].reshape(len(y), 1)
-        scaledfx = (0.8 + y[:,1]/5.0).reshape(len(y), 1)
-        y = np.hstack((xHI, scaledfx))
-    if args.scale_y0: y[:,0] = y[:,0]*5.0
-    if args.scale_y1:
-        # we wish to create a single metric representing the expected
-        # strength of the signal based on xHI (0 to 1) and logfx (-4 to +1)
-        # We know that higher xHI and lower logfx lead to a stronger signal, 
-        # First we scale logfx to range of 0 to 1.
-        # Then we take a product of xHI and (1 - logfx)
-        if args.trials == 1: logger.info(f"Before scaleXy: {y}")
-        xHI = y[:, 0].reshape(len(y), 1)
-        scaledfx = 1 - (0.8 + y[:,1]/5.0)
-        product = np.sqrt(xHI**2 + scaledfx**2).reshape(len(y), 1)
-        y = np.hstack((xHI, scaledfx, product))
-        if args.trials == 1: logger.info(f"ScaledXy: {y}")
-    if args.scale_y2:
-        # we wish to create a single metric representing the expected
-        # strength of the signal based on xHI (0 to 1) and logfx (-4 to +1)
-        # We know that higher xHI and lower logfx lead to a stronger signal, 
-        # First we scale logfx to range of 0 to 1.
-        # Then we take a product of xHI and (1 - logfx)
-        if args.trials == 1: logger.info(f"Before scaleXy: {y}")
-        xHI = y[:, 0].reshape(len(y), 1)
-        scaledfx = 1 - (0.8 + y[:,1]/5.0).reshape(len(y), 1)
-        product = np.sqrt(xHI**2 + scaledfx**2).reshape(len(y), 1)
-        y = np.hstack((xHI, scaledfx, product))
-        if args.trials == 1: logger.info(f"ScaledXy: {y}")
-    if args.logscale_X: X = np.log(X)
-    return X, y
-
-def unscaleXy(X, y):
-    # Undo what we did in scaleXy function
-    if args.scale_y: 
-        xHI = y[:, 0].reshape(len(y), 1)
-        fx = 5.0*(y[:,1] - 0.8).reshape(len(y), 1)
-        y = np.hstack((xHI, fx))
-    if args.scale_y0: y[:,0] = y[:,0]/5.0
-    if args.scale_y1:
-        if args.trials == 1: logger.info(f"Before unscaleXy: {y}")
-        xHI = y[:, 0].reshape(len(y), 1)
-        fx = 5.0*(1 - y[:,1] - 0.8)
-        y = np.hstack((xHI, fx))
-        if args.trials == 1: logger.info(f"UnscaledXy: {y}")
-    if args.scale_y2:
-        if args.trials == 1: logger.info(f"Before unscaleXy: {y}")
-        xHI = y[:, 0].reshape(len(y), 1)
-        fx = 5.0*(1 - y[:,1] - 0.8).reshape(len(y), 1)
-        y = np.hstack((xHI, fx))
-        if args.trials == 1: logger.info(f"UnscaledXy: {y}")
-                
-    if args.logscale_X: X = np.exp(X)
-    return X, y
-
-def unscale_y(y):
-    # Undo what we did in the scaleXy function
-    if args.scale_y: 
-        xHI = y[:, 0].reshape(len(y), 1)
-        fx = 5.0*(y[:,1] - 0.8).reshape(len(y), 1)
-        y = np.hstack((xHI, fx))
-    if args.scale_y0: y[:,0] = y[:,0]/5.0
-    if args.scale_y1:
-        # calculate fx using product and xHI 
-        if args.trials == 1: logger.info(f"Before unscale_y: {y}")
-        xHI = np.sqrt(y[:,2]**2 - y[:,1]**2)
-        logfx = 5.0*(1 - y[:,1] - 0.8)
-        if args.trials == 1: logger.info(f"Unscaled_y: {y}")
-        y = np.hstack((xHI, fx))
-    if args.scale_y2:
-        # calculate fx using product and xHI 
-        if args.trials == 1: logger.info(f"Before unscale_y: {y}")
-        xHI = np.sqrt(0.5*y**2).reshape((len(y), 1))
-        fx = 5.0*(1 - xHI - 0.8)
-        y = np.hstack((xHI, fx))
-        if args.trials == 1: logger.info(f"Unscaled_y: {y}")
-    
-    return y
-
 
 def objective(trial):
     # Define hyperparameter search space
@@ -509,7 +382,6 @@ def objective(trial):
     except Exception as e:
         logger.error(f"Trial failed with error: {str(e)}")
         return float('-inf')
-    
 
 # main code start here
 torch.manual_seed(42)
@@ -517,94 +389,32 @@ np.random.seed(42)
 torch.backends.cudnn.determinisitc=True
 torch.backends.cudnn.benchmark=False
 
-parser = argparse.ArgumentParser(description='Predict reionization parameters from 21cm forest')
-parser.add_argument('-p', '--path', type=str, default='../data/21cmFAST_los/F21_noisy/', help='filepath')
-parser.add_argument('-z', '--redshift', type=float, default=6, help='redshift')
-parser.add_argument('-d', '--dvH', type=float, default=0.0, help='rebinning width in km/s')
-parser.add_argument('-r', '--spec_res', type=int, default=8, help='spectral resolution of telescope (i.e. frequency channel width) in kHz')
-parser.add_argument('-t', '--telescope', type=str, default='uGMRT', help='telescope')
-parser.add_argument('-s', '--s147', type=float, default=64.2, help='intrinsic flux of QSO at 147Hz in mJy')
-parser.add_argument('-a', '--alpha_r', type=float, default=-0.44, help='radio spectral index of QSO')
-parser.add_argument('-i', '--t_int', type=float, default=500, help='integration time of obsevation in hours')
-parser.add_argument('-f', '--log_fx', type=str, default='*', help='log10(f_X)')
-parser.add_argument('-x', '--xHI', type=str, default='*', help='mean neutral hydrogen fraction')
-parser.add_argument('-n', '--nlos', type=int, default=1000, help='num lines of sight')
-parser.add_argument('-m', '--runmode', type=str, default='train_test', help='one of train_test, test_only, grid_search, plot_only')
-parser.add_argument('-b', '--numsamplebatches', type=int, default=1, help='Number of batches of sample data to use for plotting learning curve by sample size.')
-parser.add_argument('--maxfiles', type=int, default=None, help='Max num files to read')
-parser.add_argument('--modelfile', type=str, default="output/cnn-torch-21cmforest-model.pth", help='model file')
-parser.add_argument('--limitsamplesize', type=int, default=20, help='limit samples from one file to this number.')
-parser.add_argument('--interactive', action='store_true', help='run in interactive mode. show plots as modals.')
-parser.add_argument('--use_saved_los_data', action='store_true', help='load LoS data from pkl file.')
-parser.add_argument('--epochs', type=int, default=15, help='Number of epoch of training.')
-parser.add_argument('--trainingbatchsize', type=int, default=32, help='Size of batch for training.')
-parser.add_argument('--input_points_to_use', type=int, default=915, help='use the first n points of los. ie truncate the los to first 690 points')
-parser.add_argument('--scale_y', action='store_true', help='Scale the y parameters (logfX).')
-parser.add_argument('--scale_y0', action='store_true', help='Scale the y parameters (xHI).')
-parser.add_argument('--scale_y1', action='store_true', help='Scale logfx and calculate product of logfx with xHI.')
-parser.add_argument('--scale_y2', action='store_true', help='Scale logfx and calculate pythogorean sum of logfx with xHI.')
-parser.add_argument('--logscale_X', action='store_true', help='Log scale the signal strength.')
-parser.add_argument('--channels', type=int, default=1, help='Use multiple channel inputs for the CNN.')
-parser.add_argument('--psbatchsize', type=int, default=None, help='batching for PS data.')
-parser.add_argument('--label', type=str, default='', help='just a descriptive text for the purpose of the run.')
-parser.add_argument('--trials', type=int, default=15, help='Optimization trials')
-parser.add_argument('--use_noise_channel', action='store_true', help='Use noise channel as input.')
-parser.add_argument('--xhi_only', action='store_true', help='calc loss for xhi only')
-parser.add_argument('--logfx_only', action='store_true', help='calc loss for logfx only')
-
+parser = base.setup_args_parser()
 args = parser.parse_args()
-output_dir = str('output/cnn_torch_%s_%s_t%dh_b%d_%s' % (args.runmode, args.telescope,args.t_int, 1, datetime.now().strftime("%Y%m%d%H%M%S")))
-if not os.path.exists(output_dir):
-    os.mkdir(output_dir)
-    print("created " + output_dir)
+output_dir = base.create_output_dir(args)
+logger = base.setup_logging()
 
-file_handler = logging.FileHandler(filename=f"{output_dir}/f21_predict_cnn_torch.log")
-stdout_handler = logging.StreamHandler(stream=sys.stdout)
-handlers = [file_handler, stdout_handler]
-
-logging.basicConfig(level=logging.INFO, handlers=handlers)
-logger = logging.getLogger(__name__)
-logger.info(f"Commandline: {' '.join(sys.argv)}")
-
-filepattern = str('%sF21_noisy_21cmFAST_200Mpc_z%.1f_fX%s_xHI%s_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
-               (args.path, args.redshift,args.log_fx, args.xHI, args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
-logger.info(f"Loading files with pattern {filepattern}")
+datafiles = base.get_datafile_list(type='noisy', args=args)
 test_size = 16
-datafiles = glob.glob(filepattern)
 if args.maxfiles is not None:
     datafiles = datafiles[:args.maxfiles]
     test_size = 1
-logger.info(f"Found {len(datafiles)} files matching pattern")
-datafiles = sorted(datafiles)
+
 train_files, test_files = train_test_split(datafiles, test_size=test_size, random_state=42)
 
 if args.runmode == "train_test":
     logger.info(f"Loading train dataset {len(train_files)}")
     if args.use_saved_los_data:
-        X_train, y_train, train_samples = load_dataset_from_pkl()
+        X_train, y_train, train_samples = base.load_dataset_from_pkl()
     else:
-        X_train, y_train, train_samples = load_dataset(train_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=True)
+        X_train, y_train, train_samples = base.load_dataset(train_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=True)
     logger.info(f"Loaded dataset X_train:{X_train.shape} y:{y_train.shape}")
     logger.info(f"Loading test dataset {len(test_files)}")
-    X_test, y_test, test_samples = load_dataset(test_files, psbatchsize=1, limitsamplesize=10, save=False)
+    X_test, y_test, test_samples = base.load_dataset(test_files, psbatchsize=1, limitsamplesize=10, save=False)
+    logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
     X_noise = load_noise()
-    logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
+    logger.info(f"Loaded dataset X_noise:{X_noise.shape}")
     run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, args.epochs, args.trainingbatchsize, lr=0.0019437504084241922, kernel1=269, kernel2=135, dropout=0.5, input_points_to_use=args.input_points_to_use, showplots=args.interactive)
-
-elif args.runmode == "test_only": # test_only
-    logger.info(f"Loading test dataset {len(test_files)}")
-    X_test, y_test, test_samples = load_dataset(test_files, psbatchsize=1, limitsamplesize=10, save=False)
-    if args.input_points_to_use is not None:
-        X_test = X_test[:, :args.input_points_to_use]
-    X_test, y_test = scaleXy(X_test, y_test)
-    logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
-    model = load_model(args.modelfile)
-    y_pred = model.predict(X_test)
-    y_pred = y_pred.detach().cpu().numpy()
-    y_pred = unscale_y(y_pred)
-    X_test, y_test = unscaleXy(X_test, y_test)
-    base.summarize_test(y_pred[:,:2], y_test[:,:2], output_dir=output_dir, showplots=args.interactive)
-
 
 elif args.runmode == "optimize":
     logger.info("Starting hyperparameter optimization with Optuna")
@@ -613,11 +423,11 @@ elif args.runmode == "optimize":
     if args.use_saved_los_data:
         X_train, y_train, train_samples = load_dataset_from_pkl()
     else:
-        X_train, y_train, train_samples = load_dataset(train_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize,save=True)
+        X_train, y_train, train_samples = base.load_dataset(train_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize,save=False)
         
     X_noise = load_noise()
 
-    X_test, y_test, test_samples = load_dataset(test_files, psbatchsize=1, limitsamplesize=10, save=False)
+    X_test, y_test, test_samples = base.load_dataset(test_files, psbatchsize=1, limitsamplesize=10, save=False)
 
     # Create study object
     study = optuna.create_study(direction="maximize")

@@ -4,6 +4,8 @@ from typing import List, Dict
 import numpy as np
 import PS1D
 from scipy.stats import binned_statistic
+from scipy import fftpack
+import instrumental_features
 
 class F21DataLoader:
     def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None, skip_ps: bool = False, ps_bins = None):
@@ -51,29 +53,93 @@ class F21DataLoader:
 
         # Extract frequency axis and F21 data
         freq_axis = data[(x_initial+0*Nbins):(x_initial+1*Nbins)]
-        """
-        if freq_axis is not None and not np.array_equal(freq_axis, freq_axis_cur):
-            error_msg = f"Error: Frequency axis mismatch in file: {datafile}\n"
-            error_msg += f"Expected: {freq_axis[0]}-{freq_axis[-1]} MHz\n"
-            error_msg += f"Found: {freq_axis_cur[0]}-{freq_axis_cur[-1]} MHz"
-            raise ValueError(error_msg)
-        """
         los_arr = np.reshape(data[(x_initial+1*Nbins):(x_initial+1*Nbins+Nlos*Nbins)],(Nlos,Nbins))
-        """
-        if Nlos > 100:
-            Nlos = 100
-        """
+
         return (z, xHI_mean, logfX, freq_axis, los_arr)
 
 
     def aggregate(self, dataseries):
         # Calculate mean and standard deviation across all samples
-        mean = np.mean(dataseries, axis=0)
+        mean = np.median(dataseries, axis=0)
         std = np.std(dataseries, axis=0)
         samples_len = 5
         if len(dataseries) < 5:
             samples_len = len(dataseries)
         return (mean, std, dataseries[:samples_len])
+    
+    def logbin_power_spectrum(ks, ps):
+        #Generate k bins
+        d_log_k_bins = 0.25
+        log_k_bins = np.arange(-1.0-d_log_k_bins/2.,3.+d_log_k_bins/2.,d_log_k_bins)
+        log_k_bins = log_k_bins[1:]
+
+        k_bins = np.power(10.,log_k_bins)
+        k_bins_cent = np.power(10.,log_k_bins+d_log_k_bins/2.)[:-1]
+        PS_signal_sim = np.empty((len(files),len(k_bins_cent)))
+        
+
+    
+    @staticmethod
+    def calculate_power_spectrum(data, sampling_rate=1.0):
+        """
+        Calculate the 1D power spectrum of a 1D series.
+
+        Parameters:
+        - data (array-like): The 1D input series.
+        - sampling_rate (float): Sampling rate of the data (default is 1.0).
+
+        Returns:
+        - freqs (numpy.ndarray): Array of frequency bins.
+        - power_spectrum (numpy.ndarray): Power spectrum corresponding to the frequencies.
+        """
+        # Number of data points
+        n = len(data)
+        
+        # Perform the Fast Fourier Transform (FFT)
+        fft_result = np.fft.fft(data)
+        
+        # Compute the power spectrum (magnitude squared of FFT components)
+        power_spectrum = np.abs(fft_result)**2
+        
+        # Normalize the power spectrum
+        power_spectrum = power_spectrum / n
+        
+        # Compute the corresponding frequencies
+        freqs = np.fft.fftfreq(n, d=1/sampling_rate)
+        
+        # Return only the positive frequencies
+        positive_freqs = freqs[:n // 2]
+        positive_power_spectrum = power_spectrum[:n // 2]
+        
+        return positive_freqs, positive_power_spectrum
+    
+    def power_spectrum_1d(data, bins=10):
+        """
+        Calculate the 1D binned power spectrum of an array.
+
+        Parameters:
+        data: 1D array of data
+        bins: Number of bins, or array of bin edges
+
+        Returns:
+        k: Array of wavenumbers (bin centers)
+        power: Array of power spectrum values
+        """
+
+        # Calculate the Fourier transform of the data
+        fft_data = fftpack.fft(data)
+
+        # Calculate the power spectrum
+        power = np.abs(fft_data)**2
+
+        # Calculate the wavenumbers
+        k = fftpack.fftfreq(len(data))
+
+        # Bin the power spectrum
+        power, bin_edges, _ = binned_statistic(np.abs(k), power, statistic='mean', bins=bins)
+        k = 0.5 * (bin_edges[1:] + bin_edges[:-1])  # Bin centers
+
+        return k, power
 
     def process_file(self, datafile: str) -> None:
         try:
@@ -81,28 +147,41 @@ class F21DataLoader:
             (z, xHI_mean, logfX, freq_axis, los_arr) = self.get_los(datafile)
             # Store the data
             #all_F21.append(F21_current)
+            #print(F"Los loaded: {xHI_mean} , {logfX}, {freq_axis}, {los_arr.shape}")
             bandwidth = freq_axis[-1]-freq_axis[0]
             power_spectrum = []
             cumulative_los = []
             ks = None
             psbatchnum = 0
             samplenum = 0
+            spec_res = 8 # kHz
             if self.limitsamplesize is not None and len(los_arr) > self.limitsamplesize:
                 los_arr = los_arr[np.random.randint(len(los_arr), size=self.limitsamplesize)]
             Nlos = len(los_arr)
  
- 
-            #print('z=%.2f, <x_HI>=%.6f, log10(f_X)=%.2f, %d LOS, %d pixels' % 
-            #    (z, xHI_mean, logfX, Nlos, len(los_arr[0])))
-            
-            for los in los_arr:
+            Nbins = len(freq_axis)
+            print('Number of pixels (original): %d' % Nbins)
+            freq_uni = instrumental_features.uni_freq(freq_axis,np.array([freq_axis]))[0]
+            freq_smooth = instrumental_features.smooth_fixedbox(freq_uni,freq_uni, spec_res)[0] # 8kHz Spectral resolution
+            bandwidth = (freq_smooth[-1]-freq_smooth[0])/1e6
+            print('Number of pixels (smoothed): %d' % len(freq_smooth))
+            print('Bandwidth = %.2fMHz' % bandwidth)
+            n_kbins = int((len(freq_smooth)/2+1))
+
+            signal_ori = instrumental_features.transF(los_arr)
+            freq_uni,signal_uni = instrumental_features.uni_freq(freq_axis,signal_ori) #Interpolate signal to uniform frequency grid
+            for j in range(Nlos):
                 psbatchnum += 1
                 samplenum += 1
-                cumulative_los.append(los)
+                cumulative_los.append(signal_uni[j])
                 if not self.skip_ps:
+                    freq_smooth,signal_smooth = instrumental_features.smooth_fixedbox(freq_uni,signal_uni[j], spec_res) #Incorporate spectral resolution of telescope
+                    freq_smooth = freq_smooth[:-1]
+                    signal_smooth = signal_smooth[:-1]
                     # Calculate the power spectrum
-                    #ks, power_spectrum = power_spectrum_1d(los, bins=160)
-                    ks, ps = PS1D.get_P(los, bandwidth)
+                    ks,ps = PS1D.get_P(signal_smooth,bandwidth) #Calculate 1D power spectrum
+                    #print(f"Calculated PS: {ks.shape}, {ps.shape}")
+                    #ks, ps = F21DataLoader.calculate_power_spectrum(los)
                     if self.ps_bins is not None:
                         ps, bin_edges, _ = binned_statistic(np.abs(ks), ps, statistic='mean', bins=self.ps_bins)
                         ks = 0.5 * (bin_edges[1:] + bin_edges[:-1])  # Bin centers
@@ -119,7 +198,7 @@ class F21DataLoader:
                     ps_mean, ps_std, ps_samples = None, None, None
                     if not self.skip_ps: (ps_mean, ps_std, ps_samples) = self.aggregate(np.array(power_spectrum))
                     (los_mean, los_std, los_samples) = self.aggregate(np.array(cumulative_los))
-                    self.collector.add_data(ks, ps_mean, ps_std, los_mean, los_std, freq_axis, params, los_samples, ps_samples)
+                    self.collector.add_data(ks/1e6, ps_mean, ps_std, los_mean, los_std, freq_axis, params, los_samples, ps_samples)
                     psbatchnum = 0
                     power_spectrum = []
                     cumulative_los = []
