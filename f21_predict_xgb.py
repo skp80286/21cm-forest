@@ -22,6 +22,7 @@ import glob
 from datetime import datetime
 
 import F21DataLoader as dl
+import F21Stats
 import os
 import sys
 
@@ -70,7 +71,7 @@ def load_dataset(datafiles, psbatchsize, save=False):
     all_ps = []
     all_params = []
     # Create processor with desired number of worker threads
-    processor = dl.F21DataLoader(max_workers=8, psbatchsize=psbatchsize, limitsamplesize=args.limitsamplesize, ps_bins=None)
+    processor = dl.F21DataLoader(max_workers=8, psbatchsize=psbatchsize, limitsamplesize=args.limitsamplesize, ps_bins=None, skip_stats=(not args.includestats))
         
     # Process all files and get results
     results = processor.process_all_files(datafiles)
@@ -98,24 +99,23 @@ def load_dataset(datafiles, psbatchsize, save=False):
     #ps_combined = np.hstack([all_ps[:,:600], ps_std[:,:600]])
     ps_combined = all_ps
     params_combined = np.array(all_params)
-
-    logger.info(f"\nCombined data shape: {ps_combined.shape}")
+    ks = all_ks[0]
+    logger.info(f"Combined ps shape: {ps_combined.shape}")
+    logger.info(f"Combined ks shape: {ks.shape}")
     logger.info(f"Combined parameters shape: {params_combined.shape}")
 
-    #stats = f21stats.calculate_stats_torch()
-
-    return (ps_combined, params_combined)
+    return (ks, ps_combined, params_combined)
 
 def save_model(model):
     # Save the model architecture and weights
     logger.info(f'Saving model to: {output_dir}/{args.modelfile}')
     model_json = model.save_model(f"{output_dir}/{args.modelfile}")
 
-def  bin_ps_data(X, ps_bins_to_make, ps_bins_to_use):
+def  bin_ps_data(X, ps_bins_to_make, perc_ps_bins_to_use):
     if X.shape[1] <  ps_bins_to_make:
         ps_bins_to_make = X.shape[1]
 
-    num_bins = ps_bins_to_make*ps_bins_to_use//100
+    num_bins = ps_bins_to_make*perc_ps_bins_to_use//100
 
     if ps_bins_to_make < X.shape[1]:
         fake_ks = range(X.shape[1])
@@ -126,7 +126,64 @@ def  bin_ps_data(X, ps_bins_to_make, ps_bins_to_use):
         X_binned = np.array(X_binned)
     else:
         X_binned = X
-    return X_binned[:,:ps_bins_to_use]
+    return X_binned[:,:num_bins]
+
+def logbin_power_spectrum_by_k(ks, ps):
+    print(f"logbin_power_spectrum_by_k: original ks: {ks[0,:5]} .. {ks[0,-5:]}")
+    print(f"original ps: {ps[0,:5]}..{ps[0,-5:]}")
+
+    d_log_k_bins = 0.25
+    log_k_bins = np.arange(-7.0-d_log_k_bins/2.,-3.+d_log_k_bins/2.,d_log_k_bins)
+
+    k_bins = np.power(10.,log_k_bins)
+    k_bins_cent = np.power(10.,log_k_bins+d_log_k_bins/2.)[:-1]
+    print(k_bins_cent)
+
+    binlist=np.zeros((ps.shape[0], len(k_bins_cent)))
+    pslist=np.zeros((ps.shape[0], len(k_bins_cent)))
+    for i, (row_ks, row_ps) in enumerate(zip(ks, ps)):
+      for l in range(len(k_bins_cent)):
+        mask = (row_ks >= k_bins[l]) & (row_ks < k_bins[l+1])
+        # If any values fall in this bin, take their mean
+        if np.any(mask):
+            pslist[i,l] = np.mean(row_ps[mask])
+        else:
+            pslist[i,l] = 0.
+        binlist[i,l] = k_bins_cent[l]
+
+    print(f"logbin_power_spectrum_by_k: final ks: {binlist[0,:5]}..{binlist[0,-5:]}")
+    print(f"final ps: {pslist[0,:5]}..{pslist[0,-5:]}")
+    return binlist, pslist
+
+
+def logbin_power_spectrum_by_k_flex(ks, ps, ps_bins_to_make, perc_ps_bins_to_use):
+    num_bins = ps_bins_to_make*perc_ps_bins_to_use//100
+    
+    min_log_k = None
+    if (ks[0] > 0): min_log_k = np.log10(ks[0])
+    else: min_log_k = np.log10(ks[1]/np.sqrt(10))
+    max_log_k = np.log10(ks[-1])
+
+    log_bins = np.linspace(min_log_k, max_log_k, ps_bins_to_make+1)
+    #print(f"log_bins: {log_bins}")
+    bins = np.power(10, log_bins)
+    #print(f"bins: {bins}")
+    # widths = (bins[1:] - bins[:-1])
+    #print(f"widths: {widths}")
+    log_centers = 0.5*(log_bins[:-1]+log_bins[1:])
+    bin_centers = np.power(10, log_centers)
+    #print(f"bin_centers: {bin_centers}")
+    pslist=np.zeros((ps.shape[0], ps_bins_to_make))
+    # Calculate histogram
+    for i, (p) in enumerate(ps):
+        hist = np.histogram(ks, bins=bins, weights=p)
+        #print(f"hist: {hist}")
+        # normalize by bin width
+        #hist_norm = hist[0]/widths
+        #print(f"hist_norm: {hist_norm}")
+        pslist[i,:] = hist[0]
+
+    return bin_centers, pslist[:,:num_bins]
 
 
 def scaleXy(X, y):
@@ -205,16 +262,18 @@ def unscale_y(y):
     return y
 
 class ModelTester:
-    def __init__(self, model, X_noise, ps_bins_to_make, ps_bins_to_use):
+    def __init__(self, model, X_noise, ks, ps_bins_to_make, perc_ps_bins_to_use):
         self.model = model
         self.X_noise = X_noise
         self.ps_bins_to_make = ps_bins_to_make
-        self.ps_bins_to_use = ps_bins_to_use
+        self.perc_ps_bins_to_use = perc_ps_bins_to_use
+        self.ks = ks
     
     def test(self, los, X_test, y_test, silent=False):
         #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Unbinned_PS_with_noise")
-        if not silent: logger.info(f"Binning PS data: original_size={X_test.shape[1]}, ps_bins_to_make={self.ps_bins_to_make}, num bins to use={self.ps_bins_to_use}")
-        X_test = bin_ps_data(X_test, self.ps_bins_to_make, self.ps_bins_to_use)
+        if not silent: logger.info(f"Binning PS data: ks_size={ks.shape}, original_size={X_test.shape[1]}, ps_bins_to_make={self.ps_bins_to_make}, num bins to use={self.perc_ps_bins_to_use}")
+        # X_test = bin_ps_data(X_test, self.ps_bins_to_make, self.perc_ps_bins_to_use)
+        _, X_test = logbin_power_spectrum_by_k(self.ks, X_test, self.ps_bins_to_make, self.perc_ps_bins_to_use)
         if not silent: logger.info(f"Testing dataset: X:{X_test.shape} y:{y_test.shape}")
         #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Binned_PS_with_noise")
 
@@ -269,17 +328,17 @@ class ModelTester:
         #if not silent: logger.info("RMS Error: " + str(rms_scores_percent))    
         return X_test, y_test, y_pred, r2
 
-def run(X_train, X_test, X_noise, y_train, y_test, 
+def run(ks, X_train, X_test, X_noise, y_train, y_test, 
                     ps_bins_to_make,
-                    ps_bins_to_use,
+                    perc_ps_bins_to_use,
                     model_param1,
                     model_param2,
                     showplots=False,
                     saveplots=True):
-    run_description = f"output_dir={output_dir} Commandline: {' '.join(sys.argv)}. Parameters: ps_bins_to_make={ps_bins_to_make}, ps_bins_to_use={ps_bins_to_use}, model_param1={model_param1}, model_param2={model_param2}, label={args.label}"
+    run_description = f"output_dir={output_dir} Commandline: {' '.join(sys.argv)}. Parameters: ps_bins_to_make={ps_bins_to_make}, perc_ps_bins_to_use={perc_ps_bins_to_use}, model_param1={model_param1}, model_param2={model_param2}, label={args.label}"
     logger.info(f"Starting new run: {run_description}")
         
-    X_train = bin_ps_data(X_train, ps_bins_to_make, ps_bins_to_use)
+    _, X_train = logbin_power_spectrum_by_k(ks, X_train, ps_bins_to_make, perc_ps_bins_to_use)
     logger.info(f"Before scale train: {y_train[:1]}")
     X_train, y_train = scaleXy(X_train, y_train)
     logger.info(f"After scale train: {y_train[:1]}")
@@ -309,9 +368,9 @@ def run(X_train, X_test, X_noise, y_train, y_test,
 
     X_train, y_train = unscaleXy(X_train, y_train)
 
-    tester = ModelTester(reg, X_noise, ps_bins_to_make, ps_bins_to_use)
+    tester = ModelTester(reg, X_noise, ks, ps_bins_to_make, perc_ps_bins_to_use)
     if args.test_multiple:
-        all_y_pred, all_y_test = base.test_multiple(tester, test_files)
+        all_y_pred, all_y_test = base.test_multiple(tester, test_files, reps=args.test_reps)
         r2 = base.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
         base.save_test_results(all_y_pred, all_y_test, output_dir)
     else:
@@ -336,14 +395,14 @@ def objective(trial):
         'input_points_to_use': 2762,#trial.suggest_int('input_points_to_use', 1800, 2762),
         'model_param1': trial.suggest_int('model_param1', 80, 150, step=5), # num XGB trees
         'model_param2': trial.suggest_int('model_param2', 3, 6), # xgb tree depth
-        'ps_bins_to_make': trial.suggest_int('ps_bins_to_make', 20, 1381, log=True),
-        'ps_bins_to_use': trial.suggest_int('ps_bins_to_use', 20, 100, log=True),
+        'ps_bins_to_make': trial.suggest_int('ps_bins_to_make', 8, 1381, log=True),
+        'perc_ps_bins_to_use': trial.suggest_int('perc_ps_bins_to_use', 20, 100, log=True),
     }    
     # Run training with the suggested parameters
     try:
-        r2, _ = run(X_train, X_test, X_noise, y_train, y_test, 
+        r2, _ = run(ks, X_train, X_test, X_noise, y_train, y_test, 
                    ps_bins_to_make=params['ps_bins_to_make'],
-                   ps_bins_to_use=params['ps_bins_to_use'],
+                   perc_ps_bins_to_use=params['perc_ps_bins_to_use'],
                    model_param1=params['model_param1'],
                    model_param2=params['model_param2'],
                    showplots=False,
@@ -379,7 +438,7 @@ parser.add_argument('--interactive', action='store_true', help='run in interacti
 parser.add_argument('--use_saved_ps_data', action='store_true', help='load PS data from pkl file.')
 parser.add_argument('--subtractnoise', action='store_true', help='subtract noise.')
 parser.add_argument('--ps_bins_to_make', type=int, default=1381, help='bin the PS into n bins')
-parser.add_argument('--ps_bins_to_use', type=int, default=100, help='use the first n bins in the model')
+parser.add_argument('--perc_ps_bins_to_use', type=int, default=100, help='use the first n bins in the model')
 parser.add_argument('--scale_y', action='store_true', help='Scale the y parameters (logfX).')
 parser.add_argument('--scale_y0', action='store_true', help='Scale the y parameters (xHI).')
 parser.add_argument('--scale_y1', action='store_true', help='Scale logfx and calculate product of logfx with xHI.')
@@ -394,10 +453,12 @@ parser.add_argument('--filter_train', action='store_true', help='Filter training
 parser.add_argument('--label', type=str, default='', help='just a descriptive text for the purpose of the run.')
 parser.add_argument('--trials', type=int, default=15, help='Optimization trials')
 parser.add_argument('--test_multiple', action='store_true', help='Test 1000 sets of 10 LoS for each test point and plot it')
+parser.add_argument('--test_reps', type=int, default=10000, help='Test repetitions for each parameter combination')
+parser.add_argument('--includestats', action='store_true', help='Include statistics in the model')
 
 args = parser.parse_args()
 print(args)
-if args.ps_bins_to_use < 10 or args.ps_bins_to_use > 100: raise ValueError("--ps_bins_to_use not in acceptable range!")
+if args.perc_ps_bins_to_use < 10 or args.perc_ps_bins_to_use > 100: raise ValueError("--perc_ps_bins_to_use not in acceptable range!")
 
 output_dir = str('output/f21_ps_xgb_%s_%s_t%dh_b%d_%s' % (args.runmode, args.telescope,args.t_int, 1, datetime.now().strftime("%Y%m%d%H%M%S")))
 
@@ -439,11 +500,11 @@ for f in datafiles:
 
 if args.runmode in ("train_test", "optimize") :
     logger.info(f"Loading train dataset {len(train_files)}")
-    X_train, y_train = None, None
+    ks, X_train, y_train = None, None, None
     if args.use_saved_ps_data:
-        X_train, y_train = load_dataset_from_pkl()
+        ks, X_train, y_train = load_dataset_from_pkl()
     else:
-        X_train, y_train = load_dataset(train_files, psbatchsize=args.psbatchsize, save=True)
+        ks, X_train, y_train = load_dataset(train_files, psbatchsize=args.psbatchsize, save=True)
     logger.info(f"Loaded dataset X_train:{X_train.shape} y:{y_train.shape}")
     if args.filter_train:
         # Filter for xHI between 0.1 and 0.4
@@ -457,18 +518,18 @@ if args.runmode in ("train_test", "optimize") :
                (args.path, args.redshift,args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
         logger.info(f"Loading noise files with pattern {noisefilepattern}")
         noisefiles = glob.glob(noisefilepattern)
-        X_noise, y_noise = load_dataset(noisefiles, psbatchsize=1000, save=False)
+        ks, X_noise, y_noise = load_dataset(noisefiles, psbatchsize=1000, save=False)
         if X_noise[:,0] == 0: X_noise[:,0] = 1 # Avoid div by zero
         logger.info(f"Loaded noise: {X_noise.shape}")
         logger.info(f"Sample PS before noise subtraction: \n{X_train[:2]}")
         X_train -= X_noise
         logger.info(f"Sample PS after noise subtraction: \n{X_train[:2]}")
     logger.info(f"Loading test dataset {len(test_files)}")
-    X_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
+    ks, X_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
 
     if args.runmode == "train_test":
-        r2, modeltester = run(X_train, X_test, X_noise, y_train, y_test, ps_bins_to_make=args.ps_bins_to_make, ps_bins_to_use=args.ps_bins_to_use, model_param1=args.model_param1, model_param2=args.model_param2, showplots=args.interactive, saveplots=True)
+        r2, modeltester = run(ks, X_train, X_test, X_noise, y_train, y_test, ps_bins_to_make=args.ps_bins_to_make, perc_ps_bins_to_use=args.perc_ps_bins_to_use, model_param1=args.model_param1, model_param2=args.model_param2, showplots=args.interactive, saveplots=True)
 
     elif args.runmode == "optimize":
         # Create study object
@@ -494,7 +555,7 @@ if args.runmode in ("train_test", "optimize") :
 
 elif args.runmode == "test_only": # test_only
     logger.info(f"Loading test dataset {len(test_files)}")
-    X_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
+    ks, X_test, y_test, stats_test = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
     if args.psbins_to_use is not None:
         X_test = X_test[:, :args.psbins_to_use]
     X_test, y_test = scaleXy(X_test, y_test)

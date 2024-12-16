@@ -8,7 +8,7 @@ from scipy import fftpack
 import instrumental_features
 
 class F21DataLoader:
-    def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None, skip_ps: bool = False, ps_bins = None):
+    def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None, skip_ps: bool = False, ps_bins = None, ps_smoothing=True, skip_stats=True):
         np.random.seed(42)
         self.max_workers = max_workers
         self.collector = ThreadSafeArrayCollector()
@@ -16,6 +16,8 @@ class F21DataLoader:
         self.limitsamplesize = limitsamplesize
         self.skip_ps = skip_ps
         self.ps_bins = ps_bins
+        self.ps_smoothing = ps_smoothing
+        self.skip_stats = skip_stats
 
     def get_los(self, datafile: str) -> None:
         data = np.fromfile(str(datafile), dtype=np.float32)
@@ -60,7 +62,7 @@ class F21DataLoader:
 
     def aggregate(self, dataseries):
         # Calculate mean and standard deviation across all samples
-        mean = np.median(dataseries, axis=0)
+        mean = np.mean(dataseries, axis=0)
         std = np.std(dataseries, axis=0)
         samples_len = 5
         if len(dataseries) < 5:
@@ -160,26 +162,31 @@ class F21DataLoader:
             Nlos = len(los_arr)
  
             Nbins = len(freq_axis)
+            """
             print('Number of pixels (original): %d' % Nbins)
             freq_uni = instrumental_features.uni_freq(freq_axis,np.array([freq_axis]))[0]
             freq_smooth = instrumental_features.smooth_fixedbox(freq_uni,freq_uni, spec_res)[0] # 8kHz Spectral resolution
             bandwidth = (freq_smooth[-1]-freq_smooth[0])/1e6
             print('Number of pixels (smoothed): %d' % len(freq_smooth))
             print('Bandwidth = %.2fMHz' % bandwidth)
-            n_kbins = int((len(freq_smooth)/2+1))
-
+            #n_kbins = int((len(freq_smooth)/2+1))
             signal_ori = instrumental_features.transF(los_arr)
             freq_uni,signal_uni = instrumental_features.uni_freq(freq_axis,signal_ori) #Interpolate signal to uniform frequency grid
+            """
             for j in range(Nlos):
                 psbatchnum += 1
                 samplenum += 1
-                cumulative_los.append(signal_uni[j])
+                los=los_arr[j]
+                cumulative_los.append(los)
                 if not self.skip_ps:
-                    freq_smooth,signal_smooth = instrumental_features.smooth_fixedbox(freq_uni,signal_uni[j], spec_res) #Incorporate spectral resolution of telescope
-                    freq_smooth = freq_smooth[:-1]
-                    signal_smooth = signal_smooth[:-1]
+                    """
+                    if self.ps_smoothing:
+                        freq_smooth,signal_smooth = instrumental_features.smooth_fixedbox(freq_uni,los, spec_res) #Incorporate spectral resolution of telescope
+                        freq_smooth = freq_smooth[:-1]
+                        los = signal_smooth[:-1]
+                    """
                     # Calculate the power spectrum
-                    ks,ps = PS1D.get_P(signal_smooth,bandwidth) #Calculate 1D power spectrum
+                    ks,ps = PS1D.get_P(los,bandwidth) #Calculate 1D power spectrum
                     #print(f"Calculated PS: {ks.shape}, {ps.shape}")
                     #ks, ps = F21DataLoader.calculate_power_spectrum(los)
                     if self.ps_bins is not None:
@@ -198,7 +205,7 @@ class F21DataLoader:
                     ps_mean, ps_std, ps_samples = None, None, None
                     if not self.skip_ps: (ps_mean, ps_std, ps_samples) = self.aggregate(np.array(power_spectrum))
                     (los_mean, los_std, los_samples) = self.aggregate(np.array(cumulative_los))
-                    self.collector.add_data(ks/1e6, ps_mean, ps_std, los_mean, los_std, freq_axis, params, los_samples, ps_samples)
+                    self.collector.add_data(ks, ps_mean, ps_std, los_mean, los_std, freq_axis, params, los_samples, ps_samples)
                     psbatchnum = 0
                     power_spectrum = []
                     cumulative_los = []

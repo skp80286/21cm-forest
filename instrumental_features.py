@@ -161,8 +161,10 @@ def uni_freq(freq,signal): #Calculate frequency range and, because we want to co
 
   # Initialize flux array and interpolate flux for each line of sight
   N_los = signal.shape[0]
+  print(N_los)
   uniform_signal = np.zeros((N_los, npix), dtype=np.float32)
   for i in range(N_los):
+      print(f"Interpolating: signal: {signal[i].shape} freq: {freq.shape} uniform_freq: {uniform_freq.shape}")
       uniform_signal[i,:] = np.interp(uniform_freq, freq, signal[i])
 
   return uniform_freq,uniform_signal

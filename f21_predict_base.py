@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 def plot_single_power_spectrum(ps, ks, output_dir=".", showplots=False, saveplots=True, label=""):
-    plt.rcParams['figure.figsize'] = [15, 9]
+    initplt()
     plt.title(f'{label} - power spectrum')
     plt.loglog(ks[1:]*1e6, ps[1:], linewidth=0.5)
     plt.xlabel(r'k (MHz$^{-1}$)')
@@ -72,7 +72,7 @@ def logbin_power_spectrum_by_k(ks, ps, num_bins):
 
 colorlabels=[r'$\langle x_{HI}\rangle$', r'$log_{10}fX$']
 colormaps=[plt.cm.inferno, plt.cm.viridis]
-def plot_power_spectra(ps, ks, params, colorind=1, output_dir=".", showplots=False, saveplots=True, label=""):
+def plot_power_spectra(ps, ks, params, psn=None, colorind=1, output_dir=".", showplots=False, saveplots=True, label=""):
     #logger.info(f'shapes ps:{ps.shape} ks:{ks.shape}')
     initplt()
     alpha = decide_alpha(len(ps))
@@ -87,20 +87,58 @@ def plot_power_spectra(ps, ks, params, colorind=1, output_dir=".", showplots=Fal
     sm = plt.cm.ScalarMappable(cmap=colormaps[colorind], norm=clr.Normalize(vmin=mincoloraxs, vmax=maxcoloraxs))
     cbar = plt.colorbar(sm, ax=ax, label=colorlabels[colorind])
 
-    plt.title('Power spectra: ' + label)
+    plt.title('Power spectra: ' + label)    
     for i, (row_ps, row_ks, row_coloraxs) in enumerate(zip(ps, ks, coloraxs)):
         color=sm.to_rgba(row_coloraxs)
         #if i%1000==0: print(f"color mapping: {row_coloraxs} : {color}")
         ax.loglog(row_ks[1:]*1e6, row_ps[1:], linewidth=0.5, color=color, alpha=alpha)
         #ax.set_yscale('log')
         #if i> 10: break
-    plt.xlabel(r"k (MHz$^{-1}$)")
+        # Plot noise curve
+    if psn is not None: 
+        ax.loglog(ks[0,1:]*1e6, psn[1:], "r--", linewidth=0.5, label="Noise")
+        plt.legend()
+    plt.xlabel(r"k (Hz$^{-1}$)")
     plt.ylabel("$kP_{21}$")
-    plt.ylim((1e-11, 1e-2))
+    #plt.ylim((1e-22, 1e-2))
     plt.xticks(fontsize=18)
     plt.yticks(fontsize=18)
+    
     if showplots: plt.show()
     if saveplots: plt.savefig(f"{output_dir}/power_spectra.png")
+    plt.clf()
+
+
+statlabels=['total_mean', 'total_std', 'mean_skew', 'std_skew', 'skew2', 'min_skew']
+markers=['*','P','x','d','v','s','^']
+def plot_stats(stats, params, colorind=1, output_dir=".", showplots=False, saveplots=True, label=""):
+    #logger.info(f'shapes ps:{ps.shape} ks:{ks.shape}')
+    initplt()
+    alpha = decide_alpha(len(stats))
+    logger.info(params[0:2])
+    coloraxs = params[:,colorind]
+    mincoloraxs = min(coloraxs)
+    maxcoloraxs = max(coloraxs)
+    print(f"min-max range: {mincoloraxs}-{maxcoloraxs}")
+
+    fig, ax = plt.subplots(nrows=1, ncols=1) 
+
+    sm = plt.cm.ScalarMappable(cmap=colormaps[colorind], norm=clr.Normalize(vmin=mincoloraxs, vmax=maxcoloraxs))
+    cbar = plt.colorbar(sm, ax=ax, label=colorlabels[colorind])
+
+    plt.title('Statistics: ' + label)
+    for i, (row_stat, row_coloraxs) in enumerate(zip(stats, coloraxs)):
+        color=sm.to_rgba(row_coloraxs)
+        #if i%1000==0: print(f"color mapping: {row_coloraxs} : {color}")
+        for j, stat in enumerate(row_stat):
+            ax.scatter(coloraxs, stat, color=color, marker=markers[j], alpha=alpha)
+        #ax.set_yscale('log')
+        #if i> 10: break
+    plt.xlabel(colorlabels[colorind])
+    plt.ylabel("Stat Value")
+
+    if showplots: plt.show()
+    if saveplots: plt.savefig(f"{output_dir}/statistics.png")
     plt.clf()
 
 def plot_single_los(los, freq_axis, output_dir=".", showplots=False, saveplots=True, label=""):
@@ -622,7 +660,7 @@ def test_multiple(modeltester, datafiles, reps=10000, size=10, save=False):
             los_set = los[rdm]
             ps_set = ps[rdm]
             params_set = params[rdm]
-            _, y_test, y_pred, r2 = modeltester.test(los_set, ps_set, params_set, silent=True)
+            _, y_test, y_pred, r2 = modeltester.test(los_set, ps_set, params_set, silent=(j!=0))
             y_pred_mean = np.mean(y_pred, axis=0)
             all_y_pred.append(y_pred_mean)
             all_y_test.append(params[0])

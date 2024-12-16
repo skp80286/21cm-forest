@@ -32,6 +32,7 @@ from typing import Tuple
 
 import math
 import torch.distributions as dist
+import F21Stats
 
 def load_dataset_from_pkl():
     # Lists to store combined data
@@ -274,53 +275,6 @@ class SimpleNN(nn.Module):
             y_pred = self(test_inputs)
             return y_pred.detach().cpu().numpy()
 
-def calculate_stats_torch(X, y, kernel_sizes):
-    stat_calc = []
-
-    for i,x in enumerate(X):
-        row = []
-        tensor_1d = torch.tensor(x)
-        # Pad the tensor if length is not divisible by 3
-        total_mean = torch.mean(tensor_1d)
-        total_std = torch.std(tensor_1d, unbiased=False)
-        #total_centered_x = tensor_1d - total_mean
-        #total_skewness = torch.mean((total_centered_x / (total_std)) ** 3)
-
-        row += [total_mean, total_std] # total_skewness
-
-        for kernel_size in kernel_sizes:
-            padding_needed = kernel_size - len(tensor_1d) % kernel_size
-            if padding_needed > 0:
-                tensor_1d = torch.nn.functional.pad(tensor_1d, (0, padding_needed))
-            
-            tensor_2d = tensor_1d.view(-1,kernel_size)
-
-            means = torch.mean(tensor_2d, dim=1)
-            std = torch.std(tensor_2d, dim=1, unbiased=False)
-
-            centered_x = tensor_2d - means.unsqueeze(1)
-            skewness = torch.mean((centered_x / (std.unsqueeze(1) + 1e-8)) ** 3, dim=1)
-
-            mean_skew = torch.mean(skewness)
-            std_skew = torch.std(skewness, unbiased=False)
-            
-            centered_skew = skewness - mean_skew
-            skew2 = torch.mean((centered_skew / (std_skew.unsqueeze(0) + 1e-8)) ** 3)
-                    
-            min_skew = torch.min(skewness)
-
-            skew5 = torch.mean((centered_x / (std.unsqueeze(1) + 1e-8)) ** 5)
-            #skew7 = torch.mean((centered_x / (std.unsqueeze(1) + 1e-8)) ** 7)
-
-            row += [mean_skew.item(), std_skew.item(), skew2.item(), min_skew.item()]
-        
-        stat_calc.append(row)
-
-        if i < 5: logger.info(f'Stats for xHI={y[i, 0]} logfx={y[i, 1]}, kernel_size={kernel_size} = {row}')
-    
-    return np.array(stat_calc)
-
-
 def run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, num_epochs=50, lr=1e-3, batch_size=16, kernel_sizes=[268], input_points_to_use=2546, model_param1=83, model_param2=4, showplots=False, saveplots=True):
     run_description = f"output_dir={output_dir} Commandline: {' '.join(sys.argv)}. Parameters: epochs: {num_epochs}, kernel_sizes: {kernel_sizes}, points: {input_points_to_use}, model_param1={model_param1}, model_param2={model_param2}, label={args.label}"
     logger.info(f"Starting new run: {run_description}")
@@ -334,7 +288,7 @@ def run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, 
         X_test = X_test[:, :input_points_to_use]  
         if test_samples is not None: test_samples = test_samples[:,:, :input_points_to_use]
     
-    X_train = calculate_stats_torch(X_train, y_train, kernel_sizes)
+    X_train = F21Stats.calculate_stats_torch(X_train, y_train, kernel_sizes)
     
     logger.info(f"Starting training. {X_train.shape},{X_test.shape},{y_train.shape},{y_test.shape}")
 
