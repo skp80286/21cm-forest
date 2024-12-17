@@ -28,6 +28,7 @@ import sys
 
 import logging
 import f21_predict_base as base
+import Scaling
 #from f21_predict_by_stats import calculate_stats_torch
 
 import optuna
@@ -129,15 +130,16 @@ def  bin_ps_data(X, ps_bins_to_make, perc_ps_bins_to_use):
     return X_binned[:,:num_bins]
 
 def logbin_power_spectrum_by_k(ks, ps):
+    """
     print(f"logbin_power_spectrum_by_k: original ks: {ks[0,:5]} .. {ks[0,-5:]}")
     print(f"original ps: {ps[0,:5]}..{ps[0,-5:]}")
-
+    """
     d_log_k_bins = 0.25
     log_k_bins = np.arange(-7.0-d_log_k_bins/2.,-3.+d_log_k_bins/2.,d_log_k_bins)
 
     k_bins = np.power(10.,log_k_bins)
     k_bins_cent = np.power(10.,log_k_bins+d_log_k_bins/2.)[:-1]
-    print(k_bins_cent)
+    #print(k_bins_cent)
 
     binlist=np.zeros((ps.shape[0], len(k_bins_cent)))
     pslist=np.zeros((ps.shape[0], len(k_bins_cent)))
@@ -151,8 +153,10 @@ def logbin_power_spectrum_by_k(ks, ps):
             pslist[i,l] = 0.
         binlist[i,l] = k_bins_cent[l]
 
+    """
     print(f"logbin_power_spectrum_by_k: final ks: {binlist[0,:5]}..{binlist[0,-5:]}")
     print(f"final ps: {pslist[0,:5]}..{pslist[0,-5:]}")
+    """
     return binlist, pslist
 
 
@@ -185,82 +189,6 @@ def logbin_power_spectrum_by_k_flex(ks, ps, ps_bins_to_make, perc_ps_bins_to_use
 
     return bin_centers, pslist[:,:num_bins]
 
-
-def scaleXy(X, y):
-    if args.scale_y: 
-        xHI = y[:, 0].reshape(len(y), 1)
-        scaledfx = (0.8 + y[:,1]/5.0).reshape(len(y), 1)
-        y = np.hstack((xHI, scaledfx))
-    if args.scale_y0: y[:,0] = y[:,0]*5.0
-    if args.scale_y1:
-        # we wish to create a single metric representing the expected
-        # strength of the signal based on xHI (0 to 1) and logfx (-4 to +1)
-        # We know that higher xHI and lower logfx lead to a stronger signal, 
-        # First we scale logfx to range of 0 to 1.
-        # Then we take a product of xHI and (1 - logfx)
-        if args.trials == 1: logger.info(f"Before scaleXy: {y}")
-        xHI = y[:, 0].reshape(len(y), 1)
-        scaledfx = 1 - (0.8 + y[:,1]/5.0)
-        product = np.sqrt(xHI**2 + scaledfx**2).reshape(len(y), 1)
-        y = np.hstack((xHI, scaledfx, product))
-        if args.trials == 1: logger.info(f"ScaledXy: {y}")
-    if args.scale_y2:
-        # we wish to create a single metric representing the expected
-        # strength of the signal based on xHI (0 to 1) and logfx (-4 to +1)
-        # We know that higher xHI and lower logfx lead to a stronger signal, 
-        # First we scale logfx to range of 0 to 1.
-        # Then we take a product of xHI and (1 - logfx)
-        if args.trials == 1: logger.info(f"Before scaleXy: {y}")
-        xHI = y[:, 0].reshape(len(y), 1)
-        scaledfx = 1 - (0.8 + y[:,1]/5.0).reshape(len(y), 1)
-        product = np.sqrt(xHI**2 + scaledfx**2).reshape(len(y), 1)
-        y = np.hstack((xHI, scaledfx, product))
-        if args.trials == 1: logger.info(f"ScaledXy: {y}")
-    if args.logscale_X: X = np.log(np.clip(X, 1e-20, None))
-    return X, y
-
-def unscaleXy(X, y):
-    # Undo what we did in scaleXy function
-    if args.scale_y: 
-        xHI = y[:, 0].reshape(len(y), 1)
-        fx = 5.0*(y[:,1] - 0.8).reshape(len(y), 1)
-        y = np.hstack((xHI, fx))
-    elif args.scale_y0: y[:,0] = y[:,0]/5.0
-    elif args.scale_y1:
-        xHI = y[:, 0].reshape(len(y), 1)
-        fx = 5.0*(1 - y[:,1] - 0.8)
-        y = np.hstack((xHI, fx))
-    elif args.scale_y2:
-        xHI = y[:, 0].reshape(len(y), 1)
-        fx = 5.0*(1 - y[:,1] - 0.8).reshape(len(y), 1)
-        y = np.hstack((xHI, fx))
-                
-    elif args.logscale_X: X = np.exp(X)
-    return X, y
-
-def unscale_y(y):
-    # Undo what we did in the scaleXy function
-    if args.scale_y: 
-        xHI = y[:, 0].reshape(len(y), 1)
-        fx = 5.0*(y[:,1] - 0.8).reshape(len(y), 1)
-        y = np.hstack((xHI, fx))
-    elif args.scale_y0: y[:,0] = y[:,0]/5.0
-    elif args.scale_y1:
-        # calculate fx using product and xHI 
-        if args.trials == 1: logger.info(f"Before unscale_y: {y}")
-        xHI = np.sqrt(y[:,2]**2 - y[:,1]**2)
-        fx = 5.0*(1 - y[:,1] - 0.8)
-        if args.trials == 1: logger.info(f"Unscaled_y: {y}")
-        y = np.hstack((xHI, fx))
-    elif args.scale_y2:
-        # calculate fx using product and xHI 
-        if args.trials == 1: logger.info(f"Before unscale_y: {y}")
-        xHI = np.sqrt(0.5*y**2).reshape((len(y), 1))
-        fx = 5.0*(1 - xHI - 0.8)
-        y = np.hstack((xHI, fx))
-        if args.trials == 1: logger.info(f"Unscaled_y: {y}")
-    return y
-
 class ModelTester:
     def __init__(self, model, X_noise, ks, ps_bins_to_make, perc_ps_bins_to_use):
         self.model = model
@@ -272,8 +200,8 @@ class ModelTester:
     def test(self, los, X_test, y_test, silent=False):
         #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Unbinned_PS_with_noise")
         if not silent: logger.info(f"Binning PS data: ks_size={ks.shape}, original_size={X_test.shape[1]}, ps_bins_to_make={self.ps_bins_to_make}, num bins to use={self.perc_ps_bins_to_use}")
-        # X_test = bin_ps_data(X_test, self.ps_bins_to_make, self.perc_ps_bins_to_use)
-        _, X_test = logbin_power_spectrum_by_k(self.ks, X_test, self.ps_bins_to_make, self.perc_ps_bins_to_use)
+        X_test = bin_ps_data(X_test, self.ps_bins_to_make, self.perc_ps_bins_to_use)
+        #_, X_test = logbin_power_spectrum_by_k(self.ks, X_test)
         if not silent: logger.info(f"Testing dataset: X:{X_test.shape} y:{y_test.shape}")
         #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Binned_PS_with_noise")
 
@@ -289,10 +217,11 @@ class ModelTester:
             X_test = X_test[mask]
             y_test = y_test[mask]
         if not silent: logger.info(f"Before scale y_test: {y_test[:1]}")
-        X_test, y_test = scaleXy(X_test, y_test)
+        X_test, y_test = scaler.scaleXy(X_test, y_test)
         if not silent: logger.info(f"After scale y_test: {y_test[:1]}")
 
         if not silent: logger.info("Testing prediction")
+        if not silent: logger.info(f"Sample data before testing y:{y_test[0]}\nX:{X_test[0]}")
         y_pred = self.model.predict(X_test)
 
         if y_pred.ndim==1:
@@ -315,10 +244,10 @@ class ModelTester:
         if not silent: logger.info("R2 Score: " + str(r2))
 
         if not silent: logger.info(f"Before unscale y_pred: {y_pred[:1]}")
-        y_pred = unscale_y(y_pred)
+        y_pred = scaler.unscale_y(y_pred)
         if not silent: logger.info(f"After unscale y_pred: {y_pred[:1]}")
         if not silent: logger.info(f"Before unscale y_test: {y_test[:1]}")
-        X_test, y_test = unscaleXy(X_test, y_test)
+        X_test, y_test = scaler.unscaleXy(X_test, y_test)
         if not silent: logger.info(f"After unscale y_test: {y_test[:1]}")
         if not silent: logger.info(f"unscaled test result {X_test.shape} {y_test.shape} {y_pred.shape}")
 
@@ -337,10 +266,11 @@ def run(ks, X_train, X_test, X_noise, y_train, y_test,
                     saveplots=True):
     run_description = f"output_dir={output_dir} Commandline: {' '.join(sys.argv)}. Parameters: ps_bins_to_make={ps_bins_to_make}, perc_ps_bins_to_use={perc_ps_bins_to_use}, model_param1={model_param1}, model_param2={model_param2}, label={args.label}"
     logger.info(f"Starting new run: {run_description}")
-        
-    _, X_train = logbin_power_spectrum_by_k(ks, X_train, ps_bins_to_make, perc_ps_bins_to_use)
+    X_train = bin_ps_data(X_train, ps_bins_to_make, perc_ps_bins_to_use)
+
+    #_, X_train = logbin_power_spectrum_by_k(ks, X_train)
     logger.info(f"Before scale train: {y_train[:1]}")
-    X_train, y_train = scaleXy(X_train, y_train)
+    X_train, y_train = scaler.scaleXy(X_train, y_train)
     logger.info(f"After scale train: {y_train[:1]}")
     logger.info(f"Training dataset: X:{X_train.shape} y:{y_train.shape}")
 
@@ -355,7 +285,7 @@ def run(ks, X_train, X_test, X_noise, y_train, y_test,
             max_depth=model_param2,
             random_state=42
         )
-
+    logger.info(f"Sample data before fitting y:{y_train[0]}\nX:{X_train[0]}")
     logger.info(f"Fitting regressor: {reg}")
     if args.scale_y2:
         reg.fit(X_train, y_train[:,2])
@@ -366,7 +296,7 @@ def run(ks, X_train, X_test, X_noise, y_train, y_test,
     else:
         reg.fit(X_train, y_train)
 
-    X_train, y_train = unscaleXy(X_train, y_train)
+    X_train, y_train = scaler.unscaleXy(X_train, y_train)
 
     tester = ModelTester(reg, X_noise, ks, ps_bins_to_make, perc_ps_bins_to_use)
     if args.test_multiple:
@@ -395,8 +325,8 @@ def objective(trial):
         'input_points_to_use': 2762,#trial.suggest_int('input_points_to_use', 1800, 2762),
         'model_param1': trial.suggest_int('model_param1', 80, 150, step=5), # num XGB trees
         'model_param2': trial.suggest_int('model_param2', 3, 6), # xgb tree depth
-        'ps_bins_to_make': trial.suggest_int('ps_bins_to_make', 8, 1381, log=True),
-        'perc_ps_bins_to_use': trial.suggest_int('perc_ps_bins_to_use', 20, 100, log=True),
+        'ps_bins_to_make': trial.suggest_int('ps_bins_to_make', 20, 400, log=True),
+        'perc_ps_bins_to_use': trial.suggest_int('perc_ps_bins_to_use', 20, 100, step=5),
     }    
     # Run training with the suggested parameters
     try:
@@ -498,6 +428,7 @@ for f in datafiles:
     if not is_test_file:
         train_files.append(f)
 
+scaler = Scaling.Scaler(args)
 if args.runmode in ("train_test", "optimize") :
     logger.info(f"Loading train dataset {len(train_files)}")
     ks, X_train, y_train = None, None, None
@@ -558,12 +489,12 @@ elif args.runmode == "test_only": # test_only
     ks, X_test, y_test, stats_test = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
     if args.psbins_to_use is not None:
         X_test = X_test[:, :args.psbins_to_use]
-    X_test, y_test = scaleXy(X_test, y_test)
+    X_test, y_test = scaler.scaleXy(X_test, y_test)
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
     model = xgb.XGBRegressor()
     model.load_model(args.modelfile)
     y_pred = model.predict(X_test)
     if args.scale_y: 
-        y_pred = unscale_y(y_pred)
-        X_test, y_test = unscaleXy(X_test, y_test)
+        y_pred = scaler.unscale_y(y_pred)
+        X_test, y_test = scaler.unscaleXy(X_test, y_test)
     base.summarize_test(y_pred, y_test, output_dir=output_dir, showplots=args.interactive)
