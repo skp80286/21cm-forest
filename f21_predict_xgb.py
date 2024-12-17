@@ -61,7 +61,7 @@ def load_dataset_from_pkl():
     logger.info(f"Combined parameters shape: {params_combined.shape}")
     return (ps_combined, params_combined)
 
-def load_dataset(datafiles, psbatchsize, save=False):
+def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False):
     #Input parameters
     #Read LOS data from 21cmFAST 50cMpc box
     if args.maxfiles is not None:
@@ -72,7 +72,7 @@ def load_dataset(datafiles, psbatchsize, save=False):
     all_ps = []
     all_params = []
     # Create processor with desired number of worker threads
-    processor = dl.F21DataLoader(max_workers=8, psbatchsize=psbatchsize, limitsamplesize=args.limitsamplesize, ps_bins=None, skip_stats=(not args.includestats))
+    processor = dl.F21DataLoader(max_workers=8, psbatchsize=psbatchsize, limitsamplesize=limitsamplesize, ps_bins=None, skip_stats=(not args.includestats))
         
     # Process all files and get results
     results = processor.process_all_files(datafiles)
@@ -112,17 +112,17 @@ def save_model(model):
     logger.info(f'Saving model to: {output_dir}/{args.modelfile}')
     model_json = model.save_model(f"{output_dir}/{args.modelfile}")
 
-def  bin_ps_data(X, ps_bins_to_make, perc_ps_bins_to_use):
+def bin_ps_data(X, ps_bins_to_make, perc_ps_bins_to_use):
     if X.shape[1] <  ps_bins_to_make:
         ps_bins_to_make = X.shape[1]
 
-    num_bins = ps_bins_to_make*perc_ps_bins_to_use//100
+    num_bins = (ps_bins_to_make*perc_ps_bins_to_use)//100
 
     if ps_bins_to_make < X.shape[1]:
         fake_ks = range(X.shape[1])
         X_binned = []
         for x in X:
-            ps, _, _ = binned_statistic(fake_ks, x, statistic='mean', bins=num_bins)
+            ps, _, _ = binned_statistic(fake_ks, x, statistic='mean', bins=ps_bins_to_make)
             X_binned.append(ps)
         X_binned = np.array(X_binned)
     else:
@@ -196,6 +196,7 @@ class ModelTester:
         self.ps_bins_to_make = ps_bins_to_make
         self.perc_ps_bins_to_use = perc_ps_bins_to_use
         self.ks = ks
+        if X_noise is not None: X_noise = bin_ps_data(X_noise, ps_bins_to_make, perc_ps_bins_to_use)
     
     def test(self, los, X_test, y_test, silent=False):
         #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Unbinned_PS_with_noise")
@@ -207,7 +208,7 @@ class ModelTester:
 
 
         if args.subtractnoise:
-            #logger.info(f"Subtracting noise from test data. Shapes: {X_test.shape} {X_noise.shape}")
+            if not silent: logger.info(f"Subtracting noise from test data. Shapes: {X_test.shape} {X_noise.shape}")
             X_test -= self.X_noise[:,:X_test.shape[1]]
             #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Unbinned_PS_noise_subtracted")
 
@@ -435,7 +436,7 @@ if args.runmode in ("train_test", "optimize") :
     if args.use_saved_ps_data:
         ks, X_train, y_train = load_dataset_from_pkl()
     else:
-        ks, X_train, y_train = load_dataset(train_files, psbatchsize=args.psbatchsize, save=True)
+        ks, X_train, y_train = load_dataset(train_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=True)
     logger.info(f"Loaded dataset X_train:{X_train.shape} y:{y_train.shape}")
     if args.filter_train:
         # Filter for xHI between 0.1 and 0.4
@@ -449,14 +450,14 @@ if args.runmode in ("train_test", "optimize") :
                (args.path, args.redshift,args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
         logger.info(f"Loading noise files with pattern {noisefilepattern}")
         noisefiles = glob.glob(noisefilepattern)
-        ks, X_noise, y_noise = load_dataset(noisefiles, psbatchsize=1000, save=False)
+        ks, X_noise, y_noise = load_dataset(noisefiles, psbatchsize=1000, limitsamplesize=1000, save=False)
         if X_noise[:,0] == 0: X_noise[:,0] = 1 # Avoid div by zero
         logger.info(f"Loaded noise: {X_noise.shape}")
         logger.info(f"Sample PS before noise subtraction: \n{X_train[:2]}")
         X_train -= X_noise
         logger.info(f"Sample PS after noise subtraction: \n{X_train[:2]}")
     logger.info(f"Loading test dataset {len(test_files)}")
-    ks, X_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
+    ks, X_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=False)
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
 
     if args.runmode == "train_test":
@@ -486,7 +487,7 @@ if args.runmode in ("train_test", "optimize") :
 
 elif args.runmode == "test_only": # test_only
     logger.info(f"Loading test dataset {len(test_files)}")
-    ks, X_test, y_test, stats_test = load_dataset(test_files, psbatchsize=args.psbatchsize, save=False)
+    ks, X_test, y_test, stats_test = load_dataset(test_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=False)
     if args.psbins_to_use is not None:
         X_test = X_test[:, :args.psbins_to_use]
     X_test, y_test = scaler.scaleXy(X_test, y_test)
