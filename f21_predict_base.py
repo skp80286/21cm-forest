@@ -631,7 +631,7 @@ def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False, skip_ps=Tr
             
     return (all_los, all_params, los_samples)
 
-def test_multiple(modeltester, datafiles, reps=10000, size=10, save=False):
+def test_multiple(modeltester, datafiles, reps=10000, size=10, save=False, skip_stats=True):
     logger.info(f"Test_multiple started. {reps} reps x {size} points will be tested for {len(datafiles)} parameter combinations")
     # Create processor with desired number of worker threads
     all_y_test = []
@@ -639,12 +639,14 @@ def test_multiple(modeltester, datafiles, reps=10000, size=10, save=False):
     # Process all files and get results
     for i, f in enumerate(datafiles):
         logger.info(f"Working on param combination #{i+1}: {f.split('/')[-1]}")
-        processor = dl.F21DataLoader(max_workers=8, psbatchsize=1, limitsamplesize=None, ps_bins=None)
+        processor = dl.F21DataLoader(max_workers=8, psbatchsize=1, limitsamplesize=None, ps_bins=None, skip_stats=skip_stats)
         results = processor.process_all_files([f])        
         # Access results
         los = results['los']
         ks = results['ks']
         ps = results['ps']
+        stats = results['stats']
+        print(f"stats.shape={stats.shape}")
         params = results['params']
 
         if i == 0:
@@ -659,8 +661,10 @@ def test_multiple(modeltester, datafiles, reps=10000, size=10, save=False):
             rdm = np.random.randint(len(los), size=size)
             los_set = los[rdm]
             ps_set = ps[rdm]
+            stats_set = stats[rdm]
+            #print(f"stats_set.shape={stats_set.shape}")
             params_set = params[rdm]
-            _, y_test, y_pred, r2 = modeltester.test(los_set, ps_set, params_set, silent=(j!=0))
+            _, y_test, y_pred, r2 = modeltester.test(los_set, ps_set, stats_set, params_set, silent=(j!=0))
             y_pred_mean = np.mean(y_pred, axis=0)
             all_y_pred.append(y_pred_mean)
             all_y_test.append(params[0])

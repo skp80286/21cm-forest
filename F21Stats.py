@@ -23,28 +23,20 @@ class F21Stats:
         return all_los
 
     @staticmethod
-    def calculate_stats_torch(X, y, kernel_sizes):
+    def calculate_stats_torch(X, y=None, kernel_sizes=[268]):
             # Validate X dimensions
         if not isinstance(X, (np.ndarray, torch.Tensor)) or len(X.shape) != 2:
-            raise ValueError("X must be a 2-dimensional array or tensor")
+            raise ValueError(f"X must be a 2-dimensional array or tensor, got {type(X).__name__} with shape {X.shape if hasattr(X, 'shape') else 'N/A'}")
         if X.shape[0] == 0 or X.shape[1] == 0:
-            raise ValueError("X dimensions must be non-zero")
-
-        # Validate y dimensions
-        if not isinstance(y, (np.ndarray, torch.Tensor)) or len(y.shape) != 2:
-            raise ValueError("y must be a 2-dimensional array or tensor")
-        if y.shape[0] != X.shape[0]:
-            raise ValueError(f"First dimension of y ({y.shape[0]}) must match first dimension of X ({X.shape[0]})")
-        if y.shape[1] != 2:
-            raise ValueError(f"Second dimension of y must be 2, got {y.shape[1]}")
-
+            raise ValueError(f"X dimensions must be non-zero, got shape {X.shape if hasattr(X, 'shape') else 'N/A'}")
+        
         # Validate kernel_sizes
         if not isinstance(kernel_sizes, (list, tuple, np.ndarray)):
             raise ValueError("kernel_sizes must be a list, tuple, or array")
         if not all(isinstance(k, (int, np.integer)) and k > 0 for k in kernel_sizes):
             raise ValueError("kernel_sizes must contain positive integers")
 
-
+        #print(y)
         stat_calc = []
 
         for i,x in enumerate(X):
@@ -85,8 +77,12 @@ class F21Stats:
                 row += [mean_skew.item(), std_skew.item(), skew2.item(), min_skew.item()]
             
             stat_calc.append(row)
+            label = "Stats "
+            if y is not None and len(y) > 0:
+                if len(y.shape) == 1: label = f"Stats for xHI={y[0]} logfx={y[1]}"
+                else: label = f"Stats for xHI={y[i, 0]} logfx={y[i, 1]}"
 
-            if i < 5: F21Stats.logger.info(f'Stats for xHI={y[i, 0]} logfx={y[i, 1]}, kernel_size={kernel_size} = {row}')
+            if False: F21Stats.logger.info(f'{label}, kernel_size={kernel_size} Stats={row}')
         
         return np.array(stat_calc)
 

@@ -81,6 +81,7 @@ def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False):
     all_los = results['los']
     all_ks = results['ks']
     all_ps = results['ps']
+    all_stats = results['stats']
     #ps_std = results['ps_std']
     #ps_plus_std = all_ps + ps_std
     #ps_minus_std = all_ps - ps_std
@@ -88,6 +89,7 @@ def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False):
     #plot_los(all_ps[0], freq_axis)
     logger.info(f"sample ks:{all_ks[0]}")
     logger.info(f"sample ps:{all_ps[0]}")
+    logger.info(f"sample stats:{all_stats[0]}")
     #logger.info(f"sample ps_std:{ps_std[0]}")
     logger.info(f"sample params:{all_params[0]}")
     
@@ -102,10 +104,11 @@ def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False):
     params_combined = np.array(all_params)
     ks = all_ks[0]
     logger.info(f"Combined ps shape: {ps_combined.shape}")
+    logger.info(f"Combined stats shape: {all_stats.shape}")
     logger.info(f"Combined ks shape: {ks.shape}")
     logger.info(f"Combined parameters shape: {params_combined.shape}")
 
-    return (ks, ps_combined, params_combined)
+    return (ks, ps_combined, all_stats, params_combined)
 
 def save_model(model):
     # Save the model architecture and weights
@@ -197,7 +200,7 @@ class ModelTester:
         self.perc_ps_bins_to_use = perc_ps_bins_to_use
         self.ks = ks
     
-    def test(self, los, X_test, y_test, silent=False):
+    def test(self, los, X_test, stats_test, y_test, silent=False):
         #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Unbinned_PS_with_noise")
         if not silent: logger.info(f"Binning PS data: ks_size={ks.shape}, original_size={X_test.shape[1]}, ps_bins_to_make={self.ps_bins_to_make}, num bins to use={self.perc_ps_bins_to_use}")
         X_test = bin_ps_data(X_test, self.ps_bins_to_make, self.perc_ps_bins_to_use)
@@ -218,11 +221,13 @@ class ModelTester:
             # Filter for xHI between 0.1 and 0.4
             mask = (y_test[:,0] >= 0.1) & (y_test[:,0] <= 0.4)
             X_test = X_test[mask]
+            stats_test = stats_test[mask]
             y_test = y_test[mask]
-
+        #print(f"stats_test.shape={stats_test.shape}")
+        X_test_with_stats = np.hstack((X_test, stats_test))
         if not silent: logger.info("Testing prediction")
-        if not silent: logger.info(f"Sample data before testing y:{y_test[0]}\nX:{X_test[0]}")
-        y_pred = self.model.predict(X_test)
+        if not silent: logger.info(f"Sample data before testing y:{y_test[0]}\nX:{X_test_with_stats[0]}")
+        y_pred = self.model.predict(X_test_with_stats)
 
         if y_pred.ndim==1:
             y_pred = y_pred.reshape(len(y_pred),1)
@@ -257,7 +262,7 @@ class ModelTester:
         #if not silent: logger.info("RMS Error: " + str(rms_scores_percent))    
         return X_test, y_test, y_pred, r2
 
-def run(ks, X_train, X_test, X_noise, y_train, y_test, 
+def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_train, y_test, 
                     ps_bins_to_make,
                     perc_ps_bins_to_use,
                     model_param1,
@@ -291,26 +296,28 @@ def run(ks, X_train, X_test, X_noise, y_train, y_test,
             max_depth=model_param2,
             random_state=42
         )
-    logger.info(f"Sample data before fitting y:{y_train[0]}\nX:{X_train[0]}")
+    
+    X_train_with_stats = np.hstack((X_train, stats_train))
+    logger.info(f"Sample data before fitting y:{y_train[0]}\nX:{X_train_with_stats[0]}")
     logger.info(f"Fitting regressor: {reg}")
     if args.scale_y2:
-        reg.fit(X_train, y_train[:,2])
+        reg.fit(X_train_with_stats, y_train[:,2])
     elif args.xhi_only:
-        reg.fit(X_train, y_train[:,0])
+        reg.fit(X_train_with_stats, y_train[:,0])
     elif args.logfx_only:
-        reg.fit(X_train, y_train[:,1])
+        reg.fit(X_train_with_stats, y_train[:,1])
     else:
-        reg.fit(X_train, y_train)
+        reg.fit(X_train_with_stats, y_train)
 
     X_train, y_train = scaler.unscaleXy(X_train, y_train)
 
     tester = ModelTester(reg, X_noise, ks, ps_bins_to_make, perc_ps_bins_to_use)
     if args.test_multiple:
-        all_y_pred, all_y_test = base.test_multiple(tester, test_files, reps=args.test_reps)
+        all_y_pred, all_y_test = base.test_multiple(tester, test_files, reps=args.test_reps, skip_stats=(not args.includestats))
         r2 = base.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
         base.save_test_results(all_y_pred, all_y_test, output_dir)
     else:
-        X_test, y_test, y_pred, r2 = tester.test(None, X_test, y_test)
+        X_test, stats_test, y_test, y_pred, r2 = tester.test(None, X_test, stats_test, y_test)
         base.summarize_test_1000(y_pred, y_test, output_dir=output_dir, showplots=showplots, saveplots=saveplots)
         base.save_test_results(y_pred, y_test, output_dir)
 
@@ -336,7 +343,7 @@ def objective(trial):
     }    
     # Run training with the suggested parameters
     try:
-        r2, _ = run(ks, X_train, X_test, X_noise, y_train, y_test, 
+        r2, _ = run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_train, y_test, 
                    ps_bins_to_make=params['ps_bins_to_make'],
                    perc_ps_bins_to_use=params['perc_ps_bins_to_use'],
                    model_param1=params['model_param1'],
@@ -437,34 +444,36 @@ for f in datafiles:
 scaler = Scaling.Scaler(args)
 if args.runmode in ("train_test", "optimize") :
     logger.info(f"Loading train dataset {len(train_files)}")
-    ks, X_train, y_train = None, None, None
+    ks, X_train, stats_train, y_train = None, None, None, None
     if args.use_saved_ps_data:
         ks, X_train, y_train = load_dataset_from_pkl()
     else:
-        ks, X_train, y_train = load_dataset(train_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=True)
+        ks, X_train, stats_train, y_train = load_dataset(train_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=True)
     logger.info(f"Loaded dataset X_train:{X_train.shape} y:{y_train.shape}")
     if args.filter_train:
         # Filter for xHI between 0.1 and 0.4
         mask = (y_train[:,0] >= 0.1) & (y_train[:,0] <= 0.4)
         X_train = X_train[mask]
         y_train = y_train[mask]
+        stats_train = stats_train[mask]
         logger.info(f"Filtered train dataset to {len(X_train)} samples with 0.1 <= xHI <= 0.4")
     X_noise = None
+    stats_noise = None
     if args.subtractnoise:
         noisefilepattern = str('%sF21_noiseonly_21cmFAST_200Mpc_z%.1f_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
                (args.path, args.redshift,args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
         logger.info(f"Loading noise files with pattern {noisefilepattern}")
         noisefiles = glob.glob(noisefilepattern)
-        ks, X_noise, y_noise = load_dataset(noisefiles, psbatchsize=1000, limitsamplesize=1000, save=False)
+        ks, X_noise, stats_noise, y_noise = load_dataset(noisefiles, psbatchsize=1000, limitsamplesize=1000, save=False)
         #if X_noise[:,0] == 0: X_noise[:,0] = 1 # Avoid div by zero
         logger.info(f"Loaded noise: {X_noise.shape}")
 
     logger.info(f"Loading test dataset {len(test_files)}")
-    ks, X_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=False)
+    ks, X_test, stats_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=False)
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
 
     if args.runmode == "train_test":
-        r2, modeltester = run(ks, X_train, X_test, X_noise, y_train, y_test, ps_bins_to_make=args.ps_bins_to_make, perc_ps_bins_to_use=args.perc_ps_bins_to_use, model_param1=args.model_param1, model_param2=args.model_param2, showplots=args.interactive, saveplots=True)
+        r2, modeltester = run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_train, y_test, ps_bins_to_make=args.ps_bins_to_make, perc_ps_bins_to_use=args.perc_ps_bins_to_use, model_param1=args.model_param1, model_param2=args.model_param2, showplots=args.interactive, saveplots=True)
 
     elif args.runmode == "optimize":
         # Create study object
@@ -490,14 +499,14 @@ if args.runmode in ("train_test", "optimize") :
 
 elif args.runmode == "test_only": # test_only
     logger.info(f"Loading test dataset {len(test_files)}")
-    ks, X_test, y_test, stats_test = load_dataset(test_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=False)
+    ks, X_test, stats_test, y_test, stats_test = load_dataset(test_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=False)
     if args.psbins_to_use is not None:
         X_test = X_test[:, :args.psbins_to_use]
     X_test, y_test = scaler.scaleXy(X_test, y_test)
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
     model = xgb.XGBRegressor()
     model.load_model(args.modelfile)
-    y_pred = model.predict(X_test)
+    y_pred = model.predict(np.hstack((X_test, stats_test)))
     if args.scale_y: 
         y_pred = scaler.unscale_y(y_pred)
         X_test, y_test = scaler.unscaleXy(X_test, y_test)

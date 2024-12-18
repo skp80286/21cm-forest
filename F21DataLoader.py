@@ -6,6 +6,7 @@ import PS1D
 from scipy.stats import binned_statistic
 from scipy import fftpack
 import instrumental_features
+import F21Stats
 
 class F21DataLoader:
     def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None, skip_ps: bool = False, ps_bins = None, ps_smoothing=True, skip_stats=True):
@@ -173,10 +174,12 @@ class F21DataLoader:
             signal_ori = instrumental_features.transF(los_arr)
             freq_uni,signal_uni = instrumental_features.uni_freq(freq_axis,signal_ori) #Interpolate signal to uniform frequency grid
             """
+            params = np.array([xHI_mean, logfX])
             for j in range(Nlos):
                 psbatchnum += 1
                 samplenum += 1
                 los=los_arr[j]
+                
                 cumulative_los.append(los)
                 if not self.skip_ps:
                     """
@@ -196,16 +199,18 @@ class F21DataLoader:
                     #print(f"ks: {ks}")
                     #print(f"ps: {ps}")
                     power_spectrum.append(ps)
-                    
+                
                 if samplenum >= Nlos or psbatchnum >= self.psbatchsize:
                     # Collect this batch
-                    params = np.array([xHI_mean, logfX])
-                    
                     #print(f"Collecting batch for params {params}")
-                    ps_mean, ps_std, ps_samples = None, None, None
+                    ps_mean, ps_std, ps_samples, stats_mean = None, None, None, None
                     if not self.skip_ps: (ps_mean, ps_std, ps_samples) = self.aggregate(np.array(power_spectrum))
-                    (los_mean, los_std, los_samples) = self.aggregate(np.array(cumulative_los))
-                    self.collector.add_data(ks, ps_mean, ps_std, los_mean, los_std, freq_axis, params, los_samples, ps_samples)
+                    cumulative_los_np = np.array(cumulative_los)
+                    (los_mean, los_std, los_samples) = self.aggregate(cumulative_los_np)
+                    if not self.skip_stats:
+                        curr_statcalc = F21Stats.F21Stats.calculate_stats_torch(cumulative_los_np, params, kernel_sizes=[268])
+                        stats_mean = np.mean(curr_statcalc, axis=0)
+                    self.collector.add_data(ks, ps_mean, ps_std, los_mean, los_std, freq_axis, params, los_samples, ps_samples, stats_mean)
                     psbatchnum = 0
                     power_spectrum = []
                     cumulative_los = []
@@ -240,10 +245,11 @@ class ThreadSafeArrayCollector:
             'params': [],
             'los_samples': [],
             'ps_samples': [],
+            'stats': [],
         }
         self._lock = threading.Lock()
         
-    def add_data(self, ks, ps, ps_std, los, los_std, freq_axis, params, los_samples, ps_samples):
+    def add_data(self, ks, ps, ps_std, los, los_std, freq_axis, params, los_samples, ps_samples, stats):
         with self._lock:
             self._data['ks'].append(ks)
             self._data['ps'].append(ps)
@@ -254,6 +260,7 @@ class ThreadSafeArrayCollector:
             self._data['params'].append(params)
             self._data['los_samples'].append(los_samples)
             self._data['ps_samples'].append(ps_samples)
+            self._data['stats'].append(stats)
             
     def get_arrays(self):
         with self._lock:
@@ -267,4 +274,5 @@ class ThreadSafeArrayCollector:
                 'params': np.array(self._data['params']),
                 'los_samples': np.array(self._data['los_samples']),
                 'ps_samples': np.array(self._data['ps_samples']),
+                'stats': np.array(self._data['stats']),
             }
