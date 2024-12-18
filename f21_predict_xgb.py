@@ -196,7 +196,6 @@ class ModelTester:
         self.ps_bins_to_make = ps_bins_to_make
         self.perc_ps_bins_to_use = perc_ps_bins_to_use
         self.ks = ks
-        if X_noise is not None: X_noise = bin_ps_data(X_noise, ps_bins_to_make, perc_ps_bins_to_use)
     
     def test(self, los, X_test, y_test, silent=False):
         #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Unbinned_PS_with_noise")
@@ -206,10 +205,13 @@ class ModelTester:
         if not silent: logger.info(f"Testing dataset: X:{X_test.shape} y:{y_test.shape}")
         #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Binned_PS_with_noise")
 
+        if not silent: logger.info(f"Before scale y_test: {y_test[:1]}")
+        X_test, y_test = scaler.scaleXy(X_test, y_test)
+        if not silent: logger.info(f"After scale y_test: {y_test[:1]}")
 
         if args.subtractnoise:
-            if not silent: logger.info(f"Subtracting noise from test data. Shapes: {X_test.shape} {X_noise.shape}")
-            X_test -= self.X_noise[:,:X_test.shape[1]]
+            if not silent: logger.info(f"Subtracting noise from test data. Shapes: {X_test.shape} {self.X_noise.shape}")
+            X_test -= self.X_noise
             #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Unbinned_PS_noise_subtracted")
 
         if args.filter_test:
@@ -217,9 +219,6 @@ class ModelTester:
             mask = (y_test[:,0] >= 0.1) & (y_test[:,0] <= 0.4)
             X_test = X_test[mask]
             y_test = y_test[mask]
-        if not silent: logger.info(f"Before scale y_test: {y_test[:1]}")
-        X_test, y_test = scaler.scaleXy(X_test, y_test)
-        if not silent: logger.info(f"After scale y_test: {y_test[:1]}")
 
         if not silent: logger.info("Testing prediction")
         if not silent: logger.info(f"Sample data before testing y:{y_test[0]}\nX:{X_test[0]}")
@@ -268,11 +267,17 @@ def run(ks, X_train, X_test, X_noise, y_train, y_test,
     run_description = f"output_dir={output_dir} Commandline: {' '.join(sys.argv)}. Parameters: ps_bins_to_make={ps_bins_to_make}, perc_ps_bins_to_use={perc_ps_bins_to_use}, model_param1={model_param1}, model_param2={model_param2}, label={args.label}"
     logger.info(f"Starting new run: {run_description}")
     X_train = bin_ps_data(X_train, ps_bins_to_make, perc_ps_bins_to_use)
-
-    #_, X_train = logbin_power_spectrum_by_k(ks, X_train)
     logger.info(f"Before scale train: {y_train[:1]}")
     X_train, y_train = scaler.scaleXy(X_train, y_train)
     logger.info(f"After scale train: {y_train[:1]}")
+    if X_noise is not None: 
+        X_noise = bin_ps_data(X_noise, ps_bins_to_make, perc_ps_bins_to_use)
+        X_noise, _ = scaler.scaleXy(X_noise, np.array([[0.0, 0.0]]))
+        logger.info(f"Sample PS before noise subtraction: \n{X_train[:2]}")
+        X_train -= X_noise
+        logger.info(f"Sample PS after noise subtraction: \n{X_train[:2]}")
+
+    #_, X_train = logbin_power_spectrum_by_k(ks, X_train)
     logger.info(f"Training dataset: X:{X_train.shape} y:{y_train.shape}")
 
     y_pred = None
@@ -326,8 +331,8 @@ def objective(trial):
         'input_points_to_use': 2762,#trial.suggest_int('input_points_to_use', 1800, 2762),
         'model_param1': trial.suggest_int('model_param1', 80, 150, step=5), # num XGB trees
         'model_param2': trial.suggest_int('model_param2', 3, 6), # xgb tree depth
-        'ps_bins_to_make': trial.suggest_int('ps_bins_to_make', 20, 400, log=True),
-        'perc_ps_bins_to_use': trial.suggest_int('perc_ps_bins_to_use', 20, 100, step=5),
+        'ps_bins_to_make': trial.suggest_int('ps_bins_to_make', 8, 160, step=4),
+        'perc_ps_bins_to_use': trial.suggest_int('perc_ps_bins_to_use', 5, 60, step=5),
     }    
     # Run training with the suggested parameters
     try:
@@ -389,7 +394,7 @@ parser.add_argument('--includestats', action='store_true', help='Include statist
 
 args = parser.parse_args()
 print(args)
-if args.perc_ps_bins_to_use < 10 or args.perc_ps_bins_to_use > 100: raise ValueError("--perc_ps_bins_to_use not in acceptable range!")
+if args.perc_ps_bins_to_use < 5 or args.perc_ps_bins_to_use > 100: raise ValueError("--perc_ps_bins_to_use not in acceptable range!")
 
 output_dir = str('output/f21_ps_xgb_%s_%s_t%dh_b%d_%s' % (args.runmode, args.telescope,args.t_int, 1, datetime.now().strftime("%Y%m%d%H%M%S")))
 
@@ -416,7 +421,7 @@ if args.maxfiles is not None:
 logger.info(f"Found {len(datafiles)} files matching pattern")
 datafiles = sorted(datafiles)
 #train_files, test_files = train_test_split(datafiles, test_size=test_size, random_state=42)
-test_points = [[-3.00,0.25],[-2.00,0.25],[-1.00,0.25],[-3.00,0.52],[-2.00,0.52],[-1.00,0.52], [-3.00,0.80],[-2.00,0.80],[-1.00,0.80],[0.00,0.80]]
+test_points = [[-3.00,0.25],[-2.00,0.25],[-1.00,0.25],[-3.00,0.52],[-2.00,0.52],[-1.00,0.52], [-3.00,0.80],[-2.00,0.80],[-1.00,0.80]]#,[0.00,0.80]]
 train_files = []
 test_files = []
 for f in datafiles:
@@ -451,11 +456,9 @@ if args.runmode in ("train_test", "optimize") :
         logger.info(f"Loading noise files with pattern {noisefilepattern}")
         noisefiles = glob.glob(noisefilepattern)
         ks, X_noise, y_noise = load_dataset(noisefiles, psbatchsize=1000, limitsamplesize=1000, save=False)
-        if X_noise[:,0] == 0: X_noise[:,0] = 1 # Avoid div by zero
+        #if X_noise[:,0] == 0: X_noise[:,0] = 1 # Avoid div by zero
         logger.info(f"Loaded noise: {X_noise.shape}")
-        logger.info(f"Sample PS before noise subtraction: \n{X_train[:2]}")
-        X_train -= X_noise
-        logger.info(f"Sample PS after noise subtraction: \n{X_train[:2]}")
+
     logger.info(f"Loading test dataset {len(test_files)}")
     ks, X_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=False)
     logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")

@@ -295,7 +295,7 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
     
     # Plotting
     if showplots or saveplots:
-        plt.rcParams['figure.figsize'] = [15, 9]
+        plt.rcParams['figure.figsize'] = [8, 8]
         fig, ax = plt.subplots()
         
         num_points = len(unique_test_points)
