@@ -1,0 +1,5 @@
+Best parameters:
+ps_bins_to_make: 77
+perc_ps_bins_to_use: 10
+
+Best R2 score: 0.8163773417472839

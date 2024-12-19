@@ -109,8 +109,9 @@ def plot_power_spectra(ps, ks, params, psn=None, colorind=1, output_dir=".", sho
     plt.clf()
 
 
-statlabels=['total_mean', 'total_std', 'mean_skew', 'std_skew', 'skew2', 'min_skew']
-markers=['*','P','x','d','v','s','^']
+statlabels=['ps1', 'ps2', 'total_mean', 'total_std', 'mean_skew', 'std_skew', 'skew2', 'min_skew']
+markers=['*','P','x','d','v','s','^', '+']
+legendpos=['lower right', 'upper left']
 def plot_stats(stats, params, colorind=1, output_dir=".", showplots=False, saveplots=True, label=""):
     #logger.info(f'shapes ps:{ps.shape} ks:{ks.shape}')
     initplt()
@@ -123,20 +124,25 @@ def plot_stats(stats, params, colorind=1, output_dir=".", showplots=False, savep
 
     fig, ax = plt.subplots(nrows=1, ncols=1) 
 
-    sm = plt.cm.ScalarMappable(cmap=colormaps[colorind], norm=clr.Normalize(vmin=mincoloraxs, vmax=maxcoloraxs))
-    cbar = plt.colorbar(sm, ax=ax, label=colorlabels[colorind])
+    num_stats = len(statlabels)
+    colormap = plt.cm.get_cmap('rainbow', num_stats)  # You can choose any colormap you prefer
 
     plt.title('Statistics: ' + label)
     for i, (row_stat, row_coloraxs) in enumerate(zip(stats, coloraxs)):
-        color=sm.to_rgba(row_coloraxs)
+        #print(f"row_stat={row_stat}, row_coloraxs={row_coloraxs}")
         #if i%1000==0: print(f"color mapping: {row_coloraxs} : {color}")
         for j, stat in enumerate(row_stat):
-            ax.scatter(coloraxs, stat, color=color, marker=markers[j], alpha=alpha)
+            stat_color = colormap(j) 
+            label = None
+            if i==0: label=statlabels[j]
+            ax.scatter(row_coloraxs, stat, color=stat_color, marker=markers[j], alpha=alpha, label=label)
         #ax.set_yscale('log')
         #if i> 10: break
     plt.xlabel(colorlabels[colorind])
     plt.ylabel("Stat Value")
-
+    
+    #plt.legend(loc=legendpos[colorind], fontsize=12)  
+    plt.legend(loc=legendpos[colorind], ncol=len(statlabels)//2, fontsize=12)
     if showplots: plt.show()
     if saveplots: plt.savefig(f"{output_dir}/statistics.png")
     plt.clf()

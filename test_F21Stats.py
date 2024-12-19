@@ -55,5 +55,16 @@ class TestF21Stats(unittest.TestCase):
         result = F21Stats.calculate_stats_torch(self.X, self.y, self.kernel_sizes)
         self.assertTrue(np.all(np.isfinite(result)))
 
+    def test_calculate_bispectrum(self):
+        """Test the bispectrum calculation for 1D data"""
+        data = np.array([1.0, 2.0, 3.0, 4.0])
+        expected_shape = (4, 4)  # Since nfft defaults to the length of data
+
+        bispectrum = F21Stats.calculate_bispectrum(data)
+
+        self.assertEqual(bispectrum.shape, expected_shape)
+
+        # Additional checks can be added here based on expected values or properties
+        print(bispectrum)
 if __name__ == '__main__':
     unittest.main()

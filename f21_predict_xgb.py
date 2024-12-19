@@ -289,17 +289,20 @@ def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_tr
     rms_scores = None
 
     # Train model with different sample sizes
-
+    reg = xgb.XGBRegressor(random_state=42)
+    """
     reg = xgb.XGBRegressor(
             n_estimators=model_param1,
             #learning_rate=0.1,
             max_depth=model_param2,
             random_state=42
         )
-    
+    """
     X_train_with_stats = np.hstack((X_train, stats_train))
     logger.info(f"Sample data before fitting y:{y_train[0]}\nX:{X_train_with_stats[0]}")
     logger.info(f"Fitting regressor: {reg}")
+    if args.dump_all_training_data: np.savetxt(f"{output_dir}/all_training_data.csv", np.hstack((X_train_with_stats, y_train)), delimiter=",")
+    
     if args.scale_y2:
         reg.fit(X_train_with_stats, y_train[:,2])
     elif args.xhi_only:
@@ -380,8 +383,8 @@ parser.add_argument('--limitsamplesize', type=int, default=None, help='limit sam
 parser.add_argument('--interactive', action='store_true', help='run in interactive mode. show plots as modals.')
 parser.add_argument('--use_saved_ps_data', action='store_true', help='load PS data from pkl file.')
 parser.add_argument('--subtractnoise', action='store_true', help='subtract noise.')
-parser.add_argument('--ps_bins_to_make', type=int, default=1381, help='bin the PS into n bins')
-parser.add_argument('--perc_ps_bins_to_use', type=int, default=100, help='use the first n bins in the model')
+parser.add_argument('--ps_bins_to_make', type=int, default=20, help='bin the PS into n bins')
+parser.add_argument('--perc_ps_bins_to_use', type=int, default=10, help='use the first n bins in the model')
 parser.add_argument('--scale_y', action='store_true', help='Scale the y parameters (logfX).')
 parser.add_argument('--scale_y0', action='store_true', help='Scale the y parameters (xHI).')
 parser.add_argument('--scale_y1', action='store_true', help='Scale logfx and calculate product of logfx with xHI.')
@@ -398,6 +401,7 @@ parser.add_argument('--trials', type=int, default=15, help='Optimization trials'
 parser.add_argument('--test_multiple', action='store_true', help='Test 1000 sets of 10 LoS for each test point and plot it')
 parser.add_argument('--test_reps', type=int, default=10000, help='Test repetitions for each parameter combination')
 parser.add_argument('--includestats', action='store_true', help='Include statistics in the model')
+parser.add_argument('--dump_all_training_data', action='store_true', help='Dump all training data for analysis')
 
 args = parser.parse_args()
 print(args)

@@ -22,6 +22,7 @@ class F21Stats:
         all_los = results['los']
         return all_los
 
+
     @staticmethod
     def calculate_stats_torch(X, y=None, kernel_sizes=[268]):
             # Validate X dimensions
@@ -85,4 +86,30 @@ class F21Stats:
             if False: F21Stats.logger.info(f'{label}, kernel_size={kernel_size} Stats={row}')
         
         return np.array(stat_calc)
+
+    @staticmethod
+    def calculate_bispectrum(data, nfft=None):
+        """
+        Calculate the bispectrum of 1-dimensional data.
+        
+        Parameters:
+        - data: 1D array-like input data.
+        - nfft: Number of points for FFT. If None, defaults to the length of data.
+        
+        Returns:
+        - bispectrum: 2D array representing the bispectrum.
+        """
+        if nfft is None:
+            nfft = len(data)
+        
+        # Perform FFT
+        fft_data = np.fft.fft(data, n=nfft)
+        bispectrum = np.zeros((nfft, nfft), dtype=complex)
+
+        # Calculate bispectrum
+        for i in range(nfft):
+            for j in range(nfft):
+                bispectrum[i, j] = fft_data[i] * np.conj(fft_data[j]) * fft_data[i + j] if (i + j) < nfft else 0
+
+        return np.abs(bispectrum)
 

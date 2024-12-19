@@ -1,0 +1,7 @@
+Best parameters:
+model_param1: 100
+model_param2: 5
+ps_bins_to_make: 40
+perc_ps_bins_to_use: 5
+
+Best R2 score: 0.9441590309143066
