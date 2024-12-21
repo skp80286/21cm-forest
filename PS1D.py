@@ -6,7 +6,7 @@ Version 19.10.2023
 
 import numpy as np
   
-def get_P(signal,max_size):
+def get_P(signal,max_size, scaled=False):
 
   n_pixels = len(signal)
   PowSpec = np.empty((int(n_pixels/2+1)), dtype=np.float64)
@@ -28,6 +28,8 @@ def get_P(signal,max_size):
       PowSpec[p+1] = (np.abs(dft[p+1])**2 + np.abs(dft[n_pixels-p-1])**2)/2.0
   PowSpec[int(n_pixels/2)] = (np.abs(dft[int(n_pixels/2)]))**2
 
-  #PowSpec = PowSpec*max_size*kbins
-  PowSpec = PowSpec*max_size
+  if scaled:
+    PowSpec = PowSpec*max_size*kbins
+  else:
+    PowSpec = PowSpec
   return kbins,PowSpec

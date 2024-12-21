@@ -72,7 +72,7 @@ class F21Stats:
                         
                 min_skew = torch.min(skewness)
 
-                skew5 = torch.mean((centered_x / (std.unsqueeze(1) + 1e-8)) ** 5)
+                #skew5 = torch.mean((centered_x / (std.unsqueeze(1) + 1e-8)) ** 5)
                 #skew7 = torch.mean((centered_x / (std.unsqueeze(1) + 1e-8)) ** 7)
 
                 row += [mean_skew.item(), std_skew.item(), skew2.item(), min_skew.item()]
@@ -86,30 +86,38 @@ class F21Stats:
             if False: F21Stats.logger.info(f'{label}, kernel_size={kernel_size} Stats={row}')
         
         return np.array(stat_calc)
-
+    
     @staticmethod
     def calculate_bispectrum(data, nfft=None):
         """
-        Calculate the bispectrum of 1-dimensional data.
+        Calculate the bispectrum of 2-dimensional data using PyTorch.
         
         Parameters:
-        - data: 1D array-like input data.
-        - nfft: Number of points for FFT. If None, defaults to the length of data.
+        - data: 2D array-like input data.
+        - nfft: Number of points for FFT. If None, defaults to the length of each row of data.
         
         Returns:
-        - bispectrum: 2D array representing the bispectrum.
+        - bispectrum_mean: 2D tensor representing the mean bispectrum across rows.
         """
         if nfft is None:
-            nfft = len(data)
+            nfft = data.shape[1]  # Use the length of each row
         
-        # Perform FFT
-        fft_data = np.fft.fft(data, n=nfft)
-        bispectrum = np.zeros((nfft, nfft), dtype=complex)
+        # Convert data to a PyTorch tensor
+        data_tensor = torch.tensor(data, dtype=torch.float32)
 
-        # Calculate bispectrum
-        for i in range(nfft):
-            for j in range(nfft):
-                bispectrum[i, j] = fft_data[i] * np.conj(fft_data[j]) * fft_data[i + j] if (i + j) < nfft else 0
+        # Initialize a tensor to accumulate bispectrum results
+        bispectrum_sum = torch.zeros(nfft * nfft, dtype=torch.complex64)
 
-        return np.abs(bispectrum)
+        # Calculate bispectrum for each row
+        for row in data_tensor:
+            fft_data = torch.fft.fft(row, n=nfft)
+            for i in range(nfft):
+                for j in range(nfft):
+                    if (i + j) < nfft:
+                        bispectrum_sum[i*nfft + j] += fft_data[i] * torch.conj(fft_data[j]) * fft_data[i + j]
 
+        # Calculate the mean bispectrum across rows
+        bispectrum_mean = bispectrum_sum / data_tensor.shape[0]
+        bispectrum_mean = torch.abs(bispectrum_mean)
+        bispectrum_mean_np = bispectrum_mean.numpy()
+        return bispectrum_mean_np

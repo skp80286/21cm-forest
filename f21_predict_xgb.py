@@ -72,7 +72,7 @@ def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False):
     all_ps = []
     all_params = []
     # Create processor with desired number of worker threads
-    processor = dl.F21DataLoader(max_workers=8, psbatchsize=psbatchsize, limitsamplesize=limitsamplesize, ps_bins=None, skip_stats=(not args.includestats))
+    processor = dl.F21DataLoader(max_workers=8, psbatchsize=psbatchsize, limitsamplesize=limitsamplesize, ps_bins=None, skip_stats=(not args.includestats), use_bispectrum=args.use_bispectrum)
         
     # Process all files and get results
     results = processor.process_all_files(datafiles)
@@ -278,9 +278,10 @@ def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_tr
     if X_noise is not None: 
         X_noise = bin_ps_data(X_noise, ps_bins_to_make, perc_ps_bins_to_use)
         X_noise, _ = scaler.scaleXy(X_noise, np.array([[0.0, 0.0]]))
-        logger.info(f"Sample PS before noise subtraction: \n{X_train[:2]}")
-        X_train -= X_noise
-        logger.info(f"Sample PS after noise subtraction: \n{X_train[:2]}")
+        if not args.signalonly_training:
+            logger.info(f"Sample PS before noise subtraction: \n{X_train[:2]}")
+            X_train -= X_noise
+            logger.info(f"Sample PS after noise subtraction: \n{X_train[:2]}")
 
     #_, X_train = logbin_power_spectrum_by_k(ks, X_train)
     logger.info(f"Training dataset: X:{X_train.shape} y:{y_train.shape}")
@@ -312,11 +313,15 @@ def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_tr
     else:
         reg.fit(X_train_with_stats, y_train)
 
+    logger.info(f"Fitted regressor: {reg}")
+    logger.info(f"Booster: {reg.get_booster()}")
+    feature_importance = reg.feature_importances_
+    logger.info(f"Feature importance: {feature_importance}")
     X_train, y_train = scaler.unscaleXy(X_train, y_train)
 
     tester = ModelTester(reg, X_noise, ks, ps_bins_to_make, perc_ps_bins_to_use)
     if args.test_multiple:
-        all_y_pred, all_y_test = base.test_multiple(tester, test_files, reps=args.test_reps, skip_stats=(not args.includestats))
+        all_y_pred, all_y_test = base.test_multiple(tester, test_files, reps=args.test_reps, skip_stats=(not args.includestats), use_bispectrum=args.use_bispectrum)
         r2 = base.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
         base.save_test_results(all_y_pred, all_y_test, output_dir)
     else:
@@ -339,8 +344,8 @@ def objective(trial):
     # Define hyperparameter search space
     params = {
         'input_points_to_use': 2762,#trial.suggest_int('input_points_to_use', 1800, 2762),
-        'model_param1': trial.suggest_int('model_param1', 80, 150, step=5), # num XGB trees
-        'model_param2': trial.suggest_int('model_param2', 3, 6), # xgb tree depth
+        'model_param1': 83, #trial.suggest_int('model_param1', 80, 150, step=5), # num XGB trees
+        'model_param2': 4, #trial.suggest_int('model_param2', 3, 6), # xgb tree depth
         'ps_bins_to_make': trial.suggest_int('ps_bins_to_make', 8, 160, step=4),
         'perc_ps_bins_to_use': trial.suggest_int('perc_ps_bins_to_use', 5, 60, step=5),
     }    
@@ -402,6 +407,8 @@ parser.add_argument('--test_multiple', action='store_true', help='Test 1000 sets
 parser.add_argument('--test_reps', type=int, default=10000, help='Test repetitions for each parameter combination')
 parser.add_argument('--includestats', action='store_true', help='Include statistics in the model')
 parser.add_argument('--dump_all_training_data', action='store_true', help='Dump all training data for analysis')
+parser.add_argument('--use_bispectrum', action='store_true', help='Use bispectrum as stats')
+parser.add_argument('--signalonly_training', action='store_true', help='Use signalonly LoS for traning')
 
 args = parser.parse_args()
 print(args)
@@ -421,18 +428,26 @@ logging.basicConfig(level=logging.INFO, handlers=handlers)
 logger = logging.getLogger(__name__)
 logger.info(f"Commandline: {' '.join(sys.argv)}")
 
+sofilepattern = str('%sF21_signalonly_21cmFAST_200Mpc_z%.1f_fX%s_xHI%s_%dkHz.dat' % 
+               (args.path, args.redshift,args.log_fx, args.xHI, args.spec_res))
+sodatafiles = glob.glob(sofilepattern)
+
 filepattern = str('%sF21_noisy_21cmFAST_200Mpc_z%.1f_fX%s_xHI%s_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
                (args.path, args.redshift,args.log_fx, args.xHI, args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
 logger.info(f"Loading files with pattern {filepattern}")
 datafiles = glob.glob(filepattern)
 test_size = 16
 if args.maxfiles is not None:
+    sodatafiles = sodatafiles[:args.maxfiles]
     datafiles = datafiles[:args.maxfiles]
     test_size = 1
-logger.info(f"Found {len(datafiles)} files matching pattern")
+logger.info(f"Found {len(datafiles)} noisy files and {len(sodatafiles)} signalonly files matching pattern")
+if len(datafiles) != len(sodatafiles): raise ValueError("noisy files and signalonly files should be the same!")
+sodatafiles = sorted(sodatafiles)
 datafiles = sorted(datafiles)
+
 #train_files, test_files = train_test_split(datafiles, test_size=test_size, random_state=42)
-test_points = [[-3.00,0.25],[-2.00,0.25],[-1.00,0.25],[-3.00,0.52],[-2.00,0.52],[-1.00,0.52], [-3.00,0.80],[-2.00,0.80],[-1.00,0.80]]#,[0.00,0.80]]
+test_points = [[-3.00,0.11],[-2.00,0.11],[-1.00,0.11],[-3.00,0.25],[-2.00,0.25],[-1.00,0.25],[-3.00,0.52],[-2.00,0.52],[-1.00,0.52], [-3.00,0.80],[-2.00,0.80],[-1.00,0.80]]#,[0.00,0.80]]
 train_files = []
 test_files = []
 for f in datafiles:
@@ -445,6 +460,16 @@ for f in datafiles:
     if not is_test_file:
         train_files.append(f)
 
+if args.signalonly_training:
+    train_files = []
+    for f in sodatafiles:
+        is_test_file = False
+        for p in test_points:
+            if f.find(f"fX{p[0]:.2f}_xHI{p[1]:.2f}") >= 0:
+                is_test_file = True
+                break
+        if not is_test_file:
+            train_files.append(f)
 scaler = Scaling.Scaler(args)
 if args.runmode in ("train_test", "optimize") :
     logger.info(f"Loading train dataset {len(train_files)}")

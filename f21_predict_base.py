@@ -109,8 +109,9 @@ def plot_power_spectra(ps, ks, params, psn=None, colorind=1, output_dir=".", sho
     plt.clf()
 
 
-statlabels=['ps1', 'ps2', 'total_mean', 'total_std', 'mean_skew', 'std_skew', 'skew2', 'min_skew']
-markers=['*','P','x','d','v','s','^', '+']
+#statlabels=['ps1', 'ps2', 'total_mean', 'total_std', 'mean_skew', 'std_skew', 'skew2', 'min_skew']
+statlabels=['ps1', 'ps2', 'bis1', 'bis2', 'bis3', 'bis4', 'bis5', 'bis6', 'bis7', 'bis8', 'bis9', 'bis10', 'bis11', 'bis12', 'bis13', 'bis14', 'bis15', 'bis16', 'bis17', 'bis18', 'bis19', 'bis20', 'bis21', 'bis22', 'bis23', 'bis24', 'bis25']
+markers=['*','P','x','d','v','s','^', '+', 'o', '.', '<', '>', '1', '2','3', '4', 'p', 'h', 'X', 'D', '|', '_']
 legendpos=['lower right', 'upper left']
 def plot_stats(stats, params, colorind=1, output_dir=".", showplots=False, saveplots=True, label=""):
     #logger.info(f'shapes ps:{ps.shape} ks:{ks.shape}')
@@ -124,7 +125,7 @@ def plot_stats(stats, params, colorind=1, output_dir=".", showplots=False, savep
 
     fig, ax = plt.subplots(nrows=1, ncols=1) 
 
-    num_stats = len(statlabels)
+    num_stats = stats.shape[1]
     colormap = plt.cm.get_cmap('rainbow', num_stats)  # You can choose any colormap you prefer
 
     plt.title('Statistics: ' + label)
@@ -134,8 +135,8 @@ def plot_stats(stats, params, colorind=1, output_dir=".", showplots=False, savep
         for j, stat in enumerate(row_stat):
             stat_color = colormap(j) 
             label = None
-            if i==0: label=statlabels[j]
-            ax.scatter(row_coloraxs, stat, color=stat_color, marker=markers[j], alpha=alpha, label=label)
+            if i==0 and j < 10: label=statlabels[j]
+            ax.scatter(row_coloraxs, stat, color=stat_color, marker=markers[j % len(markers)], alpha=alpha, label=label)
         #ax.set_yscale('log')
         #if i> 10: break
     plt.xlabel(colorlabels[colorind])
@@ -569,7 +570,7 @@ def setup_args_parser():
     parser.add_argument('--use_saved_los_data', action='store_true', help='load LoS data from pkl file.')
     parser.add_argument('--epochs', type=int, default=15, help='Number of epoch of training.')
     parser.add_argument('--trainingbatchsize', type=int, default=32, help='Size of batch for training.')
-    parser.add_argument('--input_points_to_use', type=int, default=915, help='use the first n points of los. ie truncate the los to first 690 points')
+    parser.add_argument('--input_points_to_use', type=int, default=2560, help='use the first n points of los. ie truncate the los to first 690 points')
     parser.add_argument('--scale_y', action='store_true', help='Scale the y parameters (logfX).')
     parser.add_argument('--scale_y0', action='store_true', help='Scale the y parameters (xHI).')
     parser.add_argument('--scale_y1', action='store_true', help='Scale logfx and calculate product of logfx with xHI.')
@@ -637,7 +638,7 @@ def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False, skip_ps=Tr
             
     return (all_los, all_params, los_samples)
 
-def test_multiple(modeltester, datafiles, reps=10000, size=10, save=False, skip_stats=True):
+def test_multiple(modeltester, datafiles, reps=10000, size=10, save=False, skip_stats=True, use_bispectrum=False, skip_ps=False):
     logger.info(f"Test_multiple started. {reps} reps x {size} points will be tested for {len(datafiles)} parameter combinations")
     # Create processor with desired number of worker threads
     all_y_test = []
@@ -645,7 +646,7 @@ def test_multiple(modeltester, datafiles, reps=10000, size=10, save=False, skip_
     # Process all files and get results
     for i, f in enumerate(datafiles):
         logger.info(f"Working on param combination #{i+1}: {f.split('/')[-1]}")
-        processor = dl.F21DataLoader(max_workers=8, psbatchsize=1, limitsamplesize=None, ps_bins=None, skip_stats=skip_stats)
+        processor = dl.F21DataLoader(max_workers=8, psbatchsize=1, limitsamplesize=None, ps_bins=None, skip_ps=skip_ps, skip_stats=skip_stats, use_bispectrum=use_bispectrum)
         results = processor.process_all_files([f])        
         # Access results
         los = results['los']

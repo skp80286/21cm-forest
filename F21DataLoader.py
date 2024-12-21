@@ -7,9 +7,10 @@ from scipy.stats import binned_statistic
 from scipy import fftpack
 import instrumental_features
 import F21Stats
+import logging
 
 class F21DataLoader:
-    def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None, skip_ps: bool = False, ps_bins = None, ps_smoothing=True, skip_stats=True):
+    def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None, skip_ps: bool = False, ps_bins = None, ps_smoothing=True, skip_stats=True, use_bispectrum=False, scale_ps = False):
         np.random.seed(42)
         self.max_workers = max_workers
         self.collector = ThreadSafeArrayCollector()
@@ -19,6 +20,8 @@ class F21DataLoader:
         self.ps_bins = ps_bins
         self.ps_smoothing = ps_smoothing
         self.skip_stats = skip_stats
+        self.use_bispectrum = use_bispectrum
+        self.scale_ps = scale_ps
 
     def get_los(self, datafile: str) -> None:
         data = np.fromfile(str(datafile), dtype=np.float32)
@@ -189,7 +192,7 @@ class F21DataLoader:
                         los = signal_smooth[:-1]
                     """
                     # Calculate the power spectrum
-                    ks,ps = PS1D.get_P(los,bandwidth) #Calculate 1D power spectrum
+                    ks,ps = PS1D.get_P(los,bandwidth, scaled=self.scale_ps) #Calculate 1D power spectrum
                     #print(f"Calculated PS: {ks.shape}, {ps.shape}")
                     #ks, ps = F21DataLoader.calculate_power_spectrum(los)
                     if self.ps_bins is not None:
@@ -208,16 +211,20 @@ class F21DataLoader:
                     cumulative_los_np = np.array(cumulative_los)
                     (los_mean, los_std, los_samples) = self.aggregate(cumulative_los_np)
                     if not self.skip_stats:
-                        curr_statcalc = F21Stats.F21Stats.calculate_stats_torch(cumulative_los_np, params, kernel_sizes=[268])
-                        stats_mean = np.mean(curr_statcalc, axis=0)
+                        if not self.use_bispectrum: 
+                            curr_statcalc = F21Stats.F21Stats.calculate_stats_torch(cumulative_los_np, params, kernel_sizes=[268])
+                            stats_mean = np.mean(curr_statcalc, axis=0)
+                        else: 
+                            stats_mean = F21Stats.F21Stats.calculate_bispectrum(cumulative_los_np, nfft=5)
+                            #print(stats_mean)
+                        
                     self.collector.add_data(ks, ps_mean, ps_std, los_mean, los_std, freq_axis, params, los_samples, ps_samples, stats_mean)
                     psbatchnum = 0
                     power_spectrum = []
                     cumulative_los = []
 
         except Exception as e:
-            print(f"Error processing {datafile}")
-            print(f"{str(e)}")
+            logging.error(f"Error processing {datafile}: {str(e)}", exc_info=True)
             
     def process_all_files(self, file_list: List[str]) -> Dict[str, np.ndarray]:
         # Process files in parallel using ThreadPoolExecutor
