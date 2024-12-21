@@ -599,15 +599,17 @@ def get_datafile_list(type, args):
         filepattern = str('%sF21_noiseonly_21cmFAST_200Mpc_z%.1f_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
                (args.path, args.redshift,args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
 
+
+    logger.info(f"Loading files with pattern {filepattern}")
+
+    datafiles = glob.glob(filepattern)
+    datafiles = sorted(datafiles) # sorting is important because we want to reliably reproduce the test results 
+
     if args.maxfiles is not None:
         datafiles = datafiles[:args.maxfiles]
 
-
-    logger.info(f"Loading files with pattern {filepattern}")
-    datafiles = glob.glob(filepattern)
-
     logger.info(f"Found {len(datafiles)} files matching pattern")
-    datafiles = sorted(datafiles) # sorting is important because we want to reliably reproduce the test results 
+
     return datafiles
 
 

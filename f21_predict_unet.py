@@ -16,6 +16,8 @@ from datetime import datetime
 
 import F21DataLoader as dl
 import f21_predict_base as base
+import Scaling
+
 import numpy as np
 import sys
 
@@ -34,58 +36,63 @@ class UnetModel(nn.Module):
             nn.Conv1d(1, 64, kernel_size, padding=kernel_size//2),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.MaxPool1d(2)
+            nn.MaxPool1d(4)
         )
         
-        kernel_size = kernel_size//2
+        kernel_size = kernel_size//4
         self.enc2 = nn.Sequential(
             nn.Conv1d(64, 128, kernel_size, padding=kernel_size//2),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.MaxPool1d(2)
+            nn.MaxPool1d(4)
         )
         
-        kernel_size = kernel_size//2
+        kernel_size = kernel_size//4
         self.enc3 = nn.Sequential(
             nn.Conv1d(128, 256, kernel_size, padding=kernel_size//2),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.MaxPool1d(2)
+            nn.MaxPool1d(4)
         )
         
-        kernel_size = kernel_size//2
+        kernel_size = kernel_size//4
         self.enc4 = nn.Sequential(
             nn.Conv1d(256, 512, kernel_size, padding=kernel_size//2),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.MaxPool1d(2)
+            nn.MaxPool1d(4)
         )
         
-        # Decoder (modified with output_padding)
+        # Decoder 
         self.dec1 = nn.Sequential(
-            nn.ConvTranspose1d(512, 256, 2, stride=2, output_padding=0),
+            nn.ConvTranspose1d(512, 256, 4, stride=4, output_padding=0),
             nn.ReLU(),
             nn.Dropout(dropout)
         )
         
         self.dec2 = nn.Sequential(
-            nn.ConvTranspose1d(512, 128, 2, stride=2, output_padding=0),
+            nn.ConvTranspose1d(512, 128, 4, stride=4, output_padding=0),
             nn.ReLU(),
             nn.Dropout(dropout)
         )
         
         self.dec3 = nn.Sequential(
-            nn.ConvTranspose1d(256, 64, 2, stride=2, output_padding=1),  # Added output_padding=1
+            nn.ConvTranspose1d(256, 64, 4, stride=4, output_padding=0), 
             nn.ReLU(),
             nn.Dropout(dropout)
         )
         
         self.dec4 = nn.Sequential(
-            nn.ConvTranspose1d(128, 32, 2, stride=2, output_padding=0),
+            nn.ConvTranspose1d(128, 32, 4, stride=4, output_padding=0),
             nn.ReLU(),
             nn.Dropout(dropout)
         )
-        
+
+        # Dense layers after enc4 for parameters extraction
+        self.dense1 = nn.Linear(5120, 256)  # First dense layer
+        self.dense2 = nn.Linear(256, 64)  # Second dense layer
+        self.dense3 = nn.Linear(64, 2)    # Third dense layer (output 2 values)
+
         # Final layer
         # Modify the final layer to output the correct shape
         self.final = nn.Sequential(
@@ -95,32 +102,128 @@ class UnetModel(nn.Module):
 
     def forward(self, x):
         # Print shapes for debugging
-        print(f"Input shape: {x.shape}")
+        #print(f"Input shape: {x.shape}")
         x = x.unsqueeze(1)
-        print(f"After unsqueeze: {x.shape}")        
+        #print(f"After unsqueeze: {x.shape}")        
         # Encoder
         enc1 = self.enc1(x)
+        #print(f"After enc1: {enc1.shape}")        
         enc2 = self.enc2(enc1)
+        #print(f"After enc2: {enc2.shape}")        
         enc3 = self.enc3(enc2)
+        #print(f"After enc3: {enc3.shape}")        
         enc4 = self.enc4(enc3)
+        #print(f"After enc4: {enc4.shape}")        
         
+        # Pass through the dense layers for parameters extraction
+        dense_out = self.dense1(enc4.view(enc4.size(0), -1))  # Flatten for dense layer
+        #print(f"After dense1: {dense_out.shape}")        
+        dense_out = nn.ReLU()(dense_out)
+        dense_out = self.dense2(dense_out)
+        #print(f"After dense2: {dense_out.shape}")        
+        dense_out = nn.ReLU()(dense_out)
+        dense_out = self.dense3(dense_out)
+        #print(f"After dense3: {dense_out.shape}")        
+
+        #print(f"Output of parameters extraction network: {dense_out.shape}")
+
         # Decoder with skip connections
         dec1 = self.dec1(enc4)
+        #print(f"After dec1: {dec1.shape}")        
         dec1 = torch.cat([dec1, enc3], dim=1)
         
         dec2 = self.dec2(dec1)
+        #print(f"After dec2: {dec2.shape}")        
         dec2 = torch.cat([dec2, enc2], dim=1)
         
         dec3 = self.dec3(dec2)
+        #print(f"After dec3: {dec3.shape}")        
         dec3 = torch.cat([dec3, enc1], dim=1)
         
         dec4 = self.dec4(dec3)
-        
-        print(f"Before final: {dec4.shape}")
+ 
+        #print(f"Before final: {dec4.shape}")
         out = self.final(dec4)
-        print(f"Output shape: {out.shape}")
+
+        # Concatenate parameter extraction output with decoder output
+        out = torch.cat((out, dense_out), dim=1)  # Concatenate along the feature dimension
+        #print(f"Output shape after concatenation: {out.shape}")
+
+        #print(f"Output shape: {out.shape}")
         return out
-        
+
+class ModelTester:
+    def __init__(self, model, criterion):
+        self.model = model
+        self.criterion = criterion
+    
+    def test(self, los, X_test, stats_test, y_test, silent=False):
+        if not silent: logger.info(f"Testing dataset: X:{X_test.shape} y:{y_test.shape}")
+        if not silent: logger.info(f"Before scale y_test: {y_test[:1]}")
+        X_test, y_test = scaler.scaleXy(X_test, y_test)
+        if not silent: logger.info(f"After scale y_test: {y_test[:1]}")
+
+        if not silent: logger.info("Testing prediction")
+        if not silent: logger.info(f"Sample data before testing y:{y_test[0]}\nX:{X_test[0]}")
+
+        r2 = None
+        with torch.no_grad():
+            # Test the model
+            logger.info("Testing prediction")
+
+            test_input, test_output = convert_to_pytorch_tensors(X_test, y_test, los)
+            logger.info(f"Shape of test_input, test_output: {test_input.shape}, {test_output.shape}")
+            y_pred_tensor = self.model(test_input)
+            test_loss = self.criterion(y_pred_tensor, test_output)
+            logger.info(f'Test Loss: {test_loss.item():.4f}')
+
+            # Calculate R2 scores
+            y_pred_np = y_pred_tensor.detach().cpu().numpy()
+            y_pred = y_pred_np[:,:2]
+            y_pred_so = y_pred_np[:,2:]
+            r2 = r2_score(y_test, y_pred)
+            logger.info("R2 Score: " + str(r2))
+            # Calculate rmse scores
+            rms_scores = mean_squared_error(y_test, y_pred)
+            rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test, axis=0)
+            logger.info("RMS Error: " + str(rms_scores_percent))
+
+            if not silent: plot_predictions(y_test_so, y_pred_so)
+    
+
+            if y_pred.ndim==1:
+                y_pred = y_pred.reshape(len(y_pred),1)
+                if args.scale_y2:
+                    if not silent: logger.info(f"Prediction vs Test data: \n{np.hstack((y_test[:, 2].reshape(len(y_test),1), y_pred))[:5]}")
+                    r2 = r2_score(y_test[:, 2], y_pred)
+                elif args.xhi_only:
+                    if not silent: logger.info(f"Prediction vs Test data: \n{np.hstack((y_test[:, 0].reshape(len(y_test),1), y_pred))[:5]}")
+                    r2 = r2_score(y_test[:, 0], y_pred)
+                elif args.logfx_only:
+                    if not silent: logger.info(f"Prediction vs Test data: \n{np.hstack((y_test[:, 1].reshape(len(y_test),1), y_pred))[:5]}")
+                    r2 = r2_score(y_test[:, 1], y_pred)
+                else:
+                    r2 = r2_score(y_test, y_pred)
+            else:
+                if not silent: logger.info(f"Prediction vs Test data: \n{np.hstack((y_pred, y_test))[:5]}")
+                # Evaluate the model (on a test set, here we just use the training data for simplicity)
+                r2 = [r2_score(y_test[:, i], y_pred[:, i]) for i in range(len(y_pred[0]))]
+            if not silent: logger.info("R2 Score: " + str(r2))
+
+            if not silent: logger.info(f"Before unscale y_pred: {y_pred[:1]}")
+            y_pred = scaler.unscale_y(y_pred)
+            if not silent: logger.info(f"After unscale y_pred: {y_pred[:1]}")
+            if not silent: logger.info(f"Before unscale y_test: {y_test[:1]}")
+            X_test, y_test = scaler.unscaleXy(X_test, y_test)
+            if not silent: logger.info(f"After unscale y_test: {y_test[:1]}")
+            if not silent: logger.info(f"unscaled test result {X_test.shape} {y_test.shape} {y_pred.shape}")
+
+            # Calculate rmse scores
+            #rms_scores = [mean_squared_error(y_test[:, i], y_pred[:, i]) for i in range(len(y_pred[0]))]
+            #rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test, axis=0)
+            #if not silent: logger.info("RMS Error: " + str(rms_scores_percent))    
+        return X_test, y_test, y_pred, r2
+
 def validate_filelist(train_files, so_train_files, test_files, so_test_files):
     if len(train_files) != len(so_train_files):
         raise ValueError(f'Mismatch in length of noisy and signalonly training files! {len(train_files)} != {len(so_train_files)}')
@@ -140,11 +243,11 @@ def validate_filelist(train_files, so_train_files, test_files, so_test_files):
         if test_file_parts != so_test_file_parts:
             raise ValueError(f'Mismatch in file name. {test_file_parts} does not match {so_test_file_parts}')
 
-def convert_to_pytorch_tensors(X, y, y_so, window_size):
+def convert_to_pytorch_tensors(X, y, y_so):
     #y_combined = np.hstack(y, y_so)
     # Convert to PyTorch tensors with float32 dtype
     X_tensor = torch.tensor(X, dtype=torch.float32)
-    y_tensor = torch.tensor(y_so, dtype=torch.float32)
+    y_tensor = torch.tensor(np.hstack((y, y_so)), dtype=torch.float32)
     
     return X_tensor, y_tensor
 
@@ -165,13 +268,13 @@ class CustomLoss(nn.Module):
 
         return total_loss
     
-def plot_predictions(y_test_so, y_pred, samples=1, showplots=True, saveplots=True):
+def plot_predictions(y_test_so, y_pred_so, samples=1, showplots=True, saveplots=True):
     plt.rcParams['figure.figsize'] = [15, 9]
     plt.title(f'Reconstructed LoS vs Actual Noiseless LoS')
-    for i, test, pred in enumerate(zip(y_test_so[:samples], y_pred[:samples])):
+    for i, test, pred in enumerate(zip(y_test_so[:samples], y_pred_so[:samples])):
         plt.plot(test, label='Actual')
         plt.plot(pred, label='Reconstructed')
-        if i> 10: break
+        if i> 2: break
     plt.xlabel('frequency'), 
     plt.ylabel('flux/S147')
     if showplots: plt.show()
@@ -179,10 +282,11 @@ def plot_predictions(y_test_so, y_pred, samples=1, showplots=True, saveplots=Tru
     plt.clf()
 
 def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, num_epochs, batch_size, lr, kernel1, kernel2, dropout, input_points_to_use, showplots=False, saveplots=True):
-    run_description = f"Commandline: {' '.join(sys.argv)}. Parameters: epochs: {num_epochs}, kernel_size: {kernel1}, points: {input_points_to_use}, label={args.label}"
+    run_description = f"Commandline: {' '.join(sys.argv)}. Parameters: epochs: {num_epochs}, batch_size: {batch_size}, lr: {lr}, kernel_sizes: [{kernel1}, {kernel2}], dropout: {dropout}, points: {input_points_to_use}, label={args.label}"
     logger.info(f"Starting new run: {run_description}")
-    X_train, y_train = base.scaleXy(X_train, y_train, args)
-    X_test, y_test = base.scaleXy(X_test, y_test, args)
+    logger.info(f"Before scale train: {y_train[:1]}")
+    X_train, y_train = scaler.scaleXy(X_train, y_train)
+    logger.info(f"After scale train: {y_train[:1]}")
 
     if input_points_to_use is not None:
         X_train = X_train[:, :input_points_to_use]
@@ -193,7 +297,7 @@ def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, num_epochs, bat
 
     #kernel2 = calc_odd_half(kernel1)
     # Convert data to PyTorch tensors
-    inputs, outputs = convert_to_pytorch_tensors(X_train, y_train, y_train_so, window_size=kernel1)
+    inputs, outputs = convert_to_pytorch_tensors(X_train, y_train, y_train_so)
 
     logger.info(f"Shape of inouts, outputs: {inputs.shape}, {outputs.shape}")
     # Create DataLoader for batching
@@ -253,29 +357,6 @@ def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, num_epochs, bat
     model.eval()  # Set the model to evaluation mode
     #save_model(model)
 
-    r2 = None
-    with torch.no_grad():
-        # Test the model
-        logger.info("Testing prediction")
-
-        test_input, test_output = convert_to_pytorch_tensors(X_test, y_test, y_test_so, window_size=kernel2)
-        logger.info(f"Shape of test_input, test_output: {test_input.shape}, {test_output.shape}")
-        y_pred = model(test_input)
-        test_loss = criterion(y_pred, test_output)
-        logger.info(f'Test Loss: {test_loss.item():.4f}')
-
-        # Calculate R2 scores
-        y_pred = y_pred.detach().cpu().numpy()
-
-        r2 = r2_score(y_test_so, y_pred)
-        logger.info("R2 Score: " + str(r2))
-        # Calculate rmse scores
-        rms_scores = mean_squared_error(y_test, y_pred)
-        rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test, axis=0)
-        logger.info("RMS Error: " + str(rms_scores_percent))
-
-        plot_predictions(y_test_so, y_pred)
- 
         #y_pred_params = base.unscale_y(y_pred[:2], args)
         #X_test, y_test = base.unscaleXy(X_test, y_test, args)
         #logger.info(f"unscaled test result {X_test.shape} {y_test.shape} {y_pred.shape}")
@@ -288,8 +369,26 @@ def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, num_epochs, bat
     elif args.logfx_only: combined_r2 = r2
     else: combined_r2 = 0.5*(r2[0]+r2[1])
     """
-    logger.info(f"Finished run: r2={r2}. {run_description}")
-    return r2
+    tester = ModelTester(model, criterion)
+    if args.test_multiple:
+        all_y_pred, all_y_test = base.test_multiple(tester, test_files, reps=args.test_reps, skip_stats=True, use_bispectrum=False, skip_ps=True)
+        r2 = base.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
+        base.save_test_results(all_y_pred, all_y_test, output_dir)
+    else:
+        X_test, stats_test, y_test, y_pred, r2 = tester.test(None, X_test, stats_test, y_test)
+        base.summarize_test_1000(y_pred, y_test, output_dir=output_dir, showplots=showplots, saveplots=saveplots)
+        base.save_test_results(y_pred, y_test, output_dir)
+
+    
+    if args.scale_y1: combined_r2 = r2[2]
+    elif args.scale_y2: combined_r2 = r2
+    elif args.xhi_only: combined_r2 = r2
+    elif args.logfx_only: combined_r2 = r2
+    else: combined_r2 = 0.5*(r2[0]+r2[1])
+    
+    logger.info(f"Finished run: score={combined_r2}, r2={r2}. {run_description}")
+
+    return combined_r2, tester
 
 
 def objective(trial):
@@ -301,7 +400,7 @@ def objective(trial):
         'kernel1': trial.suggest_int('kernel1', 33, 33, step=10),
         'kernel2': trial.suggest_int('kernel2', 33, 33, step=10),
         'dropout': 0.5, #trial.suggest_categorical('dropout', [0.2, 0.3, 0.4, 0.5]),
-        'input_points_to_use': 915,#trial.suggest_int('input_points_to_use', 900, 1400),
+        'input_points_to_use': 2560,#trial.suggest_int('input_points_to_use', 900, 1400),
     }    
     # Run training with the suggested parameters
     try:
@@ -324,48 +423,48 @@ def objective(trial):
 
 # main code starts here
 parser = base.setup_args_parser()
+parser.add_argument('--test_multiple', action='store_true', help='Test 1000 sets of 10 LoS for each test point and plot it')
+parser.add_argument('--test_reps', type=int, default=10000, help='Test repetitions for each parameter combination')
 args = parser.parse_args()
+
 output_dir = base.create_output_dir(args=args)
 logger = base.setup_logging(output_dir)
 
 datafiles = base.get_datafile_list(type='noisy', args=args)
 so_datafiles = base.get_datafile_list(type='signalonly', args=args)
 
-test_size = 16
-if args.maxfiles is not None:
-    datafiles = datafiles[:args.maxfiles]
-    test_size = 1
+test_points = [[-3.00,0.11],[-2.00,0.11],[-1.00,0.11],[-3.00,0.25],[-2.00,0.25],[-1.00,0.25],[-3.00,0.52],[-2.00,0.52],[-1.00,0.52], [-3.00,0.80],[-2.00,0.80],[-1.00,0.80]]#,[0.00,0.80]]
+train_files = []
+test_files = []
+sotrain_files = []
+sotest_files = []
+for sof, nof in zip(so_datafiles, datafiles):
+    is_test_file = False
+    for p in test_points:
+        if nof.find(f"fX{p[0]:.2f}_xHI{p[1]:.2f}") >= 0:
+            test_files.append(nof)
+            sotest_files.append(sof)
+            is_test_file = True
+            break
+    if not is_test_file:
+        train_files.append(nof)
+        sotrain_files.append(sof)
 
-# Important to keep the random_state fixed, so that we can reproduce the results.
-train_files, test_files = train_test_split(datafiles, test_size=test_size, random_state=42)
-so_train_files, so_test_files = train_test_split(so_datafiles, test_size=test_size, random_state=42)
-validate_filelist(train_files, so_train_files, test_files, so_test_files)
+validate_filelist(train_files, sotrain_files, test_files, sotest_files)
+scaler = Scaling.Scaler(args)
 
 if args.runmode in ("train_test", "optimize") :
     logger.info(f"Loading train dataset {len(train_files)}")
     X_train, y_train, _ = base.load_dataset(train_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
-    y_train_so, _, _ = base.load_dataset(so_train_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
+    y_train_so, _, _ = base.load_dataset(sotrain_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
     logger.info(f"Loaded datasets X_train:{X_train.shape} y_train:{y_train.shape} y_train_so:{y_train_so.shape}")
-    if args.filter_train:
-        # Filter for xHI between 0.1 and 0.4
-        mask = (y_train[:,0] >= 0.1) & (y_train[:,0] <= 0.4)
-        X_train = X_train[mask]
-        y_train = y_train[mask]
-        y_train_so = y_train_so[mask]
-        logger.info(f"Filtered train dataset to {len(X_train)} samples with 0.1 <= xHI <= 0.4")
     logger.info(f"Loading test dataset {len(test_files)}")
-    X_test, y_test, _ = base.load_dataset(test_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=False)
-    y_test_so, _, _ = base.load_dataset(so_train_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
-    if args.filter_test:
-        # Filter for xHI between 0.1 and 0.4
-        mask = (y_test[:,0] >= 0.1) & (y_test[:,0] <= 0.4)
-        X_test = X_test[mask]
-        y_test = y_test[mask]
-        y_test_so = y_test_so[mask]
+    X_test, y_test, _ = base.load_dataset(test_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
+    y_test_so, _, _ = base.load_dataset(sotest_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
     logger.info(f"Loaded dataset X_test:{X_test.shape} y_test:{y_test.shape} y_test_so:{y_test_so.shape}")
 
     if args.runmode == "train_test":
-        run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, args.epochs, args.trainingbatchsize, lr=0.0019437504084241922, kernel1=269, kernel2=135, dropout=0.5, input_points_to_use=args.input_points_to_use, showplots=args.interactive)
+        run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, args.epochs, args.trainingbatchsize, lr=0.0019437504084241922, kernel1=269, kernel2=269, dropout=0.5, input_points_to_use=args.input_points_to_use, showplots=args.interactive)
 
     elif args.runmode == "optimize":
         # Create study object
