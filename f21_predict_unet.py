@@ -153,25 +153,30 @@ class UnetModel(nn.Module):
         return out
 
 class ModelTester:
-    def __init__(self, model, criterion):
+    def __init__(self, model, criterion, input_points_to_use):
         self.model = model
         self.criterion = criterion
+        self.input_points_to_use = input_points_to_use
     
-    def test(self, los, X_test, stats_test, y_test, silent=False):
-        if not silent: logger.info(f"Testing dataset: X:{X_test.shape} y:{y_test.shape}")
+    def test(self, los_test, p_test, stats_test, y_test, los_so, silent=False):
+        if self.input_points_to_use is not None: 
+            los_test = los_test[:, :self.input_points_to_use]
+            los_so = los_so[:, :self.input_points_to_use]
+
+        if not silent: logger.info(f"Testing dataset: X:{los_test.shape} y:{y_test.shape}")
         if not silent: logger.info(f"Before scale y_test: {y_test[:1]}")
-        X_test, y_test = scaler.scaleXy(X_test, y_test)
+        los_test, y_test = scaler.scaleXy(los_test, y_test)
         if not silent: logger.info(f"After scale y_test: {y_test[:1]}")
 
         if not silent: logger.info("Testing prediction")
-        if not silent: logger.info(f"Sample data before testing y:{y_test[0]}\nX:{X_test[0]}")
+        if not silent: logger.info(f"Sample data before testing y:{y_test[0]}\nX:{los_test[0]}")
 
         r2 = None
         with torch.no_grad():
             # Test the model
             logger.info("Testing prediction")
 
-            test_input, test_output = convert_to_pytorch_tensors(X_test, y_test, los)
+            test_input, test_output = convert_to_pytorch_tensors(los_test, y_test, los_so)
             logger.info(f"Shape of test_input, test_output: {test_input.shape}, {test_output.shape}")
             y_pred_tensor = self.model(test_input)
             test_loss = self.criterion(y_pred_tensor, test_output)
@@ -188,9 +193,8 @@ class ModelTester:
             rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test, axis=0)
             logger.info("RMS Error: " + str(rms_scores_percent))
 
-            if not silent: plot_predictions(y_test_so, y_pred_so)
+            if not silent: plot_predictions(los_so, y_pred_so)
     
-
             if y_pred.ndim==1:
                 y_pred = y_pred.reshape(len(y_pred),1)
                 if args.scale_y2:
@@ -214,15 +218,15 @@ class ModelTester:
             y_pred = scaler.unscale_y(y_pred)
             if not silent: logger.info(f"After unscale y_pred: {y_pred[:1]}")
             if not silent: logger.info(f"Before unscale y_test: {y_test[:1]}")
-            X_test, y_test = scaler.unscaleXy(X_test, y_test)
+            los_test, y_test = scaler.unscaleXy(los_test, y_test)
             if not silent: logger.info(f"After unscale y_test: {y_test[:1]}")
-            if not silent: logger.info(f"unscaled test result {X_test.shape} {y_test.shape} {y_pred.shape}")
+            if not silent: logger.info(f"unscaled test result {los_test.shape} {y_test.shape} {y_pred.shape}")
 
             # Calculate rmse scores
             #rms_scores = [mean_squared_error(y_test[:, i], y_pred[:, i]) for i in range(len(y_pred[0]))]
             #rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test, axis=0)
             #if not silent: logger.info("RMS Error: " + str(rms_scores_percent))    
-        return X_test, y_test, y_pred, r2
+        return los_test, y_test, y_pred, r2
 
 def validate_filelist(train_files, so_train_files, test_files, so_test_files):
     if len(train_files) != len(so_train_files):
@@ -271,7 +275,7 @@ class CustomLoss(nn.Module):
 def plot_predictions(y_test_so, y_pred_so, samples=1, showplots=True, saveplots=True):
     plt.rcParams['figure.figsize'] = [15, 9]
     plt.title(f'Reconstructed LoS vs Actual Noiseless LoS')
-    for i, test, pred in enumerate(zip(y_test_so[:samples], y_pred_so[:samples])):
+    for i, (test, pred) in enumerate(zip(y_test_so[:samples], y_pred_so[:samples])):
         plt.plot(test, label='Actual')
         plt.plot(pred, label='Reconstructed')
         if i> 2: break
@@ -369,9 +373,9 @@ def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, num_epochs, bat
     elif args.logfx_only: combined_r2 = r2
     else: combined_r2 = 0.5*(r2[0]+r2[1])
     """
-    tester = ModelTester(model, criterion)
+    tester = ModelTester(model, criterion, input_points_to_use)
     if args.test_multiple:
-        all_y_pred, all_y_test = base.test_multiple(tester, test_files, reps=args.test_reps, skip_stats=True, use_bispectrum=False, skip_ps=True)
+        all_y_pred, all_y_test = base.test_multiple(tester, test_files, reps=args.test_reps, skip_stats=True, use_bispectrum=False, skip_ps=True, so_datafiles=sotest_files)
         r2 = base.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
         base.save_test_results(all_y_pred, all_y_test, output_dir)
     else:

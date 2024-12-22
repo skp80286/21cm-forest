@@ -640,7 +640,7 @@ def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False, skip_ps=Tr
             
     return (all_los, all_params, los_samples)
 
-def test_multiple(modeltester, datafiles, reps=10000, size=10, save=False, skip_stats=True, use_bispectrum=False, skip_ps=False):
+def test_multiple(modeltester, datafiles, reps=10000, size=10, save=False, skip_stats=True, use_bispectrum=False, skip_ps=False, so_datafiles=None):
     logger.info(f"Test_multiple started. {reps} reps x {size} points will be tested for {len(datafiles)} parameter combinations")
     # Create processor with desired number of worker threads
     all_y_test = []
@@ -657,12 +657,15 @@ def test_multiple(modeltester, datafiles, reps=10000, size=10, save=False, skip_
         stats = results['stats']
         print(f"stats.shape={stats.shape}")
         params = results['params']
+        los_so = None
+        if so_datafiles is not None:
+            logger.info(f"Loading signalonly los")
+            processor = dl.F21DataLoader(max_workers=8, psbatchsize=1, limitsamplesize=None, ps_bins=None, skip_ps=skip_ps, skip_stats=skip_stats, use_bispectrum=use_bispectrum)
+            results = processor.process_all_files([so_datafiles[i]])        
+            # Access results
+            los_so = results['los']
 
-        if i == 0:
-            logger.info(f"sample test los:{los[:1]}")
-            logger.info(f"sample test ks:{ks[:1]}")
-            logger.info(f"sample test ps:{ps[:1]}")
-            logger.info(f"sample test params:{params[:1]}")
+        if i == 0: logger.info(f"sample test los_so:{los[:1]}")
         y_pred_for_test_point = []
         y_test = None
         for j in range(reps):
@@ -673,7 +676,9 @@ def test_multiple(modeltester, datafiles, reps=10000, size=10, save=False, skip_
             stats_set = stats[rdm]
             #print(f"stats_set.shape={stats_set.shape}")
             params_set = params[rdm]
-            _, y_test, y_pred, r2 = modeltester.test(los_set, ps_set, stats_set, params_set, silent=(j!=0))
+            los_so_set = None
+            if los_so is not None: los_so_set = los_so[rdm]
+            _, y_test, y_pred, r2 = modeltester.test(los_set, ps_set, stats_set, params_set, los_so=los_so_set, silent=(j!=0))
             y_pred_mean = np.mean(y_pred, axis=0)
             all_y_pred.append(y_pred_mean)
             all_y_test.append(params[0])

@@ -200,7 +200,7 @@ class ModelTester:
         self.perc_ps_bins_to_use = perc_ps_bins_to_use
         self.ks = ks
     
-    def test(self, los, X_test, stats_test, y_test, silent=False):
+    def test(self, los, X_test, stats_test, y_test, los_so, silent=False):
         #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Unbinned_PS_with_noise")
         if not silent: logger.info(f"Binning PS data: ks_size={ks.shape}, original_size={X_test.shape[1]}, ps_bins_to_make={self.ps_bins_to_make}, num bins to use={self.perc_ps_bins_to_use}")
         X_test = bin_ps_data(X_test, self.ps_bins_to_make, self.perc_ps_bins_to_use)
