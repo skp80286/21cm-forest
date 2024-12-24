@@ -149,7 +149,7 @@ def plot_stats(stats, params, colorind=1, output_dir=".", showplots=False, savep
     plt.clf()
 
 def plot_single_los(los, freq_axis, output_dir=".", showplots=False, saveplots=True, label=""):
-    plt.rcParams['figure.figsize'] = [15, 9]
+    plt.rcParams['figure.figsize'] = [12, 5]
     plt.title(f'{label} - LoS')
     plt.plot(freq_axis/1e6, los)
     plt.xlabel('frequency[MHz]'), plt.ylabel('flux/S147')

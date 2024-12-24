@@ -146,7 +146,7 @@ class UnetModel(nn.Module):
         out = self.final(dec4)
 
         # Concatenate parameter extraction output with decoder output
-        out = torch.cat((out, dense_out), dim=1)  # Concatenate along the feature dimension
+        out = torch.cat((dense_out, out), dim=1)  # Concatenate along the feature dimension
         #print(f"Output shape after concatenation: {out.shape}")
 
         #print(f"Output shape: {out.shape}")
@@ -174,24 +174,24 @@ class ModelTester:
         r2 = None
         with torch.no_grad():
             # Test the model
-            logger.info("Testing prediction")
+            if not silent: logger.info("Testing prediction")
 
             test_input, test_output = convert_to_pytorch_tensors(los_test, y_test, los_so)
-            logger.info(f"Shape of test_input, test_output: {test_input.shape}, {test_output.shape}")
+            if not silent: logger.info(f"Shape of test_input, test_output: {test_input.shape}, {test_output.shape}")
             y_pred_tensor = self.model(test_input)
             test_loss = self.criterion(y_pred_tensor, test_output)
-            logger.info(f'Test Loss: {test_loss.item():.4f}')
+            if not silent: logger.info(f'Test Loss: {test_loss.item():.4f}')
 
             # Calculate R2 scores
             y_pred_np = y_pred_tensor.detach().cpu().numpy()
             y_pred = y_pred_np[:,:2]
             y_pred_so = y_pred_np[:,2:]
             r2 = r2_score(y_test, y_pred)
-            logger.info("R2 Score: " + str(r2))
+            if not silent: logger.info("R2 Score: " + str(r2))
             # Calculate rmse scores
             rms_scores = mean_squared_error(y_test, y_pred)
             rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test, axis=0)
-            logger.info("RMS Error: " + str(rms_scores_percent))
+            if not silent: logger.info("RMS Error: " + str(rms_scores_percent))
 
             if not silent: plot_predictions(los_so, y_pred_so)
     
@@ -256,7 +256,7 @@ def convert_to_pytorch_tensors(X, y, y_so):
     return X_tensor, y_tensor
 
 class CustomLoss(nn.Module):
-    def __init__(self, alpha=0.8):
+    def __init__(self, alpha=0.5):
         super(CustomLoss, self).__init__()
         self.alpha = alpha  # Weight for balancing the two loss components
         self.mse = nn.MSELoss()
@@ -281,6 +281,7 @@ def plot_predictions(y_test_so, y_pred_so, samples=1, showplots=True, saveplots=
         if i> 2: break
     plt.xlabel('frequency'), 
     plt.ylabel('flux/S147')
+    plt.legend()
     if showplots: plt.show()
     if saveplots: plt.savefig(f"{output_dir}/reconstructed_los.png")
     plt.clf()
@@ -355,7 +356,7 @@ def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, num_epochs, bat
             running_loss += loss.item()
         
         # Print loss for every epoch
-        logger.info(f'Epoch [{epoch+1}/{num_epochs}], Loss: {running_loss / len(dataloader):.4f}')
+        logger.info(f'Epoch [{epoch+1}/{num_epochs}], Loss: {running_loss / len(dataloader):.8f}')
 
     # Evaluate the model (on a test set, here we just use the training data for simplicity)
     model.eval()  # Set the model to evaluation mode
