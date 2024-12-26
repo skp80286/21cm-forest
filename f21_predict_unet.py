@@ -356,7 +356,7 @@ def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, num_epochs, bat
             running_loss += loss.item()
         
         # Print loss for every epoch
-        logger.info(f'Epoch [{epoch+1}/{num_epochs}], Loss: {running_loss / len(dataloader):.8f}')
+        logger.info(f'Epoch [{epoch+1}/{num_epochs}], Loss: {running_loss / len(dataloader):.4f}')
 
     # Evaluate the model (on a test set, here we just use the training data for simplicity)
     model.eval()  # Set the model to evaluation mode
@@ -404,7 +404,7 @@ def objective(trial):
         'learning_rate': 0.002, # trial.suggest_float('learning_rate', 7e-4, 7e-3, log=True), # 0.0019437504084241922, 
         'kernel1': trial.suggest_int('kernel1', 33, 33, step=10),
         'kernel2': trial.suggest_int('kernel2', 33, 33, step=10),
-        'dropout': 0.5, #trial.suggest_categorical('dropout', [0.2, 0.3, 0.4, 0.5]),
+        'dropout': 0.2, #trial.suggest_categorical('dropout', [0.2, 0.3, 0.4, 0.5]),
         'input_points_to_use': 2560,#trial.suggest_int('input_points_to_use', 900, 1400),
     }    
     # Run training with the suggested parameters
@@ -469,7 +469,7 @@ if args.runmode in ("train_test", "optimize") :
     logger.info(f"Loaded dataset X_test:{X_test.shape} y_test:{y_test.shape} y_test_so:{y_test_so.shape}")
 
     if args.runmode == "train_test":
-        run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, args.epochs, args.trainingbatchsize, lr=0.0019437504084241922, kernel1=269, kernel2=269, dropout=0.5, input_points_to_use=args.input_points_to_use, showplots=args.interactive)
+        run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, args.epochs, args.trainingbatchsize, lr=0.0019437504084241922, kernel1=269, kernel2=269, dropout=0.2, input_points_to_use=args.input_points_to_use, showplots=args.interactive)
 
     elif args.runmode == "optimize":
         # Create study object

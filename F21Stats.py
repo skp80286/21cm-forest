@@ -121,3 +121,60 @@ class F21Stats:
         bispectrum_mean = torch.abs(bispectrum_mean)
         bispectrum_mean_np = bispectrum_mean.numpy()
         return bispectrum_mean_np
+    
+def logbin_power_spectrum_by_k(ks, ps, silent=True):
+    if not silent: F21Stats.logger.info(f"logbin_power_spectrum_by_k: Shapes: {ks.shape} {ps.shape}")
+    if not silent: F21Stats.logger.info(f"logbin_power_spectrum_by_k: original ks: {ks[0,:5]} .. {ks[0,-5:]}")
+    if not silent: F21Stats.logger.info(f"original ps: {ps[0,:5]}..{ps[0,-5:]}")
+
+    d_log_k_bins = 0.25
+    log_k_bins = np.arange(-7.0-d_log_k_bins/2.,-3.+d_log_k_bins/2.,d_log_k_bins)
+
+    k_bins = np.power(10.,log_k_bins)
+    k_bins_cent = np.power(10.,log_k_bins+d_log_k_bins/2.)[:-1]
+    if not silent: F21Stats.logger.info(k_bins_cent)
+
+    binlist=np.zeros((ps.shape[0], len(k_bins_cent)))
+    pslist=np.zeros((ps.shape[0], len(k_bins_cent)))
+    for i, (row_ks, row_ps) in enumerate(zip(ks, ps)):
+      for l in range(len(k_bins_cent)):
+        mask = (row_ks >= k_bins[l]) & (row_ks < k_bins[l+1])
+        # If any values fall in this bin, take their mean
+        if np.any(mask):
+            pslist[i,l] = np.mean(row_ps[mask])
+        else:
+            pslist[i,l] = 0.
+        binlist[i,l] = k_bins_cent[l]
+
+    if not silent: F21Stats.logger.info(f"logbin_power_spectrum_by_k: final ks: {binlist[0,:5]}..{binlist[0,-5:]}")
+    if not silent: F21Stats.logger.info(f"final ps: {pslist[0,:5]}..{pslist[0,-5:]}")
+    return binlist, pslist
+
+def logbin_power_spectrum_by_k_flex(ks, ps, ps_bins_to_make, perc_ps_bins_to_use):
+    num_bins = ps_bins_to_make*perc_ps_bins_to_use//100
+    
+    min_log_k = None
+    if (ks[0] > 0): min_log_k = np.log10(ks[0])
+    else: min_log_k = np.log10(ks[1]/np.sqrt(10))
+    max_log_k = np.log10(ks[-1])
+
+    log_bins = np.linspace(min_log_k, max_log_k, ps_bins_to_make+1)
+    #print(f"log_bins: {log_bins}")
+    bins = np.power(10, log_bins)
+    #print(f"bins: {bins}")
+    # widths = (bins[1:] - bins[:-1])
+    #print(f"widths: {widths}")
+    log_centers = 0.5*(log_bins[:-1]+log_bins[1:])
+    bin_centers = np.power(10, log_centers)
+    #print(f"bin_centers: {bin_centers}")
+    pslist=np.zeros((ps.shape[0], ps_bins_to_make))
+    # Calculate histogram
+    for i, (p) in enumerate(ps):
+        hist = np.histogram(ks, bins=bins, weights=p)
+        #print(f"hist: {hist}")
+        # normalize by bin width
+        #hist_norm = hist[0]/widths
+        #print(f"hist_norm: {hist_norm}")
+        pslist[i,:] = hist[0]
+
+    return bin_centers, pslist[:,:num_bins]

@@ -5,6 +5,9 @@ Predict parameters fX and xHI from the 21cm forest data.
 import xgboost as xgb
 from xgboost import plot_tree
 
+import torch
+import torch.nn as nn
+
 import pandas as pd
 import numpy as np
 import pickle
@@ -22,7 +25,7 @@ import glob
 from datetime import datetime
 
 import F21DataLoader as dl
-import F21Stats
+import F21Stats as f21stats
 import os
 import sys
 
@@ -108,7 +111,7 @@ def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False):
     logger.info(f"Combined ks shape: {ks.shape}")
     logger.info(f"Combined parameters shape: {params_combined.shape}")
 
-    return (ks, ps_combined, all_stats, params_combined)
+    return (all_ks, ps_combined, all_stats, params_combined)
 
 def save_model(model):
     # Save the model architecture and weights
@@ -132,66 +135,6 @@ def bin_ps_data(X, ps_bins_to_make, perc_ps_bins_to_use):
         X_binned = X
     return X_binned[:,:num_bins]
 
-def logbin_power_spectrum_by_k(ks, ps):
-    """
-    print(f"logbin_power_spectrum_by_k: original ks: {ks[0,:5]} .. {ks[0,-5:]}")
-    print(f"original ps: {ps[0,:5]}..{ps[0,-5:]}")
-    """
-    d_log_k_bins = 0.25
-    log_k_bins = np.arange(-7.0-d_log_k_bins/2.,-3.+d_log_k_bins/2.,d_log_k_bins)
-
-    k_bins = np.power(10.,log_k_bins)
-    k_bins_cent = np.power(10.,log_k_bins+d_log_k_bins/2.)[:-1]
-    #print(k_bins_cent)
-
-    binlist=np.zeros((ps.shape[0], len(k_bins_cent)))
-    pslist=np.zeros((ps.shape[0], len(k_bins_cent)))
-    for i, (row_ks, row_ps) in enumerate(zip(ks, ps)):
-      for l in range(len(k_bins_cent)):
-        mask = (row_ks >= k_bins[l]) & (row_ks < k_bins[l+1])
-        # If any values fall in this bin, take their mean
-        if np.any(mask):
-            pslist[i,l] = np.mean(row_ps[mask])
-        else:
-            pslist[i,l] = 0.
-        binlist[i,l] = k_bins_cent[l]
-
-    """
-    print(f"logbin_power_spectrum_by_k: final ks: {binlist[0,:5]}..{binlist[0,-5:]}")
-    print(f"final ps: {pslist[0,:5]}..{pslist[0,-5:]}")
-    """
-    return binlist, pslist
-
-
-def logbin_power_spectrum_by_k_flex(ks, ps, ps_bins_to_make, perc_ps_bins_to_use):
-    num_bins = ps_bins_to_make*perc_ps_bins_to_use//100
-    
-    min_log_k = None
-    if (ks[0] > 0): min_log_k = np.log10(ks[0])
-    else: min_log_k = np.log10(ks[1]/np.sqrt(10))
-    max_log_k = np.log10(ks[-1])
-
-    log_bins = np.linspace(min_log_k, max_log_k, ps_bins_to_make+1)
-    #print(f"log_bins: {log_bins}")
-    bins = np.power(10, log_bins)
-    #print(f"bins: {bins}")
-    # widths = (bins[1:] - bins[:-1])
-    #print(f"widths: {widths}")
-    log_centers = 0.5*(log_bins[:-1]+log_bins[1:])
-    bin_centers = np.power(10, log_centers)
-    #print(f"bin_centers: {bin_centers}")
-    pslist=np.zeros((ps.shape[0], ps_bins_to_make))
-    # Calculate histogram
-    for i, (p) in enumerate(ps):
-        hist = np.histogram(ks, bins=bins, weights=p)
-        #print(f"hist: {hist}")
-        # normalize by bin width
-        #hist_norm = hist[0]/widths
-        #print(f"hist_norm: {hist_norm}")
-        pslist[i,:] = hist[0]
-
-    return bin_centers, pslist[:,:num_bins]
-
 class ModelTester:
     def __init__(self, model, X_noise, ks, ps_bins_to_make, perc_ps_bins_to_use):
         self.model = model
@@ -203,8 +146,10 @@ class ModelTester:
     def test(self, los, X_test, stats_test, y_test, los_so, silent=False):
         #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Unbinned_PS_with_noise")
         if not silent: logger.info(f"Binning PS data: ks_size={ks.shape}, original_size={X_test.shape[1]}, ps_bins_to_make={self.ps_bins_to_make}, num bins to use={self.perc_ps_bins_to_use}")
-        X_test = bin_ps_data(X_test, self.ps_bins_to_make, self.perc_ps_bins_to_use)
-        #_, X_test = logbin_power_spectrum_by_k(self.ks, X_test)
+        if args.use_log_bins:
+            _, X_test = f21stats.logbin_power_spectrum_by_k(self.ks, X_test)
+        else:
+            X_test = bin_ps_data(X_test, self.ps_bins_to_make, self.perc_ps_bins_to_use)
         if not silent: logger.info(f"Testing dataset: X:{X_test.shape} y:{y_test.shape}")
         #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Binned_PS_with_noise")
 
@@ -227,6 +172,7 @@ class ModelTester:
         X_test_with_stats = np.hstack((X_test, stats_test))
         if not silent: logger.info("Testing prediction")
         if not silent: logger.info(f"Sample data before testing y:{y_test[0]}\nX:{X_test_with_stats[0]}")
+        if args.dump_all_training_data: np.savetxt(f"{output_dir}/all_test_data.csv", np.hstack((X_test_with_stats, y_test)), delimiter=",")
         y_pred = self.model.predict(X_test_with_stats)
 
         if y_pred.ndim==1:
@@ -271,12 +217,18 @@ def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_tr
                     saveplots=True):
     run_description = f"output_dir={output_dir} Commandline: {' '.join(sys.argv)}. Parameters: ps_bins_to_make={ps_bins_to_make}, perc_ps_bins_to_use={perc_ps_bins_to_use}, model_param1={model_param1}, model_param2={model_param2}, label={args.label}"
     logger.info(f"Starting new run: {run_description}")
-    X_train = bin_ps_data(X_train, ps_bins_to_make, perc_ps_bins_to_use)
+    if args.use_log_bins:
+        _, X_train = f21stats.logbin_power_spectrum_by_k(ks=ks, ps=X_train, silent=False)
+    else:
+        X_train = bin_ps_data(X_train, ps_bins_to_make, perc_ps_bins_to_use)
     logger.info(f"Before scale train: {y_train[:1]}")
     X_train, y_train = scaler.scaleXy(X_train, y_train)
     logger.info(f"After scale train: {y_train[:1]}")
     if X_noise is not None: 
-        X_noise = bin_ps_data(X_noise, ps_bins_to_make, perc_ps_bins_to_use)
+        if args.use_log_bins:
+            _, X_noise = f21stats.logbin_power_spectrum_by_k(ks=ks, ps=X_noise, silent=False)
+        else:
+            X_noise = bin_ps_data(X_noise, ps_bins_to_make, perc_ps_bins_to_use)
         X_noise, _ = scaler.scaleXy(X_noise, np.array([[0.0, 0.0]]))
         if not args.signalonly_training:
             logger.info(f"Sample PS before noise subtraction: \n{X_train[:2]}")
@@ -367,6 +319,11 @@ def objective(trial):
     
 
 # main code start here
+torch.manual_seed(42)
+np.random.seed(42)
+torch.backends.cudnn.determinisitc=True
+torch.backends.cudnn.benchmark=False
+
 parser = argparse.ArgumentParser(description='Predict reionization parameters from 21cm forest')
 parser.add_argument('-p', '--path', type=str, default='../data/21cmFAST_los/F21_noisy/', help='filepath')
 parser.add_argument('-z', '--redshift', type=float, default=6, help='redshift')
@@ -409,6 +366,7 @@ parser.add_argument('--includestats', action='store_true', help='Include statist
 parser.add_argument('--dump_all_training_data', action='store_true', help='Dump all training data for analysis')
 parser.add_argument('--use_bispectrum', action='store_true', help='Use bispectrum as stats')
 parser.add_argument('--signalonly_training', action='store_true', help='Use signalonly LoS for traning')
+parser.add_argument('--use_log_bins', action='store_true', help='Use logarithmically binned Powerspectrum')
 
 args = parser.parse_args()
 print(args)

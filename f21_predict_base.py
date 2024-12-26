@@ -47,29 +47,6 @@ def initplt():
     plt.rcParams['ytick.labelsize'] = 18
     plt.rcParams['legend.fontsize'] = 18
 
-def logbin_power_spectrum_by_k(ks, ps, num_bins):
-    log_bins = np.linspace(np.log10(ks[0,1]/2.0), np.log10(ks[0,-1]), num_bins+1)
-    #print(f"log_bins: {log_bins}")
-    bins = np.power(10, log_bins)
-    #print(f"bins: {bins}")
-    widths = (bins[1:] - bins[:-1])
-    #print(f"widths: {widths}")
-    log_centers = 0.5*(log_bins[:-1]+log_bins[1:])
-    bin_centers = np.power(10, log_centers)
-    #print(f"bin_centers: {bin_centers}")
-    binlist=np.zeros((ps.shape[0], num_bins))
-    pslist=np.zeros((ps.shape[0], num_bins))
-    # Calculate histogram
-    for i, (k, p) in enumerate(zip(ks, ps)):
-        hist = np.histogram(k, bins=bins, weights=p)
-        #print(f"hist: {hist}")
-        # normalize by bin width
-        #hist_norm = hist[0]/widths
-        #print(f"hist_norm: {hist_norm}")
-        binlist[i,:] = bin_centers
-        pslist[i,:] = hist[0]
-    return binlist, pslist
-
 colorlabels=[r'$\langle x_{HI}\rangle$', r'$log_{10}fX$']
 colormaps=[plt.cm.inferno, plt.cm.viridis]
 def plot_power_spectra(ps, ks, params, psn=None, colorind=1, output_dir=".", showplots=False, saveplots=True, label=""):
@@ -109,11 +86,13 @@ def plot_power_spectra(ps, ks, params, psn=None, colorind=1, output_dir=".", sho
     plt.clf()
 
 
-#statlabels=['ps1', 'ps2', 'total_mean', 'total_std', 'mean_skew', 'std_skew', 'skew2', 'min_skew']
-statlabels=['ps1', 'ps2', 'bis1', 'bis2', 'bis3', 'bis4', 'bis5', 'bis6', 'bis7', 'bis8', 'bis9', 'bis10', 'bis11', 'bis12', 'bis13', 'bis14', 'bis15', 'bis16', 'bis17', 'bis18', 'bis19', 'bis20', 'bis21', 'bis22', 'bis23', 'bis24', 'bis25']
+#statlabels=[]
+statlabels=[['ps1', 'ps2', 'total_mean', 'total_std', 'mean_skew', 'std_skew', 'skew2', 'min_skew'],
+            ['ps1', 'ps2', 'bis1', 'bis2', 'bis3', 'bis4', 'bis5', 'bis6', 'bis7', 'bis8', 'bis9', 'bis10', 'bis11', 'bis12', 'bis13', 'bis14', 'bis15', 'bis16', 'bis17', 'bis18', 'bis19', 'bis20', 'bis21', 'bis22', 'bis23', 'bis24', 'bis25'],
+            ['ps1', 'ps2', 'ps3', 'ps4','ps5', 'ps6','ps7', 'ps8','ps9', 'ps10','ps11', 'ps12','ps13', 'ps14','ps15', 'ps16','total_mean', 'total_std', 'mean_skew', 'std_skew', 'skew2', 'min_skew'],]
 markers=['*','P','x','d','v','s','^', '+', 'o', '.', '<', '>', '1', '2','3', '4', 'p', 'h', 'X', 'D', '|', '_']
 legendpos=['lower right', 'upper left']
-def plot_stats(stats, params, colorind=1, output_dir=".", showplots=False, saveplots=True, label=""):
+def plot_stats(stats, params, colorind=1, statind=0, output_dir=".", showplots=False, saveplots=True, label=""):
     #logger.info(f'shapes ps:{ps.shape} ks:{ks.shape}')
     initplt()
     alpha = decide_alpha(len(stats))
@@ -135,7 +114,7 @@ def plot_stats(stats, params, colorind=1, output_dir=".", showplots=False, savep
         for j, stat in enumerate(row_stat):
             stat_color = colormap(j) 
             label = None
-            if i==0 and j < 10: label=statlabels[j]
+            if i==0 and j < 10: label=statlabels[statind][j]
             ax.scatter(row_coloraxs, stat, color=stat_color, marker=markers[j % len(markers)], alpha=alpha, label=label)
         #ax.set_yscale('log')
         #if i> 10: break
@@ -143,7 +122,7 @@ def plot_stats(stats, params, colorind=1, output_dir=".", showplots=False, savep
     plt.ylabel("Stat Value")
     
     #plt.legend(loc=legendpos[colorind], fontsize=12)  
-    plt.legend(loc=legendpos[colorind], ncol=len(statlabels)//2, fontsize=12)
+    plt.legend(loc=legendpos[colorind], ncol=len(statlabels[statind])//2, fontsize=12)
     if showplots: plt.show()
     if saveplots: plt.savefig(f"{output_dir}/statistics.png")
     plt.clf()
