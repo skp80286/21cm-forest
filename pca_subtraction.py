@@ -56,23 +56,32 @@ z, xHI_mean, logfX, freq_axis, los_arr = get_los(file_path)
 _, _, _, _, so_los_arr = get_los(so_file_path)
 
 min_mse = 6e23
-best_num_components = -1
+best_component = -1
 best_reconstruction = None
 best_reconstruction_type = None
 # Perform PCA on los_arr (1000 sightlines, 2762 features each)
-for num_components in range(1, 1+min(los_arr.shape[0], los_arr.shape[1])):
-    if num_components%100 == 0: 
-        print(f"num_components={num_components}")
-        print(f"min_mse={min_mse}, best_num_components={best_num_components}, best_reconstruction_type={best_reconstruction_type}")
+num_components = min(los_arr.shape[0], los_arr.shape[1])-1
+pca = PCA(n_components=num_components)
+transformed_data = pca.fit_transform(los_arr)
+print(f"Shape of transformed data: {transformed_data.shape}")
+for c in range(1):#num_components):
 
-    pca = PCA(n_components=num_components)
-    transformed_data = pca.fit_transform(los_arr)
+    if c%100 == 0: 
+        print(f"num_components={num_components}")
+        print(f"min_mse={min_mse}, best_component={best_component}")
+
     #print(f"Shape of transformed_data {transformed_data.shape}")
-    reconstructed_data = pca.inverse_transform(transformed_data)
+    component = transformed_data[:,c].reshape((1000,1))
+    print(f"Shape of componenet: {component.shape}")
+    #reconstructed_data = pca.inverse_transform(component)
+    selected_components = [0, 1, 2]  # Example: using the first three components
+    reconstructed_data = pca.inverse_transform(transformed_data[:, selected_components])
+
+    print(f"Shape of reconstructed_data: {reconstructed_data.shape}")
     mse = mean_squared_error(so_los_arr, reconstructed_data)
     if mse < min_mse: 
         min_mse = mse
-        best_num_components = num_components
+        best_component = c
         best_reconstruction = reconstructed_data
         best_reconstruction_type = "transformed"
     
@@ -80,16 +89,16 @@ for num_components in range(1, 1+min(los_arr.shape[0], los_arr.shape[1])):
     mse = mean_squared_error(so_los_arr, subtracted_data)
     if mse < min_mse: 
         min_mse = mse
-        best_num_components = num_components
+        best_component = c
         best_reconstruction = subtracted_data
         best_reconstruction_type = "subtracted"
 
 # Compare original and reconstructed sightlines
 sightline_index = 0  # Choose a sightline to compare
 original_sightline = los_arr[sightline_index]
-reconstructed_sightline = best_reconstruction[sightline_index]-0.02
-signalonly_sightline = so_los_arr[sightline_index]-0.04
-print(f"min_mse={min_mse}, best_num_components={best_num_components}, best_reconstruction_type={best_reconstruction_type}")
+reconstructed_sightline = best_reconstruction[sightline_index]-0.01
+signalonly_sightline = so_los_arr[sightline_index]-0.02
+print(f"min_mse={min_mse}, best_num_components={best_component}, best_reconstruction_type={best_reconstruction_type}")
 # Plot the original and reconstructed sightlines
 plt.figure(figsize=(10, 6))
 plt.plot(freq_axis, original_sightline, label="Original Sightline", color="blue", alpha=0.1)
