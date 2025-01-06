@@ -49,7 +49,50 @@ def initplt():
 
 colorlabels=[r'$\langle x_{HI}\rangle$', r'$log_{10}fX$']
 colormaps=[plt.cm.inferno, plt.cm.viridis]
-def plot_power_spectra(ps, ks, params, psn=None, colorind=1, output_dir=".", showplots=False, saveplots=True, label=""):
+def plot_power_spectra(ps, ks, params, psn=None, colorind=1, output_dir=".", showplots=False, saveplots=True, label="", scale='log', markers=False):
+    #logger.info(f'shapes ps:{ps.shape} ks:{ks.shape}')
+    initplt()
+    alpha = decide_alpha(len(ps))
+    logger.info(params[0:2])
+    coloraxs = params[:,colorind]
+    mincoloraxs = min(coloraxs)
+    maxcoloraxs = max(coloraxs)
+    print(f"min-max range: {mincoloraxs}-{maxcoloraxs}")
+    if markers: marker='o' 
+    else: marker = None
+    fig, ax = plt.subplots(nrows=1, ncols=1) 
+
+    sm = plt.cm.ScalarMappable(cmap=colormaps[colorind], norm=clr.Normalize(vmin=mincoloraxs, vmax=maxcoloraxs))
+    cbar = plt.colorbar(sm, ax=ax, label=colorlabels[colorind])
+
+    plt.title('Power spectra: ' + label)    
+    if scale == 'log': 
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+
+    for i, (row_ps, row_ks, row_coloraxs) in enumerate(zip(ps, ks, coloraxs)):
+        color=sm.to_rgba(row_coloraxs)
+        #if i%1000==0: print(f"color mapping: {row_coloraxs} : {color}")
+        ax.plot(row_ks[1:]*1e6, row_ps[1:], linewidth=0.5, color=color, alpha=alpha, marker= marker)
+        #ax.set_yscale('log')
+        #if i> 10: break
+        # Plot noise curve
+
+    if psn is not None: 
+        ax.plot(ks[0,1:]*1e6, psn[1:], "r--", linewidth=0.5, label="Noise", marker= marker)
+
+    plt.legend()
+    plt.xlabel(r"k (Hz$^{-1}$)")
+    plt.ylabel("$kP_{21}$")
+    #plt.ylim((1e-22, 1e-2))
+    plt.xticks(fontsize=18)
+    plt.yticks(fontsize=18)
+    
+    if showplots: plt.show()
+    if saveplots: plt.savefig(f"{output_dir}/power_spectra.png")
+    plt.clf()
+
+def plot_pca(ps, params, colorind=1, output_dir=".", showplots=False, saveplots=True, label=""):
     #logger.info(f'shapes ps:{ps.shape} ks:{ks.shape}')
     initplt()
     alpha = decide_alpha(len(ps))
@@ -64,27 +107,20 @@ def plot_power_spectra(ps, ks, params, psn=None, colorind=1, output_dir=".", sho
     sm = plt.cm.ScalarMappable(cmap=colormaps[colorind], norm=clr.Normalize(vmin=mincoloraxs, vmax=maxcoloraxs))
     cbar = plt.colorbar(sm, ax=ax, label=colorlabels[colorind])
 
-    plt.title('Power spectra: ' + label)    
-    for i, (row_ps, row_ks, row_coloraxs) in enumerate(zip(ps, ks, coloraxs)):
+    plt.title('PCA: ' + label)    
+    for i, (row_ps, row_coloraxs) in enumerate(zip(ps, coloraxs)):
         color=sm.to_rgba(row_coloraxs)
-        #if i%1000==0: print(f"color mapping: {row_coloraxs} : {color}")
-        ax.loglog(row_ks[1:]*1e6, row_ps[1:], linewidth=0.5, color=color, alpha=alpha)
-        #ax.set_yscale('log')
-        #if i> 10: break
-        # Plot noise curve
-    if psn is not None: 
-        ax.loglog(ks[0,1:]*1e6, psn[1:], "r--", linewidth=0.5, label="Noise")
-        plt.legend()
-    plt.xlabel(r"k (Hz$^{-1}$)")
-    plt.ylabel("$kP_{21}$")
-    #plt.ylim((1e-22, 1e-2))
+        ax.plot(row_ps, linewidth=0.5, color=color, alpha=alpha)
+    
+    plt.xlabel(r"Eigenmode#")
+    plt.ylabel("PCA Value")
     plt.xticks(fontsize=18)
     plt.yticks(fontsize=18)
+    #plt.ylim((-0.00025, None))
     
     if showplots: plt.show()
-    if saveplots: plt.savefig(f"{output_dir}/power_spectra.png")
+    if saveplots: plt.savefig(f"{output_dir}/pca.png")
     plt.clf()
-
 
 #statlabels=[]
 statlabels=[['ps1', 'ps2', 'total_mean', 'total_std', 'mean_skew', 'std_skew', 'skew2', 'min_skew'],
@@ -512,7 +548,7 @@ def summarize_test(y_pred, y_test, output_dir=".", showplots=False):
 
 def create_output_dir(args):
     param_str = f'{args.runmode}_{args.telescope}_t{args.t_int}'
-    output_dir = f'output/{sys.argv[0].split(sep=os.sep)[-1]}_{param_str}_{datetime.now().strftime("%Y%m%d%H%M%S")}'
+    output_dir = f'output/{sys.argv[0].split(sep=os.sep)[-1].rstrip('.py')}_{param_str}_{datetime.now().strftime("%Y%m%d%H%M%S")}'
     if not os.path.exists(output_dir):
         os.mkdir(output_dir)
         print("created " + output_dir)

@@ -1,5 +1,5 @@
 '''
-Predict parameters fX and xHI from the 21cm forest data.
+Predict parameters fX and xHI from the 21cm forest data using PCA componenets.
 '''
 
 import xgboost as xgb
@@ -16,8 +16,10 @@ import math
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.decomposition import PCA
 
 import scipy.fftpack as fftpack
+from scipy.stats import binned_statistic
 
 import argparse
 import glob
@@ -117,13 +119,31 @@ def save_model(model):
     logger.info(f'Saving model to: {output_dir}/{args.modelfile}')
     model_json = model.save_model(f"{output_dir}/{args.modelfile}")
 
+def bin_ps_data(X, ps_bins_to_make, perc_ps_bins_to_use):
+    if X.shape[1] <  ps_bins_to_make:
+        ps_bins_to_make = X.shape[1]
+
+    num_bins = (ps_bins_to_make*perc_ps_bins_to_use)//100
+
+    if ps_bins_to_make < X.shape[1]:
+        fake_ks = range(X.shape[1])
+        X_binned = []
+        for x in X:
+            ps, _, _ = binned_statistic(fake_ks, x, statistic='mean', bins=ps_bins_to_make)
+            X_binned.append(ps)
+        X_binned = np.array(X_binned)
+    else:
+        X_binned = X
+    return X_binned[:,:num_bins]
+
 class ModelTester:
-    def __init__(self, model, X_noise, ks, ps_bins_to_make, perc_ps_bins_to_use):
+    def __init__(self, model, X_noise, ks, ps_bins_to_make, perc_ps_bins_to_use, pca_model):
         self.model = model
         self.X_noise = X_noise
         self.ps_bins_to_make = ps_bins_to_make
         self.perc_ps_bins_to_use = perc_ps_bins_to_use
         self.ks = ks
+        self.pca_model = pca_model
     
     def test(self, los, X_test, stats_test, y_test, los_so, silent=False):
         #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Unbinned_PS_with_noise")
@@ -131,7 +151,8 @@ class ModelTester:
         if args.use_log_bins:
             _, X_test = f21stats.logbin_power_spectrum_by_k(self.ks, X_test)
         elif args.use_linear_bins:
-            X_test = f21stats.bin_ps_data(X_test, self.ps_bins_to_make, self.perc_ps_bins_to_use)
+            X_test = bin_ps_data(X_test, self.ps_bins_to_make, self.perc_ps_bins_to_use)
+        
         if not silent: logger.info(f"Testing dataset: X:{X_test.shape} y:{y_test.shape}")
         #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Binned_PS_with_noise")
 
@@ -151,14 +172,11 @@ class ModelTester:
             stats_test = stats_test[mask]
             y_test = y_test[mask]
         #print(f"stats_test.shape={stats_test.shape}")
-        if args.includestats: X_test_with_stats = np.hstack((X_test, stats_test))
-        else: X_test_with_stats = X_test
+        X_test_pca = self.pca_model.transform(X_test)
         if not silent: logger.info("Testing prediction")
-        if not silent: logger.info(f"Sample data before testing y:{y_test[0]}\nX:{X_test_with_stats[0]}")
-        if args.dump_all_training_data: 
-            with open(f"{output_dir}/all_test_data.csv", 'a') as f:
-                np.savetxt(f, np.hstack((X_test_with_stats, y_test)), delimiter=",")
-        y_pred = self.model.predict(X_test_with_stats)
+        if not silent: logger.info(f"Sample data before testing y:{y_test[0]}\nX:{X_test_pca[0]}")
+        if args.dump_all_training_data: np.savetxt(f"{output_dir}/all_test_data.csv", np.hstack((X_test_pca, y_test)), delimiter=",")
+        y_pred = self.model.predict(X_test_pca)
 
         if y_pred.ndim==1:
             y_pred = y_pred.reshape(len(y_pred),1)
@@ -205,7 +223,8 @@ def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_tr
     if args.use_log_bins:
         _, X_train = f21stats.logbin_power_spectrum_by_k(ks=ks, ps=X_train, silent=False)
     elif args.use_linear_bins:
-        X_train = f21stats.bin_ps_data(X_train, ps_bins_to_make, perc_ps_bins_to_use)
+        X_train = bin_ps_data(X_train, ps_bins_to_make, perc_ps_bins_to_use)
+
     logger.info(f"Before scale train: {y_train[:1]}")
     X_train, y_train = scaler.scaleXy(X_train, y_train)
     logger.info(f"After scale train: {y_train[:1]}")
@@ -213,7 +232,7 @@ def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_tr
         if args.use_log_bins:
             _, X_noise = f21stats.logbin_power_spectrum_by_k(ks=ks, ps=X_noise, silent=False)
         elif args.use_linear_bins:
-            X_noise = f21stats.bin_ps_data(X_noise, ps_bins_to_make, perc_ps_bins_to_use)
+            X_noise = bin_ps_data(X_noise, ps_bins_to_make, perc_ps_bins_to_use)
         X_noise, _ = scaler.scaleXy(X_noise, np.array([[0.0, 0.0]]))
         if not args.signalonly_training:
             logger.info(f"Sample PS before noise subtraction: \n{X_train[:2]}")
@@ -236,22 +255,21 @@ def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_tr
             random_state=42
         )
     """
-    if args.includestats:
-        X_train_with_stats = np.hstack((X_train, stats_train))
-    else:
-        X_train_with_stats = X_train
-    logger.info(f"Sample data before fitting y:{y_train[0]}\nX:{X_train_with_stats[0]}")
+    pca_model = PCAModel(scaler)
+    pca_model.fit()
+    X_train_pca = pca_model.transform(X_train)
+    logger.info(f"Sample data before fitting y:{y_train[0]}\nX:{X_train_pca[0]}")
     logger.info(f"Fitting regressor: {reg}")
-    if args.dump_all_training_data: np.savetxt(f"{output_dir}/all_training_data.csv", np.hstack((X_train_with_stats, y_train)), delimiter=",")
+    if args.dump_all_training_data: np.savetxt(f"{output_dir}/all_training_data.csv", np.hstack((X_train_pca, y_train)), delimiter=",")
     
     if args.scale_y2:
-        reg.fit(X_train_with_stats, y_train[:,2])
+        reg.fit(X_train_pca, y_train[:,2])
     elif args.xhi_only:
-        reg.fit(X_train_with_stats, y_train[:,0])
+        reg.fit(X_train_pca, y_train[:,0])
     elif args.logfx_only:
-        reg.fit(X_train_with_stats, y_train[:,1])
+        reg.fit(X_train_pca, y_train[:,1])
     else:
-        reg.fit(X_train_with_stats, y_train)
+        reg.fit(X_train_pca, y_train)
 
     logger.info(f"Fitted regressor: {reg}")
     logger.info(f"Booster: {reg.get_booster()}")
@@ -259,7 +277,7 @@ def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_tr
     logger.info(f"Feature importance: {feature_importance}")
     X_train, y_train = scaler.unscaleXy(X_train, y_train)
 
-    tester = ModelTester(reg, X_noise, ks, ps_bins_to_make, perc_ps_bins_to_use)
+    tester = ModelTester(reg, X_noise, ks, ps_bins_to_make, perc_ps_bins_to_use, pca_model)
     if args.test_multiple:
         all_y_pred, all_y_test = base.test_multiple(tester, test_files, reps=args.test_reps, skip_stats=(not args.includestats), use_bispectrum=args.use_bispectrum)
         r2 = base.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
@@ -304,7 +322,35 @@ def objective(trial):
     except Exception as e:
         logger.error(f"Trial failed with error:", exc_info=True)  
         return float('-inf')
-    
+
+
+class PCAModel:
+    def __init__(self, scaler=None):
+        self.model = None
+        self.scaler = scaler
+
+    def fit(self):
+        
+        (_, ps, _, _) = load_dataset(["../data/21cmFAST_los/F21_noisy/F21_signalonly_21cmFAST_200Mpc_z6.0_fX-4.00_xHI0.94_8kHz.dat"], psbatchsize=1, limitsamplesize=1000)
+        #(_, ps, _, _) = load_dataset(["../data/21cmFAST_los/F21_noisy/F21_noisy_21cmFAST_200Mpc_z6.0_fX-4.00_xHI0.94_uGMRT_8kHz_t500h_Smin64.2mJy_alphaR-0.44.dat"], psbatchsize=1, limitsamplesize=1000)
+        #(_, ps, _, _) = load_dataset(["../data/21cmFAST_los/F21_noisy/F21_noisy_21cmFAST_200Mpc_z6.0_fX-1.60_xHI0.15_uGMRT_8kHz_t500h_Smin64.2mJy_alphaR-0.44.dat"], psbatchsize=1, limitsamplesize=1000)
+        #ps = np.log(ps)
+        #ps_mean = np.mean(ps, axis=1)
+        ps = f21stats.bootstrap(ps)
+
+        num_components = min(ps.shape[0], ps.shape[1])
+        self.model = PCA(n_components=num_components)
+        tx = self.model.fit_transform(ps)
+        #tx = tx + ps
+        print(f"Shape of transformed data: {tx.shape}")
+
+    def transform(self, X):
+        #X = np.log(X)
+        #X_mean = np.mean(X, axis=1)
+        if self.model is None: raise ValueError("PCA model is not initialized!")
+        tx = self.model.transform(X)
+        #tx = tx + X
+        return tx
 
 # main code start here
 torch.manual_seed(42)
@@ -361,20 +407,8 @@ args = parser.parse_args()
 print(args)
 if args.perc_ps_bins_to_use < 5 or args.perc_ps_bins_to_use > 100: raise ValueError("--perc_ps_bins_to_use not in acceptable range!")
 if args.use_log_bins and args.use_linear_bins: raise ValueError("--use_log_bins and --use_linear_bins are mutually exclusive!")
-
-output_dir = str('output/f21_ps_xgb_%s_%s_t%dh_b%d_%s' % (args.runmode, args.telescope,args.t_int, 1, datetime.now().strftime("%Y%m%d%H%M%S")))
-
-if not os.path.exists(output_dir):
-    os.mkdir(output_dir)
-    print("created " + output_dir)
-
-file_handler = logging.FileHandler(filename=f"{output_dir}/f21_predict_xgb.log")
-stdout_handler = logging.StreamHandler(stream=sys.stdout)
-handlers = [file_handler, stdout_handler]
-
-logging.basicConfig(level=logging.INFO, handlers=handlers)
-logger = logging.getLogger(__name__)
-logger.info(f"Commandline: {' '.join(sys.argv)}")
+output_dir = base.create_output_dir(args)
+logger = base.setup_logging(output_dir)
 
 sofilepattern = str('%sF21_signalonly_21cmFAST_200Mpc_z%.1f_fX%s_xHI%s_%dkHz.dat' % 
                (args.path, args.redshift,args.log_fx, args.xHI, args.spec_res))
@@ -488,3 +522,4 @@ elif args.runmode == "test_only": # test_only
         y_pred = scaler.unscale_y(y_pred)
         X_test, y_test = scaler.unscaleXy(X_test, y_test)
     base.summarize_test(y_pred, y_test, output_dir=output_dir, showplots=args.interactive)
+

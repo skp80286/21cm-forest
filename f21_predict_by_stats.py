@@ -275,6 +275,8 @@ class SimpleNN(nn.Module):
             y_pred = self(test_inputs)
             return y_pred.detach().cpu().numpy()
 
+
+
 def run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, num_epochs=50, lr=1e-3, batch_size=16, kernel_sizes=[268], input_points_to_use=2546, model_param1=83, model_param2=4, showplots=False, saveplots=True):
     run_description = f"output_dir={output_dir} Commandline: {' '.join(sys.argv)}. Parameters: epochs: {num_epochs}, kernel_sizes: {kernel_sizes}, points: {input_points_to_use}, model_param1={model_param1}, model_param2={model_param2}, label={args.label}"
     logger.info(f"Starting new run: {run_description}")
@@ -287,9 +289,9 @@ def run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, 
         if X_noise is not None: X_noise = X_noise[:, :input_points_to_use]
         X_test = X_test[:, :input_points_to_use]  
         if test_samples is not None: test_samples = test_samples[:,:, :input_points_to_use]
-    
+
     X_train = F21Stats.calculate_stats_torch(X_train, y_train, kernel_sizes)
-    
+
     logger.info(f"Starting training. {X_train.shape},{X_test.shape},{y_train.shape},{y_test.shape}")
 
     if args.regressor == 'linear':

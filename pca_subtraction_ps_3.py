@@ -7,6 +7,7 @@ import F21DataLoader as dl
 import glob
 import f21_predict_base as base
 import F21Stats as f21stats
+import sys
 
 def load_dataset(datafiles, psbatchsize=100, ps_bins=None, limitsamplesize=None, logbinning=False, logpower=False):
     # Create processor with desired number of worker threads
@@ -44,7 +45,7 @@ def load_dataset(datafiles, psbatchsize=100, ps_bins=None, limitsamplesize=None,
     all_ps = np.nan_to_num(all_ps)
     return (all_params, all_freq, all_los, all_ps, all_ks)
 
-def bootstrap(ps):
+def duplicate(ps):
     if ps.shape[0] >= ps.shape[1]: return ps
     dim = ps.shape[1]
     print(f"bootstrapping. {ps.shape}")
@@ -89,15 +90,16 @@ file_path = str('%sF21_noisy_21cmFAST_200Mpc_z%.1f_fX%s_xHI%s_%s_%dkHz_t%dh_Smin
 
 print(file_path)
 # Read the file and extract data
-so_psbatchsize = 100
-if args.create_noisy_ps: so_psbatchsize = 10
-params, freq, los, ps, ks = load_dataset([file_path], psbatchsize=100, limitsamplesize=1000, ps_bins=None, logbinning=args.use_log_binning, logpower=args.use_log_ps)
+so_psbatchsize = 1
+if args.create_noisy_ps: so_psbatchsize = 1
+params, freq, los, ps, ks = load_dataset([file_path], psbatchsize=1, limitsamplesize=1000, ps_bins=None, logbinning=args.use_log_binning, logpower=args.use_log_ps)
 _, _, losso, psso, _ = load_dataset([so_file_path], psbatchsize=so_psbatchsize, limitsamplesize=1000, ps_bins=None, logbinning=args.use_log_binning, logpower=args.use_log_ps)
 _, _, losno, psno, _ = load_dataset([no_file_path], psbatchsize=1000, limitsamplesize=1000, ps_bins=None, logbinning=args.use_log_binning, logpower=args.use_log_ps)
 if args.create_noisy_ps: ps = psso + psno
 ps_mean = np.mean(ps, axis=0)
 psso_mean = np.mean(psso, axis=0)
-#ps = bootstrap(ps)
+ps = f21stats.bootstrap(ps)
+psso = f21stats.bootstrap(psso)
 
 print(f"Shape of ps: {ps.shape}")
 print(f"Shape of psso: {psso.shape}")
@@ -107,7 +109,6 @@ plt.plot(ks[0], ps_mean, label=f"Noisy", color="blue", alpha=0.4)
 plt.plot(ks[0], psso_mean, label=f"Signalonly", color="green", alpha=0.4)
 plt.plot(ks[0], psno[0], "r--", linewidth=0.5, label="Noise")
 plt.xlabel("k (Hz^-1)")
-
 plt.xscale('log')
 if not args.use_log_ps: 
     plt.yscale('log') 
@@ -115,7 +116,7 @@ if not args.use_log_ps:
 else:
     plt.ylabel("log[kP(k)]")
 
-plt.title(f"Original Signal PS without Noise\n(z={args.redshift}, xHI_mean={args.xHI}, logfX={args.log_fx})")
+plt.title(f"Original Signal PS with and without Noise\n(z={args.redshift}, xHI_mean={args.xHI}, logfX={args.log_fx})")
 plt.legend()
 plt.grid(True)
 plt.savefig(f"{output_dir}/sig_only_ps.png")
@@ -142,22 +143,41 @@ print(f"Shape of original signal: {ps.shape}")
 transformed_data = model.fit_transform(ps)
 print(f"Shape of transformed data: {transformed_data.shape}")
 np.savetxt(f"{output_dir}/transformed_data.csv", transformed_data, delimiter=",")
-base.initplt()
-for j in range(10):
-    plt.plot(transformed_data[j], label=f"Transformed Noisy Signal data", color="orange", alpha=0.4)
-plt.xlabel("Eigenmodes")
-plt.title(f"Visualizing PCA transformed noisy signal\n(z={args.redshift}, xHI_mean={args.xHI}, logfX={args.log_fx})")
-#plt.legend()
-plt.grid(True)
-plt.ylabel("PCA mode value")
-plt.savefig(f"{output_dir}/transformed.png")
-plt.show()
 
 ## Transform pure signal and plot components
 print(f"Shape of pure signal: {psso.shape}")
-transformed_data = so_model.fit_transform(psso)
-print(f"Shape of transformed data: {transformed_data.shape}")
+so_transformed_data = model.transform(psso)
+print(f"Shape of so transformed data: {so_transformed_data.shape}")
 np.savetxt(f"{output_dir}/transformed_so_data.csv", transformed_data, delimiter=",")
+
+print(f"Stats on noisy data: {np.var(ps, axis=0)}")
+print(f"Stats on signal only data: {np.var(psso, axis=0)}")
+plt.figure()
+plt.plot(np.var(ps, axis=0))
+plt.plot(np.var(psso, axis=0))
+plt.show()
+#sys.exit()
+
+base.initplt()
+for j in range(len(transformed_data)):
+    if j==0: 
+        label1="Transformed Noisy Signal"
+        label2="Transformed  Signalonly data"
+    else:
+        label1, label2 = None, None
+    plt.plot(transformed_data[j], label=label1, color="orange", alpha=0.2)
+    plt.plot(so_transformed_data[j], label=label2, color="blue", alpha=0.2)
+
+plt.xlabel("Eigenmodes")
+plt.title(f"Visualizing PCA transformed noisy signal\n(z={args.redshift}, xHI_mean={args.xHI}, logfX={args.log_fx})")
+plt.legend()
+plt.grid(True)
+plt.ylabel("PCA mode value")
+if not args.use_log_ps: plt.ylim((-0.0002,0.0002))
+else: plt.ylim((-10,10))
+plt.savefig(f"{output_dir}/transformed.png")
+plt.show()
+
 base.initplt()
 for j in range(10):
     plt.plot(transformed_data[j], label=f"Transformed Pure Signal data", color="orange", alpha=0.4)

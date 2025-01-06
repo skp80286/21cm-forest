@@ -6,6 +6,7 @@ from datetime import datetime
 import numpy as np
 import logging
 import F21DataLoader as dl
+from scipy.stats import binned_statistic
 
 class F21Stats:
     logger = logging.getLogger(__name__)
@@ -148,7 +149,7 @@ def logbin_power_spectrum_by_k(ks, ps, silent=True):
 
     if not silent: F21Stats.logger.info(f"logbin_power_spectrum_by_k: final ks: {binlist[0,:5]}..{binlist[0,-5:]}")
     if not silent: F21Stats.logger.info(f"final ps: {pslist[0,:5]}..{pslist[0,-5:]}")
-    return binlist, pslist
+    return binlist[:,3:5], pslist[:,3:5]
 
 def logbin_power_spectrum_by_k_flex(ks, ps, ps_bins_to_make, perc_ps_bins_to_use):
     num_bins = ps_bins_to_make*perc_ps_bins_to_use//100
@@ -178,3 +179,51 @@ def logbin_power_spectrum_by_k_flex(ks, ps, ps_bins_to_make, perc_ps_bins_to_use
         pslist[i,:] = hist[0]
 
     return bin_centers, pslist[:,:num_bins]
+
+def linbin_ps(ks, ps, ps_bins_to_make, perc_ps_bins_to_use):
+    if ps.shape[1] <  ps_bins_to_make:
+        ps_bins_to_make = ps.shape[1]
+
+    num_bins_to_retain = (ps_bins_to_make*perc_ps_bins_to_use)//100
+
+    if ps_bins_to_make < ps.shape[1]:
+        ps_binned = []
+        k_binned = []
+        for (k, x) in zip(ks, ps):
+            print(f"k:{k}\nx:{x}")
+            x_bin, k_bin_edges, _ = binned_statistic(k, x, statistic='mean', bins=ps_bins_to_make)
+            ps_binned.append(x_bin)
+            k_bin = 0.5 *(k_bin_edges[:-1] + k_bin_edges[1:])
+            k_binned.append(k_bin)
+        ps_binned = np.array(ps_binned)
+        k_binned = np.array(k_binned)
+    else:
+        ps_binned = ps
+        k_binned = ks
+    return k_binned[:,:num_bins_to_retain], ps_binned[:,:num_bins_to_retain]
+
+def bin_ps_data(X, ps_bins_to_make, perc_ps_bins_to_use):
+    if X.shape[1] <  ps_bins_to_make:
+        ps_bins_to_make = X.shape[1]
+
+    num_bins = (ps_bins_to_make*perc_ps_bins_to_use)//100
+
+    if ps_bins_to_make < X.shape[1]:
+        fake_ks = range(X.shape[1])
+        X_binned = []
+        for x in X:
+            ps, _, _ = binned_statistic(fake_ks, x, statistic='mean', bins=ps_bins_to_make)
+            X_binned.append(ps)
+        X_binned = np.array(X_binned)
+    else:
+        X_binned = X
+    return X_binned[:,:num_bins]
+
+def bootstrap(ps, reps=1382, size=10):
+    ps_sets = []
+    for _ in range(reps):
+        #pick 10 samples
+        rdm = np.random.randint(len(ps), size=size)
+        ps_set = ps[rdm]
+        ps_sets.append(np.mean(ps_set, axis=0))
+    return np.array(ps_sets)
