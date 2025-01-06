@@ -585,7 +585,7 @@ def setup_args_parser():
     parser.add_argument('--use_saved_los_data', action='store_true', help='load LoS data from pkl file.')
     parser.add_argument('--epochs', type=int, default=15, help='Number of epoch of training.')
     parser.add_argument('--trainingbatchsize', type=int, default=32, help='Size of batch for training.')
-    parser.add_argument('--input_points_to_use', type=int, default=2560, help='use the first n points of los. ie truncate the los to first 690 points')
+    parser.add_argument('--input_points_to_use', type=int, default=2048, help='use the first n points of los. ie truncate the los to first 690 points')
     parser.add_argument('--scale_y', action='store_true', help='Scale the y parameters (logfX).')
     parser.add_argument('--scale_y0', action='store_true', help='Scale the y parameters (xHI).')
     parser.add_argument('--scale_y1', action='store_true', help='Scale logfx and calculate product of logfx with xHI.')

@@ -27,7 +27,7 @@ import matplotlib.pyplot as plt
 import optuna
 
 class UnetModel(nn.Module):
-    def __init__(self, input_size, output_size, kernel1, kernel2, dropout):
+    def __init__(self, input_size, output_size, kernel1, kernel2, dropout, step=4):
         super(UnetModel, self).__init__()
         
         kernel_size = kernel1
@@ -36,67 +36,83 @@ class UnetModel(nn.Module):
             nn.Conv1d(1, 64, kernel_size, padding=kernel_size//2),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.MaxPool1d(4)
+            nn.AvgPool1d(step)
         )
         
-        kernel_size = kernel_size//4
+        kernel_size = kernel_size//step
         self.enc2 = nn.Sequential(
             nn.Conv1d(64, 128, kernel_size, padding=kernel_size//2),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.MaxPool1d(4)
+            nn.AvgPool1d(step)
         )
         
-        kernel_size = kernel_size//4
+        kernel_size = kernel_size//step
         self.enc3 = nn.Sequential(
             nn.Conv1d(128, 256, kernel_size, padding=kernel_size//2),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.MaxPool1d(4)
+            nn.AvgPool1d(step)
         )
         
-        kernel_size = kernel_size//4
+        kernel_size = kernel_size//step
         self.enc4 = nn.Sequential(
             nn.Conv1d(256, 512, kernel_size, padding=kernel_size//2),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.MaxPool1d(4)
+            nn.AvgPool1d(step)
         )
+        """
+        kernel_size = kernel_size//step
+        self.enc5 = nn.Sequential(
+            nn.Conv1d(512, 512, kernel_size, padding=kernel_size//2),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.MaxPool1d(step)
+        )
+        """
         
         # Decoder 
+        """
+        self.dec0 = nn.Sequential(
+            nn.ConvTranspose1d(512, 512, step, stride=4, output_padding=0),
+            nn.ReLU(),
+            nn.Dropout(dropout)
+        )
+        """
         self.dec1 = nn.Sequential(
-            nn.ConvTranspose1d(512, 256, 4, stride=4, output_padding=0),
+            nn.ConvTranspose1d(512, 256, step, stride=step, output_padding=0),
             nn.ReLU(),
             nn.Dropout(dropout)
         )
         
         self.dec2 = nn.Sequential(
-            nn.ConvTranspose1d(512, 128, 4, stride=4, output_padding=0),
+            nn.ConvTranspose1d(512, 128, step, stride=step, output_padding=0),
             nn.ReLU(),
             nn.Dropout(dropout)
         )
         
         self.dec3 = nn.Sequential(
-            nn.ConvTranspose1d(256, 64, 4, stride=4, output_padding=0), 
+            nn.ConvTranspose1d(256, 64, step, stride=step, output_padding=0), 
             nn.ReLU(),
             nn.Dropout(dropout)
         )
         
         self.dec4 = nn.Sequential(
-            nn.ConvTranspose1d(128, 32, 4, stride=4, output_padding=0),
+            nn.ConvTranspose1d(128, 32, step, stride=step, output_padding=0),
             nn.ReLU(),
             nn.Dropout(dropout)
         )
 
         # Dense layers after enc4 for parameters extraction
-        self.dense1 = nn.Linear(5120, 256)  # First dense layer
+        self.dense1 = nn.Linear(input_size*512//step**4, 256)  # First dense layer
         self.dense2 = nn.Linear(256, 64)  # Second dense layer
         self.dense3 = nn.Linear(64, 2)    # Third dense layer (output 2 values)
 
         # Final layer
         # Modify the final layer to output the correct shape
         self.final = nn.Sequential(
-            nn.Conv1d(32, 1, 1),  # Change output channels to 1
+            nn.Conv1d(33, 1, 1),  # Change output channels to 1
             nn.Flatten()  # Add flatten layer to match target shape
         )
 
@@ -141,6 +157,8 @@ class UnetModel(nn.Module):
         dec3 = torch.cat([dec3, enc1], dim=1)
         
         dec4 = self.dec4(dec3)
+        #print(f"After dec4: {dec4.shape}")
+        dec4 = torch.cat([dec4, x], dim=1)
  
         #print(f"Before final: {dec4.shape}")
         out = self.final(dec4)
@@ -152,13 +170,22 @@ class UnetModel(nn.Module):
         #print(f"Output shape: {out.shape}")
         return out
 
+    def save_model(self, file_path):
+        """Save the model to a file."""
+        torch.save(self.state_dict(), file_path)  # Save the model's state_dict
+
+    def load_model(self, file_path):
+        """Load the model from a file."""
+        self.load_state_dict(torch.load(file_path))  # Load the model's state_dict
+        self.eval()  # Set the model to evaluation mode
+
 class ModelTester:
     def __init__(self, model, criterion, input_points_to_use):
         self.model = model
         self.criterion = criterion
         self.input_points_to_use = input_points_to_use
     
-    def test(self, los_test, p_test, stats_test, y_test, los_so, silent=False):
+    def test(self, los_test, p_test, stats_test, y_test, los_so, silent=True):
         if self.input_points_to_use is not None: 
             los_test = los_test[:, :self.input_points_to_use]
             los_so = los_so[:, :self.input_points_to_use]
@@ -180,7 +207,7 @@ class ModelTester:
             if not silent: logger.info(f"Shape of test_input, test_output: {test_input.shape}, {test_output.shape}")
             y_pred_tensor = self.model(test_input)
             test_loss = self.criterion(y_pred_tensor, test_output)
-            if not silent: logger.info(f'Test Loss: {test_loss.item():.4f}')
+            if not silent: logger.info(f'Test Loss: {test_loss.item():.8f}')
 
             # Calculate R2 scores
             y_pred_np = y_pred_tensor.detach().cpu().numpy()
@@ -193,7 +220,7 @@ class ModelTester:
             rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test, axis=0)
             if not silent: logger.info("RMS Error: " + str(rms_scores_percent))
 
-            if not silent: plot_predictions(los_so, y_pred_so)
+            if not silent: plot_predictions(los_so, y_pred_so, label=f"xHI{y_test[0][0]:.2f}_logfx{y_test[0][1]:.2f}")
     
             if y_pred.ndim==1:
                 y_pred = y_pred.reshape(len(y_pred),1)
@@ -272,21 +299,21 @@ class CustomLoss(nn.Module):
 
         return total_loss
     
-def plot_predictions(y_test_so, y_pred_so, samples=1, showplots=True, saveplots=True):
+def plot_predictions(y_test_so, y_pred_so, samples=1, showplots=False, saveplots=True, label=''):
     plt.rcParams['figure.figsize'] = [15, 9]
-    plt.title(f'Reconstructed LoS vs Actual Noiseless LoS')
+    plt.title(f'Reconstructed LoS vs Actual Noiseless LoS {label}')
     for i, (test, pred) in enumerate(zip(y_test_so[:samples], y_pred_so[:samples])):
         plt.plot(test, label='Actual')
-        plt.plot(pred, label='Reconstructed')
+        plt.plot(pred+0.05, label='Reconstructed')
         if i> 2: break
     plt.xlabel('frequency'), 
     plt.ylabel('flux/S147')
     plt.legend()
     if showplots: plt.show()
-    if saveplots: plt.savefig(f"{output_dir}/reconstructed_los.png")
+    if saveplots: plt.savefig(f"{output_dir}/reconstructed_los_{label}.png")
     plt.clf()
 
-def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, num_epochs, batch_size, lr, kernel1, kernel2, dropout, input_points_to_use, showplots=False, saveplots=True):
+def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, num_epochs, batch_size, lr, kernel1, kernel2, dropout, step, input_points_to_use, showplots=False, saveplots=True):
     run_description = f"Commandline: {' '.join(sys.argv)}. Parameters: epochs: {num_epochs}, batch_size: {batch_size}, lr: {lr}, kernel_sizes: [{kernel1}, {kernel2}], dropout: {dropout}, points: {input_points_to_use}, label={args.label}"
     logger.info(f"Starting new run: {run_description}")
     logger.info(f"Before scale train: {y_train[:1]}")
@@ -296,9 +323,7 @@ def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, num_epochs, bat
     if input_points_to_use is not None:
         X_train = X_train[:, :input_points_to_use]
         y_train_so = y_train_so[:, :input_points_to_use]
-        X_test = X_test[:, :input_points_to_use]  
-        y_test_so = y_test_so[:, :input_points_to_use]  
-    logger.info(f"Starting training. {X_train.shape},{X_test.shape},{y_train.shape},{y_test.shape},{y_train_so.shape},{y_test_so.shape}")
+    logger.info(f"Starting training. {X_train.shape},{y_train.shape},{y_train_so.shape}")
 
     #kernel2 = calc_odd_half(kernel1)
     # Convert data to PyTorch tensors
@@ -309,20 +334,7 @@ def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, num_epochs, bat
     train_dataset = TensorDataset(inputs, outputs)
     dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
-    # Initialize the network
-    device = (
-        "cuda"
-        if torch.cuda.is_available()
-        else "mps"
-        if torch.backends.mps.is_available()
-        else "cpu"
-    )
-
-    logger.info("####")
-    logger.info(f"### Using \"{device}\" device ###")
-    logger.info("####")
-
-    model = UnetModel(input_size=len(X_train[0]), output_size=len(y_train[0]), kernel1=kernel1, kernel2=kernel2, dropout=dropout)
+    model = UnetModel(input_size=len(X_train[0]), output_size=len(y_train[0]), kernel1=kernel1, kernel2=kernel2, dropout=dropout, step=step)
     logger.info(f"Created model: {model}")
     # Loss function and optimizer
     #criterion = CustomLoss()  # You can adjust alpha as needed
@@ -356,11 +368,11 @@ def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, num_epochs, bat
             running_loss += loss.item()
         
         # Print loss for every epoch
-        logger.info(f'Epoch [{epoch+1}/{num_epochs}], Loss: {running_loss / len(dataloader):.4f}')
+        logger.info(f'Epoch [{epoch+1}/{num_epochs}], Loss: {running_loss / len(dataloader):.8f}')
 
     # Evaluate the model (on a test set, here we just use the training data for simplicity)
     model.eval()  # Set the model to evaluation mode
-    #save_model(model)
+    model.save_model(f"{output_dir}/unet_model.pth")  # Save the model to a specified path
 
         #y_pred_params = base.unscale_y(y_pred[:2], args)
         #X_test, y_test = base.unscaleXy(X_test, y_test, args)
@@ -374,6 +386,14 @@ def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, num_epochs, bat
     elif args.logfx_only: combined_r2 = r2
     else: combined_r2 = 0.5*(r2[0]+r2[1])
     """
+    return test(X_test, y_test, y_test_so, model, criterion, input_points_to_use, run_description)
+
+def test(X_test, y_test, y_test_so, model, criterion, input_points_to_use, run_description):
+    if input_points_to_use is not None:
+        X_test = X_test[:, :input_points_to_use]  
+        y_test_so = y_test_so[:, :input_points_to_use]  
+    logger.info(f"Starting testing. {X_test.shape},{y_test.shape},{y_test_so.shape}")
+
     tester = ModelTester(model, criterion, input_points_to_use)
     if args.test_multiple:
         all_y_pred, all_y_test = base.test_multiple(tester, test_files, reps=args.test_reps, skip_stats=True, use_bispectrum=False, skip_ps=True, so_datafiles=sotest_files)
@@ -401,7 +421,7 @@ def objective(trial):
     params = {
         'num_epochs': trial.suggest_int('num_epochs', 12, 24),
         'batch_size': 32, #trial.suggest_categorical('batch_size', [16, 32, 48]),
-        'learning_rate': 0.002, # trial.suggest_float('learning_rate', 7e-4, 7e-3, log=True), # 0.0019437504084241922, 
+        'learning_rate': 0.001, # trial.suggest_float('learning_rate', 7e-4, 7e-3, log=True), # 0.0019437504084241922, 
         'kernel1': trial.suggest_int('kernel1', 33, 33, step=10),
         'kernel2': trial.suggest_int('kernel2', 33, 33, step=10),
         'dropout': 0.2, #trial.suggest_categorical('dropout', [0.2, 0.3, 0.4, 0.5]),
@@ -431,9 +451,18 @@ parser = base.setup_args_parser()
 parser.add_argument('--test_multiple', action='store_true', help='Test 1000 sets of 10 LoS for each test point and plot it')
 parser.add_argument('--test_reps', type=int, default=10000, help='Test repetitions for each parameter combination')
 args = parser.parse_args()
+if args.input_points_to_use not in [2048, 128]: raise ValueError(f"Invalid input_points_to_use {args.input_points_to_use}")
+if args.input_points_to_use == 2048: 
+    step = 4
+    kernel1 = 256
+else: 
+    step = 2
+    kernel1 = 16
 
 output_dir = base.create_output_dir(args=args)
 logger = base.setup_logging(output_dir)
+
+logger.info(f"input_points={args.input_points_to_use}, kernel1={kernel1}, step={step}")
 
 datafiles = base.get_datafile_list(type='noisy', args=args)
 so_datafiles = base.get_datafile_list(type='signalonly', args=args)
@@ -458,19 +487,38 @@ for sof, nof in zip(so_datafiles, datafiles):
 validate_filelist(train_files, sotrain_files, test_files, sotest_files)
 scaler = Scaling.Scaler(args)
 
-if args.runmode in ("train_test", "optimize") :
-    logger.info(f"Loading train dataset {len(train_files)}")
-    X_train, y_train, _ = base.load_dataset(train_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
-    y_train_so, _, _ = base.load_dataset(sotrain_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
-    logger.info(f"Loaded datasets X_train:{X_train.shape} y_train:{y_train.shape} y_train_so:{y_train_so.shape}")
+# Initialize the network
+device = (
+    "cuda"
+    if torch.cuda.is_available()
+    else "mps"
+    if torch.backends.mps.is_available()
+    else "cpu"
+)
+
+logger.info("####")
+logger.info(f"### Using \"{device}\" device ###")
+logger.info("####")
+
+if args.runmode in ("train_test", "test_only", "optimize") :
+    if args.runmode in ("train_test", "optimize") :
+        logger.info(f"Loading train dataset {len(train_files)}")
+        X_train, y_train, _ = base.load_dataset(train_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
+        y_train_so, _, _ = base.load_dataset(sotrain_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
+        logger.info(f"Loaded datasets X_train:{X_train.shape} y_train:{y_train.shape} y_train_so:{y_train_so.shape}")
     logger.info(f"Loading test dataset {len(test_files)}")
     X_test, y_test, _ = base.load_dataset(test_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
     y_test_so, _, _ = base.load_dataset(sotest_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
     logger.info(f"Loaded dataset X_test:{X_test.shape} y_test:{y_test.shape} y_test_so:{y_test_so.shape}")
 
     if args.runmode == "train_test":
-        run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, args.epochs, args.trainingbatchsize, lr=0.0019437504084241922, kernel1=269, kernel2=269, dropout=0.2, input_points_to_use=args.input_points_to_use, showplots=args.interactive)
-
+        run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, args.epochs, args.trainingbatchsize, lr=0.001, kernel1=kernel1, kernel2=kernel1, dropout=0.2, step=step, input_points_to_use=args.input_points_to_use, showplots=args.interactive)
+    elif args.runmode == "test_only":
+        logger.info(f"Loading model from file {args.modelfile}")
+        model = UnetModel(input_size=args.input_points_to_use, output_size=args.input_points_to_use+2, kernel1=kernel1, kernel2=kernel1, dropout=0.2, step=step)
+        model.load_model(args.modelfile)
+        logger.info(f"testing with {len(X_test)} test cases")
+        test(X_test, y_test, y_test_so, model, nn.MSELoss(), args.input_points_to_use, "test_only")
     elif args.runmode == "optimize":
         # Create study object
         study = optuna.create_study(direction="maximize")
