@@ -156,9 +156,9 @@ class ModelTester:
         if not silent: logger.info(f"Testing dataset: X:{X_test.shape} y:{y_test.shape}")
         #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Binned_PS_with_noise")
 
-        if not silent: logger.info(f"Before scale y_test: {y_test[:1]}")
+        #if not silent: logger.info(f"Before scale y_test: {y_test[:1]}")
         X_test, y_test = scaler.scaleXy(X_test, y_test)
-        if not silent: logger.info(f"After scale y_test: {y_test[:1]}")
+        #if not silent: logger.info(f"After scale y_test: {y_test[:1]}")
 
         if args.subtractnoise:
             if not silent: logger.info(f"Subtracting noise from test data. Shapes: {X_test.shape} {self.X_noise.shape}")
@@ -174,7 +174,7 @@ class ModelTester:
         #print(f"stats_test.shape={stats_test.shape}")
         X_test_pca = self.pca_model.transform(X_test)
         if not silent: logger.info("Testing prediction")
-        if not silent: logger.info(f"Sample data before testing y:{y_test[0]}\nX:{X_test_pca[0]}")
+        #if not silent: logger.info(f"Sample data before testing y:{y_test[0]}\nX:{X_test_pca[0]}")
         if args.dump_all_training_data: np.savetxt(f"{output_dir}/all_test_data.csv", np.hstack((X_test_pca, y_test)), delimiter=",")
         y_pred = self.model.predict(X_test_pca)
 
@@ -192,18 +192,18 @@ class ModelTester:
             else:
                 r2 = r2_score(y_test, y_pred)
         else:
-            if not silent: logger.info(f"Prediction vs Test data: \n{np.hstack((y_pred, y_test))[:5]}")
+            #if not silent: logger.info(f"Prediction vs Test data: \n{np.hstack((y_pred, y_test))[:5]}")
             # Evaluate the model (on a test set, here we just use the training data for simplicity)
             r2 = [r2_score(y_test[:, i], y_pred[:, i]) for i in range(len(y_pred[0]))]
-        if not silent: logger.info("R2 Score: " + str(r2))
+        #if not silent: logger.info("R2 Score: " + str(r2))
 
-        if not silent: logger.info(f"Before unscale y_pred: {y_pred[:1]}")
+        #if not silent: logger.info(f"Before unscale y_pred: {y_pred[:1]}")
         y_pred = scaler.unscale_y(y_pred)
-        if not silent: logger.info(f"After unscale y_pred: {y_pred[:1]}")
-        if not silent: logger.info(f"Before unscale y_test: {y_test[:1]}")
+        #if not silent: logger.info(f"After unscale y_pred: {y_pred[:1]}")
+        #if not silent: logger.info(f"Before unscale y_test: {y_test[:1]}")
         X_test, y_test = scaler.unscaleXy(X_test, y_test)
-        if not silent: logger.info(f"After unscale y_test: {y_test[:1]}")
-        if not silent: logger.info(f"unscaled test result {X_test.shape} {y_test.shape} {y_pred.shape}")
+        #if not silent: logger.info(f"After unscale y_test: {y_test[:1]}")
+        #if not silent: logger.info(f"unscaled test result {X_test.shape} {y_test.shape} {y_pred.shape}")
 
         # Calculate rmse scores
         #rms_scores = [mean_squared_error(y_test[:, i], y_pred[:, i]) for i in range(len(y_pred[0]))]
@@ -255,9 +255,9 @@ def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_tr
             random_state=42
         )
     """
-    pca_model = PCAModel(scaler)
+    pca_model = PCAModel(scaler, logscale=args.pca_logscale, high_eigenmodes=args.pca_high_eigenmodes)
     pca_model.fit()
-    X_train_pca = pca_model.transform(X_train)
+    X_train_pca = pca_model.transform( X_train)
     logger.info(f"Sample data before fitting y:{y_train[0]}\nX:{X_train_pca[0]}")
     logger.info(f"Fitting regressor: {reg}")
     if args.dump_all_training_data: np.savetxt(f"{output_dir}/all_training_data.csv", np.hstack((X_train_pca, y_train)), delimiter=",")
@@ -325,31 +325,40 @@ def objective(trial):
 
 
 class PCAModel:
-    def __init__(self, scaler=None):
+    def __init__(self, scaler=None, logscale=True, high_eigenmodes=True):
         self.model = None
         self.scaler = scaler
+        self.logscale = logscale
+        self.high_eigenmodes = high_eigenmodes
+        logger.info(f"PCA model created: logscale:{self.logscale}, high_eigenmodes:{self.high_eigenmodes}")
 
     def fit(self):
-        
-        (_, ps, _, _) = load_dataset(["../data/21cmFAST_los/F21_noisy/F21_signalonly_21cmFAST_200Mpc_z6.0_fX-4.00_xHI0.94_8kHz.dat"], psbatchsize=1, limitsamplesize=1000)
-        #(_, ps, _, _) = load_dataset(["../data/21cmFAST_los/F21_noisy/F21_noisy_21cmFAST_200Mpc_z6.0_fX-4.00_xHI0.94_uGMRT_8kHz_t500h_Smin64.2mJy_alphaR-0.44.dat"], psbatchsize=1, limitsamplesize=1000)
-        #(_, ps, _, _) = load_dataset(["../data/21cmFAST_los/F21_noisy/F21_noisy_21cmFAST_200Mpc_z6.0_fX-1.60_xHI0.15_uGMRT_8kHz_t500h_Smin64.2mJy_alphaR-0.44.dat"], psbatchsize=1, limitsamplesize=1000)
+        #filename = f"{args.path}F21_signalonly_21cmFAST_200Mpc_z6.0_fX-4.00_xHI0.94_8kHz.dat"
+        filename = f"{args.path}F21_noisy_21cmFAST_200Mpc_z6.0_fX-4.00_xHI0.94_uGMRT_8kHz_t500h_Smin64.2mJy_alphaR-0.44.dat"
+        #filename = f"{args.path}F21_noisy_21cmFAST_200Mpc_z6.0_fX-1.60_xHI0.15_uGMRT_8kHz_t500h_Smin64.2mJy_alphaR-0.44.dat"
+        logger.info(f"Loading fit data for PCA from: {filename}")
+        (_, ps, _, _) = load_dataset([filename], psbatchsize=1, limitsamplesize=1000)
         #ps = np.log(ps)
         #ps_mean = np.mean(ps, axis=1)
         ps = f21stats.bootstrap(ps)
 
         num_components = min(ps.shape[0], ps.shape[1])
         self.model = PCA(n_components=num_components)
+        if self.logscale: ps = np.log(np.clip(ps,1e-20,None))
         tx = self.model.fit_transform(ps)
         #tx = tx + ps
-        print(f"Shape of transformed data: {tx.shape}")
+        logger.info(f"PCA model fitting: Shape of transformed data: {tx.shape}")
 
     def transform(self, X):
         #X = np.log(X)
         #X_mean = np.mean(X, axis=1)
         if self.model is None: raise ValueError("PCA model is not initialized!")
+        if self.logscale: X = np.log(np.clip(X,1e-20,None))
         tx = self.model.transform(X)
         #tx = tx + X
+        if self.high_eigenmodes:
+            #logger.info(f"Reducing eigenmodes. Original:{tx.shape[1]}, Reduced{tx.shape[1]//2}")
+            tx = tx[:,tx.shape[1]//2:]
         return tx
 
 # main code start here
@@ -402,7 +411,8 @@ parser.add_argument('--use_bispectrum', action='store_true', help='Use bispectru
 parser.add_argument('--signalonly_training', action='store_true', help='Use signalonly LoS for traning')
 parser.add_argument('--use_log_bins', action='store_true', help='Use logarithmically binned Powerspectrum')
 parser.add_argument('--use_linear_bins', action='store_true', help='Use linearly binned Powerspectrum')
-
+parser.add_argument('--pca_logscale', action='store_true', help='Use log of PS for PCA')
+parser.add_argument('--pca_high_eigenmodes', action='store_true', help='Use only high eigenmodes')
 args = parser.parse_args()
 print(args)
 if args.perc_ps_bins_to_use < 5 or args.perc_ps_bins_to_use > 100: raise ValueError("--perc_ps_bins_to_use not in acceptable range!")
