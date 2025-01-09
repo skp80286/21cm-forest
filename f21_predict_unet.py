@@ -17,23 +17,23 @@ from datetime import datetime
 import F21DataLoader as dl
 import f21_predict_base as base
 import Scaling
+import PS1D
 
 import numpy as np
 import sys
-
 
 import matplotlib.pyplot as plt
 
 import optuna
 
 class UnetModel(nn.Module):
-    def __init__(self, input_size, output_size, kernel1, kernel2, dropout, step=4):
+    def __init__(self, input_size, input_channels, output_size, kernel1, kernel2, dropout, step=4):
         super(UnetModel, self).__init__()
         
         kernel_size = kernel1
         # Encoder (unchanged)
         self.enc1 = nn.Sequential(
-            nn.Conv1d(1, 64, kernel_size, padding=kernel_size//2),
+            nn.Conv1d(input_channels, 64, kernel_size, padding=kernel_size//2),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.AvgPool1d(step)
@@ -111,15 +111,19 @@ class UnetModel(nn.Module):
 
         # Final layer
         # Modify the final layer to output the correct shape
+        channels = 32 + input_channels
         self.final = nn.Sequential(
-            nn.Conv1d(33, 1, 1),  # Change output channels to 1
+            nn.Conv1d(channels, 1, 1),  # Change output channels to 1
             nn.Flatten()  # Add flatten layer to match target shape
         )
 
     def forward(self, x):
         # Print shapes for debugging
         #print(f"Input shape: {x.shape}")
-        x = x.unsqueeze(1)
+        # If input is single channel, add channel dimension
+        if len(x.shape) == 2:
+            x = x.unsqueeze(1)  # Add channel dimension
+        # If input already has channels, it will remain unchanged
         #print(f"After unsqueeze: {x.shape}")        
         # Encoder
         enc1 = self.enc1(x)
@@ -180,10 +184,12 @@ class UnetModel(nn.Module):
         self.eval()  # Set the model to evaluation mode
 
 class ModelTester:
-    def __init__(self, model, criterion, input_points_to_use):
+    def __init__(self, model, criterion, input_points_to_use, noise):
         self.model = model
         self.criterion = criterion
         self.input_points_to_use = input_points_to_use
+        if noise is not None: self.noise = noise[:, :self.input_points_to_use]
+        else: self.noise = None
     
     def test(self, los_test, p_test, stats_test, y_test, los_so, silent=True):
         if self.input_points_to_use is not None: 
@@ -191,19 +197,19 @@ class ModelTester:
             los_so = los_so[:, :self.input_points_to_use]
 
         if not silent: logger.info(f"Testing dataset: X:{los_test.shape} y:{y_test.shape}")
-        if not silent: logger.info(f"Before scale y_test: {y_test[:1]}")
+        #if not silent: logger.info(f"Before scale y_test: {y_test[:1]}")
         los_test, y_test = scaler.scaleXy(los_test, y_test)
-        if not silent: logger.info(f"After scale y_test: {y_test[:1]}")
+        #if not silent: logger.info(f"After scale y_test: {y_test[:1]}")
 
-        if not silent: logger.info("Testing prediction")
-        if not silent: logger.info(f"Sample data before testing y:{y_test[0]}\nX:{los_test[0]}")
+        #if not silent: logger.info("Testing prediction")
+        #if not silent: logger.info(f"Sample data before testing y:{y_test[0]}\nX:{los_test[0]}")
 
         r2 = None
         with torch.no_grad():
             # Test the model
             if not silent: logger.info("Testing prediction")
 
-            test_input, test_output = convert_to_pytorch_tensors(los_test, y_test, los_so)
+            test_input, test_output = convert_to_pytorch_tensors(los_test, y_test, los_so, self.noise)
             if not silent: logger.info(f"Shape of test_input, test_output: {test_input.shape}, {test_output.shape}")
             y_pred_tensor = self.model(test_input)
             test_loss = self.criterion(y_pred_tensor, test_output)
@@ -214,13 +220,14 @@ class ModelTester:
             y_pred = y_pred_np[:,:2]
             y_pred_so = y_pred_np[:,2:]
             r2 = r2_score(y_test, y_pred)
-            if not silent: logger.info("R2 Score: " + str(r2))
+            #if not silent: logger.info("R2 Score: " + str(r2))
             # Calculate rmse scores
             rms_scores = mean_squared_error(y_test, y_pred)
             rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test, axis=0)
             if not silent: logger.info("RMS Error: " + str(rms_scores_percent))
 
-            if not silent: plot_predictions(los_so, y_pred_so, label=f"xHI{y_test[0][0]:.2f}_logfx{y_test[0][1]:.2f}")
+            if not silent: plot_predictions(los_test, los_so, y_pred_so, label=f"xHI{y_test[0][0]:.2f}_logfx{5.0*(y_test[0][1] - 0.8):.2f}")
+            if not silent: analyse_predictions(los_test, los_so, y_pred_so, label=f"xHI{y_test[0][0]:.2f}_logfx{5.0*(y_test[0][1] - 0.8):.2f}")
     
             if y_pred.ndim==1:
                 y_pred = y_pred.reshape(len(y_pred),1)
@@ -239,15 +246,15 @@ class ModelTester:
                 if not silent: logger.info(f"Prediction vs Test data: \n{np.hstack((y_pred, y_test))[:5]}")
                 # Evaluate the model (on a test set, here we just use the training data for simplicity)
                 r2 = [r2_score(y_test[:, i], y_pred[:, i]) for i in range(len(y_pred[0]))]
-            if not silent: logger.info("R2 Score: " + str(r2))
+            #if not silent: logger.info("R2 Score: " + str(r2))
 
-            if not silent: logger.info(f"Before unscale y_pred: {y_pred[:1]}")
+            #if not silent: logger.info(f"Before unscale y_pred: {y_pred[:1]}")
             y_pred = scaler.unscale_y(y_pred)
-            if not silent: logger.info(f"After unscale y_pred: {y_pred[:1]}")
-            if not silent: logger.info(f"Before unscale y_test: {y_test[:1]}")
+            #if not silent: logger.info(f"After unscale y_pred: {y_pred[:1]}")
+            #if not silent: logger.info(f"Before unscale y_test: {y_test[:1]}")
             los_test, y_test = scaler.unscaleXy(los_test, y_test)
-            if not silent: logger.info(f"After unscale y_test: {y_test[:1]}")
-            if not silent: logger.info(f"unscaled test result {los_test.shape} {y_test.shape} {y_pred.shape}")
+            #if not silent: logger.info(f"After unscale y_test: {y_test[:1]}")
+            #if not silent: logger.info(f"unscaled test result {los_test.shape} {y_test.shape} {y_pred.shape}")
 
             # Calculate rmse scores
             #rms_scores = [mean_squared_error(y_test[:, i], y_pred[:, i]) for i in range(len(y_pred[0]))]
@@ -274,13 +281,28 @@ def validate_filelist(train_files, so_train_files, test_files, so_test_files):
         if test_file_parts != so_test_file_parts:
             raise ValueError(f'Mismatch in file name. {test_file_parts} does not match {so_test_file_parts}')
 
-def convert_to_pytorch_tensors(X, y, y_so):
-    #y_combined = np.hstack(y, y_so)
-    # Convert to PyTorch tensors with float32 dtype
-    X_tensor = torch.tensor(X, dtype=torch.float32)
-    y_tensor = torch.tensor(np.hstack((y, y_so)), dtype=torch.float32)
+def convert_to_pytorch_tensors(X, y, y_so, X_noise):
+# Create different channel representations based on args.channels
+    channels = []
+    logger.info(f"Appending channel with shape: {X.shape}")
+    channels.append(X)
+
+    # Channel 1: Noise
+    if args.use_noise_channel:
+        noisechannel = np.repeat(X_noise, repeats=len(X), axis=0)
+        logger.info(f"Appending channel with shape: {noisechannel.shape}")
+        channels.append(noisechannel)
+
+    # Stack channels along a new axis
+    combined_input = np.stack(channels, axis=1)
     
-    return X_tensor, y_tensor
+    # Convert to PyTorch tensors with float32 dtype
+    X_tensor = torch.tensor(combined_input, dtype=torch.float32)
+    y_tensor = torch.tensor(np.hstack((y, y_so)), dtype=torch.float32)
+
+    logger.info(f"convert_to_pytorch_tensors: shape of tensors: X:{X_tensor.shape}, Y: {y_tensor.shape}")
+
+    return X_tensor, y_tensor 
 
 class CustomLoss(nn.Module):
     def __init__(self, alpha=0.5):
@@ -299,12 +321,54 @@ class CustomLoss(nn.Module):
 
         return total_loss
     
-def plot_predictions(y_test_so, y_pred_so, samples=1, showplots=False, saveplots=True, label=''):
+def plot_power_spectra(ps_set, ks, title, labels, xscale='log', yscale='log', showplots=False, saveplots=True):
+    print(f"shapes: {ps_set.shape},{ks.shape}")
+
+    base.initplt()
+    plt.title(f'{title}')
+    if len(ps_set.shape) > 1:
+        for i, ps in enumerate(ps_set):
+            if labels is not None: label = labels[i]
+            row_ks = None
+            if ks is not None:
+                if len(ks.shape) > 1: row_ks = ks[i]
+                else: row_ks = ks
+            plt.plot(row_ks*1e6, ps, label=label, marker='o')
+    else:
+        row_ks = None
+        if ks is not None:
+                if len(ks.shape) > 1: row_ks = ks[0]
+                else: row_ks = ks
+        plt.plot(ks*1e6, ps, label=label, marker='o')
+        #plt.scatter(ks[1:]*1e6, ps[1:], label=label)
+    plt.xscale(xscale)
+    plt.yscale(yscale)
+    plt.xlabel(r'k (Hz$^{-1}$)')
+    plt.ylabel(r'$kP_{21}$')
+    plt.legend()
+    if showplots: plt.show()
+    if saveplots: plt.savefig(f"{output_dir}/reconstructed_ps_{title}.png")
+    plt.clf()
+
+def analyse_predictions(los_test, y_test_so, y_pred_so, samples=1, showplots=False, saveplots=True, label='', signal_bandwidth=22089344.0):
+    ks_noisy, ps_noisy = PS1D.get_P_set(los_test, signal_bandwidth, scaled=True)
+    logger.info(f'get_P_set: {ks_noisy.shape}, {ps_noisy.shape},')
+    ps_noisy_mean = np.mean(ps_noisy, axis=0)
+    ks_so, ps_so = PS1D.get_P_set(y_test_so, signal_bandwidth, scaled=True)
+    ps_so_mean = np.mean(ps_so, axis=0)
+    ks_pred, ps_pred = PS1D.get_P_set(y_pred_so, signal_bandwidth, scaled=True)
+    ps_pred_mean = np.mean(ps_pred, axis=0)
+
+    plot_power_spectra(np.vstack((ps_so_mean,ps_noisy_mean,ps_pred_mean)), ks_noisy[0,:], title=label, labels=["signal-only", "noisy-signal", "reconstructed"])
+
+def plot_predictions(los_test, y_test_so, y_pred_so, samples=1, showplots=False, saveplots=True, label=''):
     plt.rcParams['figure.figsize'] = [15, 9]
     plt.title(f'Reconstructed LoS vs Actual Noiseless LoS {label}')
-    for i, (test, pred) in enumerate(zip(y_test_so[:samples], y_pred_so[:samples])):
-        plt.plot(test, label='Actual')
-        plt.plot(pred+0.05, label='Reconstructed')
+    for i, (noisy, test, pred) in enumerate(zip(los_test[:samples], y_test_so[:samples], y_pred_so[:samples])):
+        plt.plot(noisy-0.01, label='Signal with Noise')
+        plt.plot(test, label='Actual signal')
+        plt.plot(pred+0.01, label='Reconstructed')
+        plt.plot(test-pred+0.98, label='Reconstructed - Signal')
         if i> 2: break
     plt.xlabel('frequency'), 
     plt.ylabel('flux/S147')
@@ -313,28 +377,40 @@ def plot_predictions(y_test_so, y_pred_so, samples=1, showplots=False, saveplots
     if saveplots: plt.savefig(f"{output_dir}/reconstructed_los_{label}.png")
     plt.clf()
 
-def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, num_epochs, batch_size, lr, kernel1, kernel2, dropout, step, input_points_to_use, showplots=False, saveplots=True):
+def load_noise():
+    X_noise = None
+    if args.use_noise_channel:
+        noisefiles = base.get_datafile_list(type='noiseonly', args=args)
+        X_noise, _, _ = base.load_dataset(noisefiles, psbatchsize=1000, limitsamplesize=1000, save=False)
+        logger.info(f"Loaded noise with shape: {X_noise.shape}")
+    return X_noise
+    
+def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, X_noise, num_epochs, batch_size, lr, kernel1, kernel2, dropout, step, input_points_to_use, showplots=False, saveplots=True):
     run_description = f"Commandline: {' '.join(sys.argv)}. Parameters: epochs: {num_epochs}, batch_size: {batch_size}, lr: {lr}, kernel_sizes: [{kernel1}, {kernel2}], dropout: {dropout}, points: {input_points_to_use}, label={args.label}"
     logger.info(f"Starting new run: {run_description}")
     logger.info(f"Before scale train: {y_train[:1]}")
     X_train, y_train = scaler.scaleXy(X_train, y_train)
+    if X_noise is not None: X_noise, _ = scaler.scaleXy(X_noise, None)
     logger.info(f"After scale train: {y_train[:1]}")
 
     if input_points_to_use is not None:
         X_train = X_train[:, :input_points_to_use]
         y_train_so = y_train_so[:, :input_points_to_use]
+        if X_noise is not None: X_noise = X_noise[:, :input_points_to_use]
     logger.info(f"Starting training. {X_train.shape},{y_train.shape},{y_train_so.shape}")
 
     #kernel2 = calc_odd_half(kernel1)
     # Convert data to PyTorch tensors
-    inputs, outputs = convert_to_pytorch_tensors(X_train, y_train, y_train_so)
+    inputs, outputs = convert_to_pytorch_tensors(X_train, y_train, y_train_so, X_noise)
 
     logger.info(f"Shape of inouts, outputs: {inputs.shape}, {outputs.shape}")
     # Create DataLoader for batching
     train_dataset = TensorDataset(inputs, outputs)
     dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
-    model = UnetModel(input_size=len(X_train[0]), output_size=len(y_train[0]), kernel1=kernel1, kernel2=kernel2, dropout=dropout, step=step)
+    num_channels = 1
+    if args.use_noise_channel: num_channels = 2
+    model = UnetModel(input_size=len(X_train[0]), input_channels=num_channels, output_size=len(y_train[0]), kernel1=kernel1, kernel2=kernel2, dropout=dropout, step=step)
     logger.info(f"Created model: {model}")
     # Loss function and optimizer
     #criterion = CustomLoss()  # You can adjust alpha as needed
@@ -386,22 +462,22 @@ def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, num_epochs, bat
     elif args.logfx_only: combined_r2 = r2
     else: combined_r2 = 0.5*(r2[0]+r2[1])
     """
-    return test(X_test, y_test, y_test_so, model, criterion, input_points_to_use, run_description)
+    return test(X_test, y_test, y_test_so, X_noise, model, criterion, input_points_to_use, run_description)
 
-def test(X_test, y_test, y_test_so, model, criterion, input_points_to_use, run_description):
+def test(X_test, y_test, y_test_so, X_noise, model, criterion, input_points_to_use, run_description):
     if input_points_to_use is not None:
         X_test = X_test[:, :input_points_to_use]  
         y_test_so = y_test_so[:, :input_points_to_use]  
     logger.info(f"Starting testing. {X_test.shape},{y_test.shape},{y_test_so.shape}")
 
-    tester = ModelTester(model, criterion, input_points_to_use)
+    tester = ModelTester(model, criterion, input_points_to_use, X_noise)
     if args.test_multiple:
         all_y_pred, all_y_test = base.test_multiple(tester, test_files, reps=args.test_reps, skip_stats=True, use_bispectrum=False, skip_ps=True, so_datafiles=sotest_files)
         r2 = base.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
         base.save_test_results(all_y_pred, all_y_test, output_dir)
     else:
-        X_test, stats_test, y_test, y_pred, r2 = tester.test(None, X_test, stats_test, y_test)
-        base.summarize_test_1000(y_pred, y_test, output_dir=output_dir, showplots=showplots, saveplots=saveplots)
+        X_test, y_test, y_pred, r2 = tester.test(X_test, None, None, y_test, los_so=y_test_so, silent=False)
+        r2 = base.summarize_test_1000(y_pred, y_test, output_dir=output_dir, showplots=args.interactive, saveplots=True)
         base.save_test_results(y_pred, y_test, output_dir)
 
     
@@ -510,9 +586,9 @@ if args.runmode in ("train_test", "test_only", "optimize") :
     X_test, y_test, _ = base.load_dataset(test_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
     y_test_so, _, _ = base.load_dataset(sotest_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
     logger.info(f"Loaded dataset X_test:{X_test.shape} y_test:{y_test.shape} y_test_so:{y_test_so.shape}")
-
+    X_noise = load_noise()
     if args.runmode == "train_test":
-        run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, args.epochs, args.trainingbatchsize, lr=0.001, kernel1=kernel1, kernel2=kernel1, dropout=0.2, step=step, input_points_to_use=args.input_points_to_use, showplots=args.interactive)
+        run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, X_noise, args.epochs, args.trainingbatchsize, lr=0.001, kernel1=kernel1, kernel2=kernel1, dropout=0.2, step=step, input_points_to_use=args.input_points_to_use, showplots=args.interactive)
     elif args.runmode == "test_only":
         logger.info(f"Loading model from file {args.modelfile}")
         model = UnetModel(input_size=args.input_points_to_use, output_size=args.input_points_to_use+2, kernel1=kernel1, kernel2=kernel1, dropout=0.2, step=step)
