@@ -33,3 +33,9 @@ def get_P(signal,max_size, scaled=False):
   else:
     PowSpec = PowSpec
   return kbins,PowSpec
+
+def get_P_set(signal,max_size, scaled=False):
+  results = np.apply_along_axis(lambda row: get_P(row, max_size, scaled), 1, signal)
+  return results[:,0], results[:,1]
+  
+   
