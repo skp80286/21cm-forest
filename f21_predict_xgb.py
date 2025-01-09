@@ -31,9 +31,13 @@ import sys
 import logging
 import f21_predict_base as base
 import Scaling
+from F21NNRegressor import NNRegressor
+from F21BayesianRegressor import BayesianRegressor
+
 #from f21_predict_by_stats import calculate_stats_torch
 
 import optuna
+from sklearn.linear_model import LinearRegression
 
 def load_dataset_from_pkl():
     # Lists to store combined data
@@ -159,6 +163,9 @@ class ModelTester:
             with open(f"{output_dir}/all_test_data.csv", 'a') as f:
                 np.savetxt(f, np.hstack((X_test_with_stats, y_test)), delimiter=",")
         y_pred = self.model.predict(X_test_with_stats)
+        if args.model_type == 'bayesian':
+            (y_pred, y_pred_var) = y_pred
+            logger.info(f'prediction variance={y_pred_var}')
 
         if y_pred.ndim==1:
             y_pred = y_pred.reshape(len(y_pred),1)
@@ -226,8 +233,6 @@ def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_tr
     y_pred = None
     rms_scores = None
 
-    # Train model with different sample sizes
-    reg = xgb.XGBRegressor(random_state=531)
     """
     reg = xgb.XGBRegressor(
             n_estimators=model_param1,
@@ -241,6 +246,16 @@ def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_tr
     else:
         X_train_with_stats = X_train
     logger.info(f"Sample data before fitting y:{y_train[0]}\nX:{X_train_with_stats[0]}")
+    # Train model with different sample sizes
+    if args.model_type == 'linear':
+        reg = LinearRegression()
+    elif args.model_type == 'xgb':
+        reg = xgb.XGBRegressor(random_state=42)
+    elif args.model_type == 'nn':
+        reg = NNRegressor(input_size=X_train_with_stats.shape[1])
+    elif args.model_type == 'bayesian':
+        reg = BayesianRegressor()
+
     logger.info(f"Fitting regressor: {reg}")
     if args.dump_all_training_data: np.savetxt(f"{output_dir}/all_training_data.csv", np.hstack((X_train_with_stats, y_train)), delimiter=",")
     
@@ -254,10 +269,12 @@ def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_tr
         reg.fit(X_train_with_stats, y_train)
 
     logger.info(f"Fitted regressor: {reg}")
-    logger.info(f"Booster: {reg.get_booster()}")
-    feature_importance = reg.feature_importances_
-    save_model(reg)
-    logger.info(f"Feature importance: {feature_importance}")
+    if args.model_type == 'xgb':
+        logger.info(f"Booster: {reg.get_booster()}")
+        feature_importance = reg.feature_importances_
+        save_model(reg)
+        logger.info(f"Feature importance: {feature_importance}")
+
     X_train, y_train = scaler.unscaleXy(X_train, y_train)
 
     tester = ModelTester(reg, X_noise, ks, ps_bins_to_make, perc_ps_bins_to_use)
@@ -308,8 +325,8 @@ def objective(trial):
     
 
 # main code start here
-torch.manual_seed(294)
-np.random.seed(850)
+torch.manual_seed(42)
+np.random.seed(42)
 torch.backends.cudnn.determinisitc=True
 torch.backends.cudnn.benchmark=False
 
@@ -357,6 +374,7 @@ parser.add_argument('--use_bispectrum', action='store_true', help='Use bispectru
 parser.add_argument('--signalonly_training', action='store_true', help='Use signalonly LoS for traning')
 parser.add_argument('--use_log_bins', action='store_true', help='Use logarithmically binned Powerspectrum')
 parser.add_argument('--use_linear_bins', action='store_true', help='Use linearly binned Powerspectrum')
+parser.add_argument('--model_type', type=str, default='xgb', help='xgb, linear, nn or bayesian')
 
 args = parser.parse_args()
 print(args)
