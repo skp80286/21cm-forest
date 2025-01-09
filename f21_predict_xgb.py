@@ -227,7 +227,7 @@ def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_tr
     rms_scores = None
 
     # Train model with different sample sizes
-    reg = xgb.XGBRegressor(random_state=42)
+    reg = xgb.XGBRegressor(random_state=531)
     """
     reg = xgb.XGBRegressor(
             n_estimators=model_param1,
@@ -256,6 +256,7 @@ def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_tr
     logger.info(f"Fitted regressor: {reg}")
     logger.info(f"Booster: {reg.get_booster()}")
     feature_importance = reg.feature_importances_
+    save_model(reg)
     logger.info(f"Feature importance: {feature_importance}")
     X_train, y_train = scaler.unscaleXy(X_train, y_train)
 
@@ -307,8 +308,8 @@ def objective(trial):
     
 
 # main code start here
-torch.manual_seed(42)
-np.random.seed(42)
+torch.manual_seed(294)
+np.random.seed(850)
 torch.backends.cudnn.determinisitc=True
 torch.backends.cudnn.benchmark=False
 
