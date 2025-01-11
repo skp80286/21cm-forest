@@ -211,11 +211,21 @@ class F21DataLoader:
                     #print(f"ps: {ps}")
                     power_spectrum.append(ps)
 
+                if self.use_bispectrum: 
+                    #start_time = time.perf_counter()
+                    k_bispec, bs = F21Stats.F21Stats.compute_1d_bispectrum(los)
+                    if self.ps_bins is not None:
+                        k_bispec, bs = F21Stats.F21Stats.bin(k_bispec, bs)
+                    #end_time = time.perf_counter() 
+                    #print(f"Calculated Bispectrum: {k_bispec.shape}, {bs.shape} in {end_time - start_time:.8f} seconds")
+                    bispectrum.append(bs)
+
                 if samplenum >= Nlos or psbatchnum >= self.psbatchsize:
                     # Collect this batch
                     #print(f"Collecting batch for params {params}")
                     ps_mean, ps_std, ps_samples, stats_mean, bs_mean = None, None, None, None, None
                     if not self.skip_ps: (ps_mean, ps_std, ps_samples) = self.aggregate(np.array(power_spectrum))
+                    if self.use_bispectrum: (bs_mean, bs_std, bs_samples) = self.aggregate(np.array(bispectrum))
                     
                     cumulative_los_np = np.array(cumulative_los)
                     (los_mean, los_std, los_samples) = self.aggregate(cumulative_los_np)
@@ -223,13 +233,6 @@ class F21DataLoader:
                         curr_statcalc = F21Stats.F21Stats.calculate_stats_torch(cumulative_los_np, params, kernel_sizes=[268])
                         stats_mean = np.mean(curr_statcalc, axis=0)
                         #print(stats_mean)
-                    if self.use_bispectrum: 
-                        #start_time = time.perf_counter()
-                        k_bs, bs = F21Stats.F21Stats.bin_tup(F21Stats.F21Stats.compute_1d_bispectrum(cumulative_los_np))
-                        k_bispec = k_bs
-                        bs_mean = np.mean(bs, axis=0)
-                        #end_time = time.perf_counter() 
-                        #print(f"Calculated Bispectrum: {k_bispec.shape}, {bs.shape} in {end_time - start_time:.8f} seconds")
 
                         
                     self.collector.add_data(ks, ps_mean, ps_std, los_mean, los_std, freq_axis, params, los_samples, ps_samples, stats_mean, bs_mean, k_bispec)

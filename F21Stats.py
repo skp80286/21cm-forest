@@ -100,27 +100,37 @@ class F21Stats:
 
     @staticmethod
     def compute_1d_bispectrum_single(signal):
-        return F21Stats.compute_1d_bispectrum(np.array(signal).reshape(1,len(signal)))
-    
-    @staticmethod
-    def compute_1d_bispectrum(signal):
         # FFT of the density field
-        n_pixels = signal.shape[-1]
-        delta_k = np.fft.fft(signal, axis=0)
+        n_pixels = len(signal)
+        delta_k = np.fft.fft(signal)
         num_bins = n_pixels//2+1
-        k = np.fft.fftfreq(signal.shape[-1])
+        k = np.fft.fftfreq(n_pixels)
 
         # Compute bispectrum for k1 = k2
-        bispectrum = np.zeros((signal.shape[0], num_bins))
+        bispectrum = np.zeros(num_bins)
         for i,k1 in enumerate(k[:num_bins]):
             k1_idx = np.argmin(np.abs(k - k1), axis=0)
             k3_idx = np.argmin(np.abs(k + 2 * k1), axis=0)
 
             # Bispectrum B(k1, k1, -2k1)
-            B = (delta_k[:,k1_idx] * delta_k[:,k1_idx] * delta_k[:,k3_idx].conj()).real
-            bispectrum[:,i] = np.abs(B)
+            B = (delta_k[k1_idx] * delta_k[k1_idx] * delta_k[k3_idx].conj()).real
+            bispectrum[i] = np.abs(B)
 
-        return k[1:num_bins-1], bispectrum[:,1:num_bins-1]
+        return k[1:num_bins-1], bispectrum[1:num_bins-1]
+    
+    @staticmethod
+    def compute_1d_bispectrum(signal):
+        if len(signal.shape) == 1: return F21Stats.compute_1d_bispectrum_single(signal)
+        elif len(signal.shape) == 2:
+            bispect_list = []
+            kbs_list = []
+            for row in signal:
+                kbs, bispec = F21Stats.compute_1d_bispectrum_single(row)
+                bispect_list.append(bispec)
+                kbs_list.append(kbs)
+            return np.array(kbs_list), np.array(bispect_list)
+        else: raise ValueError("Incorrect signal shape!")
+
 
     @staticmethod
     def compute_1d_bispectrum_torch(signal):
