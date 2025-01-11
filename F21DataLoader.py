@@ -8,9 +8,10 @@ from scipy import fftpack
 import instrumental_features
 import F21Stats
 import logging
+import time
 
 class F21DataLoader:
-    def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None, skip_ps: bool = False, ps_bins = None, ps_smoothing=True, skip_stats=True, use_bispectrum=False, scale_ps = False):
+    def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None, skip_ps: bool = False, ps_bins = None, ps_smoothing=True, skip_stats=True, use_bispectrum=False, scale_ps = False, input_points_to_use=None):
         np.random.seed(42)
         self.max_workers = max_workers
         self.collector = ThreadSafeArrayCollector()
@@ -22,6 +23,7 @@ class F21DataLoader:
         self.skip_stats = skip_stats
         self.use_bispectrum = use_bispectrum
         self.scale_ps = scale_ps
+        self.input_points_to_use = input_points_to_use
 
     def get_los(self, datafile: str) -> None:
         data = np.fromfile(str(datafile), dtype=np.float32)
@@ -61,6 +63,8 @@ class F21DataLoader:
         freq_axis = data[(x_initial+0*Nbins):(x_initial+1*Nbins)]
         los_arr = np.reshape(data[(x_initial+1*Nbins):(x_initial+1*Nbins+Nlos*Nbins)],(Nlos,Nbins))
 
+        if self.input_points_to_use is not None and los_arr.shape[-1] > self.input_points_to_use: 
+            los_arr = los_arr[:self.input_points_to_use]
         return (z, xHI_mean, logfX, freq_axis, los_arr)
 
 
@@ -156,11 +160,15 @@ class F21DataLoader:
             #print(F"Los loaded: {xHI_mean} , {logfX}, {freq_axis}, {los_arr.shape}")
             bandwidth = freq_axis[-1]-freq_axis[0]
             power_spectrum = []
+            bispectrum = []
+            k_bispec = None
             cumulative_los = []
             ks = None
             psbatchnum = 0
             samplenum = 0
             spec_res = 8 # kHz
+
+            # Used for bispectrum calculation
             if self.limitsamplesize is not None and len(los_arr) > self.limitsamplesize:
                 los_arr = los_arr[np.random.randint(len(los_arr), size=self.limitsamplesize)]
             Nlos = len(los_arr)
@@ -202,25 +210,32 @@ class F21DataLoader:
                     #print(f"ks: {ks}")
                     #print(f"ps: {ps}")
                     power_spectrum.append(ps)
-                
+
                 if samplenum >= Nlos or psbatchnum >= self.psbatchsize:
                     # Collect this batch
                     #print(f"Collecting batch for params {params}")
-                    ps_mean, ps_std, ps_samples, stats_mean = None, None, None, None
+                    ps_mean, ps_std, ps_samples, stats_mean, bs_mean = None, None, None, None, None
                     if not self.skip_ps: (ps_mean, ps_std, ps_samples) = self.aggregate(np.array(power_spectrum))
+                    
                     cumulative_los_np = np.array(cumulative_los)
                     (los_mean, los_std, los_samples) = self.aggregate(cumulative_los_np)
                     if not self.skip_stats:
-                        if not self.use_bispectrum: 
-                            curr_statcalc = F21Stats.F21Stats.calculate_stats_torch(cumulative_los_np, params, kernel_sizes=[268])
-                            stats_mean = np.mean(curr_statcalc, axis=0)
-                        else: 
-                            stats_mean = F21Stats.F21Stats.calculate_bispectrum(cumulative_los_np, nfft=5)
-                            #print(stats_mean)
+                        curr_statcalc = F21Stats.F21Stats.calculate_stats_torch(cumulative_los_np, params, kernel_sizes=[268])
+                        stats_mean = np.mean(curr_statcalc, axis=0)
+                        #print(stats_mean)
+                    if self.use_bispectrum: 
+                        #start_time = time.perf_counter()
+                        k_bs, bs = F21Stats.F21Stats.bin_tup(F21Stats.F21Stats.compute_1d_bispectrum(cumulative_los_np))
+                        k_bispec = k_bs
+                        bs_mean = np.mean(bs, axis=0)
+                        #end_time = time.perf_counter() 
+                        #print(f"Calculated Bispectrum: {k_bispec.shape}, {bs.shape} in {end_time - start_time:.8f} seconds")
+
                         
-                    self.collector.add_data(ks, ps_mean, ps_std, los_mean, los_std, freq_axis, params, los_samples, ps_samples, stats_mean)
+                    self.collector.add_data(ks, ps_mean, ps_std, los_mean, los_std, freq_axis, params, los_samples, ps_samples, stats_mean, bs_mean, k_bispec)
                     psbatchnum = 0
                     power_spectrum = []
+                    bispectrum = []
                     cumulative_los = []
 
         except Exception as e:
@@ -253,10 +268,12 @@ class ThreadSafeArrayCollector:
             'los_samples': [],
             'ps_samples': [],
             'stats': [],
+            'bispectrum': [],
+            'k_bispec': [],
         }
         self._lock = threading.Lock()
         
-    def add_data(self, ks, ps, ps_std, los, los_std, freq_axis, params, los_samples, ps_samples, stats):
+    def add_data(self, ks, ps, ps_std, los, los_std, freq_axis, params, los_samples, ps_samples, stats, bispectrum, k_bispec):
         with self._lock:
             self._data['ks'].append(ks)
             self._data['ps'].append(ps)
@@ -268,6 +285,8 @@ class ThreadSafeArrayCollector:
             self._data['los_samples'].append(los_samples)
             self._data['ps_samples'].append(ps_samples)
             self._data['stats'].append(stats)
+            self._data['bispectrum'].append(bispectrum)
+            self._data['k_bispec'].append(k_bispec)
             
     def get_arrays(self):
         with self._lock:
@@ -282,4 +301,6 @@ class ThreadSafeArrayCollector:
                 'los_samples': np.array(self._data['los_samples']),
                 'ps_samples': np.array(self._data['ps_samples']),
                 'stats': np.array(self._data['stats']),
+                'bispectrum': np.array(self._data['bispectrum']),
+                'k_bispec': np.array(self._data['k_bispec']),
             }

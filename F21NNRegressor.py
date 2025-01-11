@@ -24,13 +24,14 @@ class NNRegressor(nn.Module):
         x = self.fc3(x)
         return x
 
-    def fit(self, X_train, y_train, epochs=400, learning_rate=0.001):
+    def fit(self, X_train, y_train, epochs=2000, learning_rate=0.0001):
         # Convert numpy arrays to PyTorch tensors
         X_train_tensor = torch.FloatTensor(X_train)
         y_train_tensor = torch.FloatTensor(y_train)
 
         # Define loss function and optimizer
         criterion = nn.MSELoss()
+        #optimizer = optim.Adam(self.parameters(), lr=learning_rate)
         optimizer = optim.Adam(self.parameters(), lr=learning_rate)
 
         # Training loop

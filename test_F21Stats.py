@@ -55,16 +55,50 @@ class TestF21Stats(unittest.TestCase):
         result = F21Stats.calculate_stats_torch(self.X, self.y, self.kernel_sizes)
         self.assertTrue(np.all(np.isfinite(result)))
 
-    def test_calculate_bispectrum(self):
-        """Test the bispectrum calculation for 1D data"""
+    """
+    def test_calculate_bispectrum_2d(self):
+        #Test the bispectrum calculation for 1D data
         data = np.array([1.0, 2.0, 3.0, 4.0])
         expected_shape = (4, 4)  # Since nfft defaults to the length of data
 
-        bispectrum = F21Stats.calculate_bispectrum(data)
+        bispectrum = F21Stats.calculate_bispectrum_2d(data)
 
         self.assertEqual(bispectrum.shape, expected_shape)
 
         # Additional checks can be added here based on expected values or properties
         print(bispectrum)
+    """
+        
+    def test_compute_1d_bispectrum_normal(self):
+        delta_x = np.random.rand(10)  # Random input
+        k1_values = [0.1, 0.2, 0.3]  # Example k1 values
+        result = F21Stats.compute_1d_bispectrum(delta_x, k1_values)
+        print(f"Printing Bispectrum calculation: Original:\n{delta_x}\n Bispectrum:\n{result}")
+        self.assertEqual(result.shape, (len(k1_values),))  # Check output shape
+
+    def test_compute_1d_bispectrum_empty_input(self):
+        delta_x = np.array([])  # Empty input
+        k1_values = [0.1, 0.2]
+        with self.assertRaises(ValueError):  # Expecting an error due to empty input
+            F21Stats.compute_1d_bispectrum(delta_x, k1_values)
+
+    def test_compute_1d_bispectrum_single_value(self):
+        delta_x = np.array([1.0])  # Single value input
+        k1_values = [0.1]
+        result = F21Stats.compute_1d_bispectrum(delta_x, k1_values)
+        self.assertEqual(result.shape, (1,))  # Check output shape
+
+    def test_compute_1d_bispectrum_invalid_k1(self):
+        delta_x = np.random.rand(1024)
+        k1_values = [10.0]  # k1 value outside the range
+        result = F21Stats.compute_1d_bispectrum(delta_x, k1_values)
+        self.assertEqual(result.shape, (1,))  # Check output shape
+
+    def test_compute_1d_bispectrum_negative_k1(self):
+        delta_x = np.random.rand(1024)
+        k1_values = [-0.1]  # Negative k1 value
+        result = F21Stats.compute_1d_bispectrum(delta_x, k1_values)
+        self.assertEqual(result.shape, (1,))  # Check output shape
+
 if __name__ == '__main__':
     unittest.main()
