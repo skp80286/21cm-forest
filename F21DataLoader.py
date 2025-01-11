@@ -11,7 +11,7 @@ import logging
 import time
 
 class F21DataLoader:
-    def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None, skip_ps: bool = False, ps_bins = None, ps_smoothing=True, skip_stats=True, use_bispectrum=False, scale_ps = False, input_points_to_use=None):
+    def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None, skip_ps: bool = False, ps_bins = None, ps_smoothing=True, skip_stats=True, use_bispectrum=False, scale_ps = False, input_points_to_use=None, min_los=False):
         np.random.seed(42)
         self.max_workers = max_workers
         self.collector = ThreadSafeArrayCollector()
@@ -24,6 +24,7 @@ class F21DataLoader:
         self.use_bispectrum = use_bispectrum
         self.scale_ps = scale_ps
         self.input_points_to_use = input_points_to_use
+        self.min_los = min_los
 
     def get_los(self, datafile: str) -> None:
         data = np.fromfile(str(datafile), dtype=np.float32)
@@ -211,7 +212,7 @@ class F21DataLoader:
                     #print(f"ps: {ps}")
                     power_spectrum.append(ps)
 
-                if self.use_bispectrum: 
+                if self.use_bispectrum and not self.min_los: 
                     #start_time = time.perf_counter()
                     k_bispec, bs = F21Stats.F21Stats.compute_1d_bispectrum(los)
                     if self.ps_bins is not None:
@@ -223,11 +224,16 @@ class F21DataLoader:
                 if samplenum >= Nlos or psbatchnum >= self.psbatchsize:
                     # Collect this batch
                     #print(f"Collecting batch for params {params}")
+                    cumulative_los_np = np.array(cumulative_los)
                     ps_mean, ps_std, ps_samples, stats_mean, bs_mean = None, None, None, None, None
                     if not self.skip_ps: (ps_mean, ps_std, ps_samples) = self.aggregate(np.array(power_spectrum))
-                    if self.use_bispectrum: (bs_mean, bs_std, bs_samples) = self.aggregate(np.array(bispectrum))
+                    if self.use_bispectrum: 
+                        if self.min_los: 
+                            k_bispec, bs = F21Stats.F21Stats.compute_1d_bispectrum(np.min(cumulative_los_np, axis=0))
+                            if self.ps_bins is not None:
+                                k_bispec, bs_mean = F21Stats.F21Stats.bin(k_bispec, bs)
+                        else: (bs_mean, bs_std, bs_samples) = self.aggregate(np.array(bispectrum))
                     
-                    cumulative_los_np = np.array(cumulative_los)
                     (los_mean, los_std, los_samples) = self.aggregate(cumulative_los_np)
                     if not self.skip_stats:
                         curr_statcalc = F21Stats.F21Stats.calculate_stats_torch(cumulative_los_np, params, kernel_sizes=[268])
