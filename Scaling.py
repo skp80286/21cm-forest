@@ -59,7 +59,8 @@ class Scaler:
             fx = 5.0*(1 - y[:,1] - 0.8).reshape(len(y), 1)
             y = np.hstack((xHI, fx))
                     
-        elif self.args.logscale_X: X = np.exp(X)
+        if X is not None:
+            if self.args.logscale_X: X = np.exp(X)
         return X, y
 
     def unscale_y(self, y):

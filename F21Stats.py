@@ -90,11 +90,11 @@ class F21Stats:
     @staticmethod
     def bin_tup(tup):
         k, b = tup
-        return F21Stats.bin(k, b)
+        return F21Stats.bin(k, b, num_bins=20)
 
     @staticmethod
-    def bin(k, b):
-        b_bin, k_bin_edges, _ = binned_statistic(k, b, statistic='mean', bins=20)
+    def bin(k, b, num_bins=20):
+        b_bin, k_bin_edges, _ = binned_statistic(k, b, statistic='mean', bins=num_bins)
         k_bin = 0.5 *(k_bin_edges[:-1] + k_bin_edges[1:])
         return k_bin, b_bin
 
@@ -119,7 +119,7 @@ class F21Stats:
         return k[1:num_bins-1], bispectrum[1:num_bins-1]
     
     @staticmethod
-    def compute_1d_bispectrum(signal):
+    def compute_1d_bispectrum_iter(signal):
         if len(signal.shape) == 1: return F21Stats.compute_1d_bispectrum_single(signal)
         elif len(signal.shape) == 2:
             bispect_list = []
@@ -131,6 +131,26 @@ class F21Stats:
             return np.array(kbs_list), np.array(bispect_list)
         else: raise ValueError("Incorrect signal shape!")
 
+    @staticmethod
+    def compute_1d_bispectrum(signal):
+        if len(signal.shape) == 1: return F21Stats.compute_1d_bispectrum_single(signal)
+        elif len(signal.shape) == 2:
+            if signal.shape[0] == 1: return F21Stats.compute_1d_bispectrum_single(signal[0])
+            
+            n_pixels = len(signal[0])
+            delta_k = np.fft.fft(signal, axis=1)
+            num_bins = n_pixels//2+1
+            k = np.fft.fftfreq(n_pixels)
+            # Compute bispectrum for k1 = k2
+            bispectrum = np.zeros((signal.shape[0],num_bins))
+            for i,k1 in enumerate(k[:num_bins]):
+                k1_idx = np.argmin(np.abs(k - k1), axis=0)
+                k3_idx = np.argmin(np.abs(k + 2 * k1), axis=0)
+                # Bispectrum B(k1, k1, -2k1)
+                B = (delta_k[:,k1_idx] * delta_k[:,k1_idx] * delta_k[:,k3_idx].conj()).real
+                bispectrum[:,i] = np.abs(B)
+            return k[1:num_bins-1], bispectrum[:,1:num_bins-1]
+        else: raise ValueError("compute_1d_bispectrum: Incorrect signal shape!")
 
     @staticmethod
     def compute_1d_bispectrum_torch(signal):

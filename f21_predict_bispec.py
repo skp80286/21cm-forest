@@ -46,7 +46,7 @@ def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False, input_poin
         datafiles = datafiles[:args.maxfiles]
 
     # Create processor with desired number of worker threads
-    processor = dl.F21DataLoader(max_workers=8, psbatchsize=psbatchsize, limitsamplesize=limitsamplesize, skip_ps=True, ps_bins=None, skip_stats=True, use_bispectrum=True, input_points_to_use=input_points_to_use)
+    processor = dl.F21DataLoader(max_workers=16, psbatchsize=psbatchsize, limitsamplesize=limitsamplesize, skip_ps=True, ps_bins=args.bispec_bins, skip_stats=True, use_bispectrum=True, input_points_to_use=input_points_to_use)
         
     # Process all files and get results
     results = processor.process_all_files(datafiles)
@@ -82,7 +82,7 @@ class ModelTester:
     
     def test(self, los, ps_test, stats_test, bispec_test, y_test, los_so, silent=False):
         #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Unbinned_PS_with_noise")
-        if not silent: logger.info(f"Binning Bispec data: kbispec_size={self.k_bispec.shape}, original_size={bispec_test.shape[1]}, ps_bins_to_make={self.ps_bins_to_make}, num bins to use={self.perc_ps_bins_to_use}")
+        if not silent: logger.info(f"Binning Bispec data: kbispec_size={self.k_bispec.shape}, original_size={bispec_test.shape}, ps_bins_to_make={self.ps_bins_to_make}, num bins to use={self.perc_ps_bins_to_use}")
         if not args.use_saved_data:
             if args.use_log_bins:
                 _, bispec_test = f21stats.logbin_power_spectrum_by_k(self.k_bispec, bispec_test)
@@ -211,7 +211,9 @@ def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_tr
         reg = BayesianRegressor()
 
     logger.info(f"Fitting regressor: {reg}")
-    if args.dump_all_training_data: np.savetxt(f"{output_dir}/all_training_data.csv", np.hstack((X_train_with_stats, y_train)), delimiter=",")
+    if args.dump_all_training_data: 
+        np.savetxt(f"{output_dir}/all_training_data.csv", np.hstack((X_train_with_stats, y_train)), delimiter=",")
+        np.savetxt(f"{output_dir}/kbispec.csv", ks, delimiter=',')
     
     if args.scale_y2:
         reg.fit(X_train_with_stats, y_train[:,2])
@@ -227,6 +229,7 @@ def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_tr
         logger.info(f"Booster: {reg.get_booster()}")
         feature_importance = reg.feature_importances_
         save_model(reg)
+        np.savetxt(f"{output_dir}/feature_importance.csv", feature_importance, delimiter=',')
         logger.info(f"Feature importance: {feature_importance}")
 
     if not args.use_saved_data:
@@ -234,11 +237,11 @@ def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_tr
 
     tester = ModelTester(reg, X_noise, ks, ps_bins_to_make, perc_ps_bins_to_use)
     if args.test_multiple:
-        all_y_pred, all_y_test = base.test_multiple(tester, test_files, reps=args.test_reps, skip_stats=(not args.includestats), skip_ps=True, use_bispectrum=args.use_bispectrum, input_points_to_use=args.input_points_to_use)
+        all_y_pred, all_y_test = base.test_multiple(tester, test_files, reps=args.test_reps, skip_stats=(not args.includestats), skip_ps=True, use_bispectrum=args.use_bispectrum, input_points_to_use=args.input_points_to_use, ps_bins=args.bispec_bins)
         r2 = base.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
         base.save_test_results(all_y_pred, all_y_test, output_dir)
     else:
-        X_test, stats_test, y_test, y_pred, r2 = tester.test(None, X_test, stats_test, y_test, None)
+        X_test, y_test, y_pred, r2 = tester.test(None, None, stats_test, X_test, y_test, None)
         base.summarize_test_1000(y_pred, y_test, output_dir=output_dir, showplots=showplots, saveplots=saveplots)
         base.save_test_results(y_pred, y_test, output_dir)
 
@@ -332,6 +335,7 @@ parser.add_argument('--use_linear_bins', action='store_true', help='Use linearly
 parser.add_argument('--model_type', type=str, default='xgb', help='xgb, linear, nn or bayesian')
 parser.add_argument('--use_saved_data', action='store_true', help='Skip data loading and processing. Use data saved as CSV')
 parser.add_argument('--input_points_to_use', type=int, default=2048, help='use the first n points of los. ie truncate the los to first 690 points')
+parser.add_argument('--bispec_bins', type=int, default=20, help='use bispec binning')
 
 args = parser.parse_args()
 print(args)
@@ -396,16 +400,17 @@ if args.runmode in ("train_test", "optimize") :
         # data = pd.read_csv('./saved_output/ps_stats_data_200/all_test_data.csv')
 
         # saved data for 400 samples per file
-        training_data = np.loadtxt('./saved_output/ps_stats_data_400/all_training_data.csv', delimiter=',')
-        testing_data = np.loadtxt('./saved_output/ps_stats_data_400/all_test_data.csv', delimiter=',')
-        ks = np.loadtxt('./output/f21_ps_xgb_train_test_uGMRT_t500h_b1_20250109143518/ks.csv', delimiter=',')
+        training_data = np.loadtxt('./saved_output/bispectrum_data/log_training_data.csv', delimiter=',')
+        testing_data = np.loadtxt('./saved_output/bispectrum_data/log_test_data.csv', delimiter=',')
+        ks = np.loadtxt('./saved_output/bispectrum_data/kbispec.csv', delimiter=',')
+
         logger.info(f"Loaded dataset X_train:{training_data.shape} y:{testing_data.shape} ks:{ks.shape}")
-        X_train = training_data[:,:2]
-        stats_train = training_data[:,2:-2]
+        X_train = training_data[:,:-2]
+        stats_train = None #training_data[:,2:-2]
         y_train = training_data[:,-2:]
-        X_test = training_data[:,:2]
-        stats_test = training_data[:,2:-2]
-        y_test = training_data[:,-2:]
+        X_test = testing_data[:,:-2]
+        stats_test = None #training_data[:,2:-2]
+        y_test = testing_data[:,-2:]
     else:
         ks, X_train, stats_train, y_train = load_dataset(train_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=True, input_points_to_use=args.input_points_to_use)
         if args.filter_train:
@@ -456,7 +461,7 @@ if args.runmode in ("train_test", "optimize") :
 
 elif args.runmode == "test_only": # test_only
     logger.info(f"Loading test dataset {len(test_files)}")
-    ks, X_test, stats_test, y_test, stats_test = load_dataset(test_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=Fals, input_points_to_use=args.input_points_to_use)
+    ks, X_test, stats_test, y_test, stats_test = load_dataset(test_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=False, input_points_to_use=args.input_points_to_use)
     if args.psbins_to_use is not None:
         X_test = X_test[:, :args.psbins_to_use]
     X_test, y_test = scaler.scaleXy(X_test, y_test)

@@ -655,15 +655,15 @@ def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False, skip_ps=Tr
             
     return (all_los, all_params, los_samples)
 
-def test_multiple(modeltester, datafiles, reps=10000, size=10, save=False, skip_stats=True, use_bispectrum=False, skip_ps=False, so_datafiles=None, input_points_to_use=None):
+def test_multiple(modeltester, datafiles, reps=10000, size=10, save=False, skip_stats=True, use_bispectrum=False, skip_ps=False, so_datafiles=None, input_points_to_use=None, ps_bins=None):
     logger.info(f"Test_multiple started. {reps} reps x {size} points will be tested for {len(datafiles)} parameter combinations")
     # Create processor with desired number of worker threads
     all_y_test = []
     all_y_pred = []
     # Process all files and get results
     for i, f in enumerate(datafiles):
-        #logger.info(f"Working on param combination #{i+1}: {f.split('/')[-1]}")
-        processor = dl.F21DataLoader(max_workers=8, psbatchsize=1, limitsamplesize=None, ps_bins=None, skip_ps=skip_ps, skip_stats=skip_stats, use_bispectrum=use_bispectrum, input_points_to_use=input_points_to_use)
+        if i==0: logger.info(f"Working on param combination #{i+1}: {f.split('/')[-1]}")
+        processor = dl.F21DataLoader(max_workers=8, psbatchsize=1, limitsamplesize=None, ps_bins=ps_bins, skip_ps=skip_ps, skip_stats=skip_stats, use_bispectrum=use_bispectrum, input_points_to_use=input_points_to_use)
         results = processor.process_all_files([f])        
         # Access results
         los = results['los']
@@ -671,13 +671,14 @@ def test_multiple(modeltester, datafiles, reps=10000, size=10, save=False, skip_
         ps = results['ps']
         stats = results['stats']
         bispectrum = results['bispectrum']
+        if i==0 and bispectrum is not None: logger.info(f"bispectrum.shape={bispectrum.shape}")
+
         k_bispec = results['k_bispec']
-        #print(f"stats.shape={stats.shape}")
         params = results['params']
         los_so = None
         if so_datafiles is not None:
             #logger.info(f"Loading signalonly los")
-            processor = dl.F21DataLoader(max_workers=8, psbatchsize=1, limitsamplesize=None, ps_bins=None, skip_ps=skip_ps, skip_stats=skip_stats, use_bispectrum=use_bispectrum)
+            processor = dl.F21DataLoader(max_workers=8, psbatchsize=1, limitsamplesize=None, ps_bins=ps_bins, skip_ps=skip_ps, skip_stats=skip_stats, use_bispectrum=use_bispectrum)
             results = processor.process_all_files([so_datafiles[i]])        
             # Access results
             los_so = results['los']
@@ -693,7 +694,7 @@ def test_multiple(modeltester, datafiles, reps=10000, size=10, save=False, skip_
             if ps is not None: ps_set = ps[rdm]
             if stats is not None: stats_set = stats[rdm]
             if bispectrum is not None: bispectrum_set = bispectrum[rdm]
-            #print(f"stats_set.shape={stats_set.shape}")
+            if i==0 and j==0 and bispectrum is not None: logger.info(f"bispectrum_set.shape={bispectrum_set.shape}")
             params_set = params[rdm]
             los_so_set = None
             if los_so is not None: los_so_set = los_so[rdm]
