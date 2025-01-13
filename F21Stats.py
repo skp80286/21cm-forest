@@ -26,7 +26,7 @@ class F21Stats:
     @staticmethod
     def calculate_stats_torch(X, y=None, kernel_sizes=[268]):
         # Validate X dimensions
-        if not isinstance(X, (np.ndarray, torch.Tensor)) or len(X.shape) != 2:
+        if not isinstance(X, (np.ndarray, torch.Tensor)) or X.ndim != 2:
             raise ValueError(f"X must be a 2-dimensional array or tensor, got {type(X).__name__} with shape {X.shape if hasattr(X, 'shape') else 'N/A'}")
         if X.shape[0] == 0 or X.shape[1] == 0:
             raise ValueError(f"X dimensions must be non-zero, got shape {X.shape if hasattr(X, 'shape') else 'N/A'}")
@@ -80,7 +80,7 @@ class F21Stats:
             stat_calc.append(row)
             label = "Stats "
             if y is not None and len(y) > 0:
-                if len(y.shape) == 1: label = f"Stats for xHI={y[0]} logfx={y[1]}"
+                if y.ndim == 1: label = f"Stats for xHI={y[0]} logfx={y[1]}"
                 else: label = f"Stats for xHI={y[i, 0]} logfx={y[i, 1]}"
 
             if False: F21Stats.logger.info(f'{label}, kernel_size={kernel_size} Stats={row}')
@@ -120,8 +120,8 @@ class F21Stats:
     
     @staticmethod
     def compute_1d_bispectrum_iter(signal):
-        if len(signal.shape) == 1: return F21Stats.compute_1d_bispectrum_single(signal)
-        elif len(signal.shape) == 2:
+        if signal.ndim == 1: return F21Stats.compute_1d_bispectrum_single(signal)
+        elif signal.ndim == 2:
             bispect_list = []
             kbs_list = []
             for row in signal:
@@ -133,8 +133,8 @@ class F21Stats:
 
     @staticmethod
     def compute_1d_bispectrum(signal):
-        if len(signal.shape) == 1: return F21Stats.compute_1d_bispectrum_single(signal)
-        elif len(signal.shape) == 2:
+        if signal.ndim == 1: return F21Stats.compute_1d_bispectrum_single(signal)
+        elif signal.ndim == 2:
             if signal.shape[0] == 1: return F21Stats.compute_1d_bispectrum_single(signal[0])
             
             n_pixels = len(signal[0])
@@ -341,8 +341,9 @@ def linbin_ps(ks, ps, ps_bins_to_make, perc_ps_bins_to_use):
         ps_binned = []
         k_binned = []
         for (k, x) in zip(ks, ps):
-            print(f"k:{k}\nx:{x}")
+            #print(f"k:{k}\nx:{x}")
             x_bin, k_bin_edges, _ = binned_statistic(k, x, statistic='mean', bins=ps_bins_to_make)
+            #print(f"Linbin edges: {k_bin_edges}")
             ps_binned.append(x_bin)
             k_bin = 0.5 *(k_bin_edges[:-1] + k_bin_edges[1:])
             k_binned.append(k_bin)
@@ -355,13 +356,18 @@ def linbin_ps(ks, ps, ps_bins_to_make, perc_ps_bins_to_use):
 
 def bin_ps_data(X, ps_bins_to_make, perc_ps_bins_to_use):
     #print(f"Linear binning: {X.shape} {ps_bins_to_make} {perc_ps_bins_to_use}")
-    if X.shape[1] <  ps_bins_to_make:
-        ps_bins_to_make = X.shape[1]
+    if X.ndim == 1: 
+        signal_size = len(X)
+        X = X.reshape(1,signal_size)
+    else: signal_size = len(X[0])
+        
+    if signal_size <  ps_bins_to_make:
+        ps_bins_to_make = signal_size
 
     num_bins = (ps_bins_to_make*perc_ps_bins_to_use)//100
 
-    if ps_bins_to_make < X.shape[1]:
-        fake_ks = range(X.shape[1])
+    if ps_bins_to_make < signal_size:
+        fake_ks = range(signal_size)
         X_binned = []
         for x in X:
             ps, _, _ = binned_statistic(fake_ks, x, statistic='mean', bins=ps_bins_to_make)

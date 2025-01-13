@@ -77,20 +77,25 @@ def save_model(model):
     model_json = model.save_model(f"{output_dir}/{args.modelfile}")
 
 class ModelTester:
-    def __init__(self, model, X_noise, k_bispec, ps_bins_to_make, perc_ps_bins_to_use, stdscaler):
+    def __init__(self, model, X_noise, ks, k_bispec, ps_bins_to_make, perc_ps_bins_to_use, stdscaler):
         self.model = model
         self.X_noise = X_noise
         self.ps_bins_to_make = ps_bins_to_make
         self.perc_ps_bins_to_use = perc_ps_bins_to_use
         self.k_bispec = k_bispec
+        self.ks = ks
         self.stdscaler = stdscaler
     
     def test(self, los, ps_test, stats_test, bispec_test, y_test, los_so, silent=False):
         #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Unbinned_PS_with_noise")
         if not silent: logger.info(f"Binning Bispec data: kbispec_size={self.k_bispec.shape}, original_size={bispec_test.shape}, ps_bins_to_make={self.ps_bins_to_make}, num bins to use={self.perc_ps_bins_to_use}")
+        if ps_test is not None: ps_test = np.mean(ps_test, axis=0, keepdims=True)
+        if stats_test is not None: stats_test = np.mean(stats_test, axis=0, keepdims=True)
+        if bispec_test is not None: bispec_test = np.mean(bispec_test, axis=0, keepdims=True)
+        y_test = np.mean(y_test, axis=0, keepdims=True)
         if not args.use_saved_data:
             if args.use_log_bins:
-                _, ps_test = f21stats.logbin_power_spectrum_by_k(self.k_bispec, ps_test)
+                _, ps_test = f21stats.logbin_power_spectrum_by_k(self.ks, ps_test)
             elif args.use_linear_bins:
                 ps_test = f21stats.bin_ps_data(ps_test, self.ps_bins_to_make, self.perc_ps_bins_to_use)
             if not silent: logger.info(f"Testing dataset: X:{bispec_test.shape} y:{y_test.shape}")
@@ -122,12 +127,15 @@ class ModelTester:
         if not silent: logger.info(f"Sample data before testing y:{y_test[0]}\nX:{bispec_test_with_stats[0]}")
         if args.dump_all_training_data: 
             with open(f"{output_dir}/all_test_data.csv", 'a') as f:
-                np.savetxt(f, np.hstack((bispec_test_with_stats, y_test)), delimiter=",")
+                data_to_save = np.hstack((bispec_test_with_stats, y_test))
+                np.savetxt(f, data_to_save, delimiter=",")
+                if not silent: logger.info(f"Saved {len(data_to_save)} lines.")
         y_pred = self.model.predict(bispec_test_with_stats)
         if args.model_type == 'bayesian':
             (y_pred, y_pred_var) = y_pred
             logger.info(f'prediction variance={y_pred_var}')
 
+        """
         if y_pred.ndim==1:
             y_pred = y_pred.reshape(len(y_pred),1)
             if args.scale_y2:
@@ -142,11 +150,15 @@ class ModelTester:
             else:
                 r2 = r2_score(y_test, y_pred)
         else:
+        """
+        
+        r2 = 1.0 # TBD
+        if y_pred.ndim > 1 and y_pred.shape[0] > 1:
             if not silent: logger.info(f"Prediction vs Test data: \n{np.hstack((y_pred, y_test))[:5]}")
             # Evaluate the model (on a test set, here we just use the training data for simplicity)
             r2 = [r2_score(y_test[:, i], y_pred[:, i]) for i in range(len(y_pred[0]))]
+        
         if not silent: logger.info("R2 Score: " + str(r2))
-
         if not silent: logger.info(f"Before unscale y_pred: {y_pred[:1]}")
         y_pred = scaler.unscale_y(y_pred)
         if not silent: logger.info(f"After unscale y_pred: {y_pred[:1]}")
@@ -227,8 +239,20 @@ def run(ks, ps_train, kbispec, bispec_train, stats_train, ps_test, bispec_test, 
     logger.info(f"Fitting regressor: {reg}")
     if args.dump_all_training_data: 
         np.savetxt(f"{output_dir}/all_training_data.csv", np.hstack((X_train_with_stats, y_train)), delimiter=",")
-        np.savetxt(f"{output_dir}/kbispec.csv", kbispec, delimiter=',')
-    
+        if kbispec is not None:
+            if kbispec.ndim > 1:
+                kbispec_to_save = kbispec[0]
+            else:
+                kbispec_to_save = kbispec
+                np.savetxt(f"{output_dir}/kbispec.csv", kbispec_to_save, delimiter=',')
+            
+        if ks is not None:
+            if ks.ndim > 1:
+                ks_to_save = ks[0]
+            else:
+                ks_to_save = ks
+                np.savetxt(f"{output_dir}/ks.csv", ks_to_save, delimiter=',')
+
     if args.scale_y2:
         reg.fit(X_train_with_stats, y_train[:,2])
     elif args.xhi_only:
@@ -249,7 +273,7 @@ def run(ks, ps_train, kbispec, bispec_train, stats_train, ps_test, bispec_test, 
     if not args.use_saved_data:
         ps_train, y_train = scaler.unscaleXy(ps_train, y_train)
 
-    tester = ModelTester(reg, ps_noise, ks, ps_bins_to_make, perc_ps_bins_to_use, stdscaler)
+    tester = ModelTester(reg, ps_noise, ks, kbispec, ps_bins_to_make, perc_ps_bins_to_use, stdscaler)
     if args.test_multiple:
         all_y_pred, all_y_test = base.test_multiple(tester, test_files, reps=args.test_reps, skip_stats=(not args.includestats), skip_ps=(not args.includestats), use_bispectrum=args.use_bispectrum, input_points_to_use=args.input_points_to_use, ps_bins=args.bispec_bins)
         r2 = base.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
@@ -417,17 +441,16 @@ if args.runmode in ("train_test", "optimize") :
         training_data = np.loadtxt('./saved_output/bispectrum_data/log_training_data.csv', delimiter=',')
         testing_data = np.loadtxt('./saved_output/bispectrum_data/log_test_data.csv', delimiter=',')
         kbispec = np.loadtxt('./saved_output/bispectrum_data/kbispec.csv', delimiter=',')
-        ## TBD
-        ks = np.loadtxt('./saved_output/bispectrum_data/kbispec.csv', delimiter=',')
+        ks = np.loadtxt('./saved_output/bispectrum_data/ks.csv', delimiter=',')
 
         logger.info(f"Loaded dataset X_train:{training_data.shape} y:{testing_data.shape} ks:{ks.shape}")
         ps_train = training_data[:,:2]
         stats_train = training_data[:,2:8]
-        bispec_train = training_data[:,8:10]
+        bispec_train = training_data[:,8:12]
         y_train = training_data[:,-2:]
         ps_test = testing_data[:,:2]
         stats_test = testing_data[:,2:8]
-        bispec_test = testing_data[:,8:10]
+        bispec_test = testing_data[:,8:12]
         y_test = testing_data[:,-2:]
     else:
         ks, ps_train, kbispec, bispec_train, stats_train, y_train = load_dataset(train_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=True, input_points_to_use=args.input_points_to_use)
@@ -438,7 +461,7 @@ if args.runmode in ("train_test", "optimize") :
             y_train = y_train[mask]
             bispec_train = bispec_train[mask]
             stats_train = stats_train[mask]
-            logger.info(f"Filtered train dataset to {len(X_train)} samples with 0.1 <= xHI <= 0.4")
+            logger.info(f"Filtered train dataset to {len(bispec_train)} samples with 0.1 <= xHI <= 0.4")
         if args.subtractnoise:
             noisefilepattern = str('%sF21_noiseonly_21cmFAST_200Mpc_z%.1f_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
                 (args.path, args.redshift,args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))

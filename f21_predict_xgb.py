@@ -8,7 +8,6 @@ from xgboost import plot_tree
 import torch
 import torch.nn as nn
 
-import pandas as pd
 import numpy as np
 import pickle
 import math
@@ -129,44 +128,49 @@ class ModelTester:
         self.perc_ps_bins_to_use = perc_ps_bins_to_use
         self.ks = ks
     
-    def test(self, los, X_test, stats_test, y_test, los_so, silent=False):
-        #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Unbinned_PS_with_noise")
-        if not silent: logger.info(f"Binning PS data: ks_size={ks.shape}, original_size={X_test.shape[1]}, ps_bins_to_make={self.ps_bins_to_make}, num bins to use={self.perc_ps_bins_to_use}")
-        if args.use_log_bins:
-            _, X_test = f21stats.logbin_power_spectrum_by_k(self.ks, X_test)
-        elif args.use_linear_bins:
-            X_test = f21stats.bin_ps_data(X_test, self.ps_bins_to_make, self.perc_ps_bins_to_use)
-        if not silent: logger.info(f"Testing dataset: X:{X_test.shape} y:{y_test.shape}")
-        #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Binned_PS_with_noise")
+    def test(self, los, ps_test, stats_test, bispectrum_set, y_test, los_so, silent=False):
+        #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(ps_test, showplots=False, label="Unbinned_PS_with_noise")
+        if not silent: logger.info(f"Binning PS data: ks_size={self.ks.shape}, original_size={ps_test.shape}, ps_bins_to_make={self.ps_bins_to_make}, num bins to use={self.perc_ps_bins_to_use}")
+        if ps_test is not None: ps_test = np.mean(ps_test, axis=0, keepdims=True)
+        if stats_test is not None: stats_test = np.mean(stats_test, axis=0, keepdims=True)
+        y_test = np.mean(y_test, axis=0, keepdims=True)
+        if not args.use_saved_data:
+            if args.use_log_bins:
+                _, ps_test = f21stats.logbin_power_spectrum_by_k(self.ks, ps_test)
+            elif args.use_linear_bins:
+                ps_test = f21stats.bin_ps_data(ps_test, self.ps_bins_to_make, self.perc_ps_bins_to_use)
+            if not silent: logger.info(f"Testing dataset: X:{ps_test.shape} y:{y_test.shape}")
+            #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(ps_test, showplots=False, label="Binned_PS_with_noise")
 
-        if not silent: logger.info(f"Before scale y_test: {y_test[:1]}")
-        X_test, y_test = scaler.scaleXy(X_test, y_test)
-        if not silent: logger.info(f"After scale y_test: {y_test[:1]}")
+            if not silent: logger.info(f"Before scale y_test: {y_test[:1]}")
+            ps_test, y_test = scaler.scaleXy(ps_test, y_test)
+            if not silent: logger.info(f"After scale y_test: {y_test[:1]}")
 
-        if args.subtractnoise:
-            if not silent: logger.info(f"Subtracting noise from test data. Shapes: {X_test.shape} {self.X_noise.shape}")
-            X_test -= self.X_noise
-            #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Unbinned_PS_noise_subtracted")
+            if args.subtractnoise:
+                if not silent: logger.info(f"Subtracting noise from test data. Shapes: {ps_test.shape} {self.X_noise.shape}")
+                ps_test -= self.X_noise
+                #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(ps_test, showplots=False, label="Unbinned_PS_noise_subtracted")
 
-        if args.filter_test:
-            # Filter for xHI between 0.1 and 0.4
-            mask = (y_test[:,0] >= 0.1) & (y_test[:,0] <= 0.4)
-            X_test = X_test[mask]
-            stats_test = stats_test[mask]
-            y_test = y_test[mask]
+            if args.filter_test:
+                # Filter for xHI between 0.1 and 0.4
+                mask = (y_test[:,0] >= 0.1) & (y_test[:,0] <= 0.4)
+                ps_test = ps_test[mask]
+                stats_test = stats_test[mask]
+                y_test = y_test[mask]
         #print(f"stats_test.shape={stats_test.shape}")
-        if args.includestats: X_test_with_stats = np.hstack((X_test, stats_test))
-        else: X_test_with_stats = X_test
+        if args.includestats: ps_test_with_stats = np.hstack((ps_test, stats_test))
+        else: ps_test_with_stats = ps_test
         if not silent: logger.info("Testing prediction")
-        if not silent: logger.info(f"Sample data before testing y:{y_test[0]}\nX:{X_test_with_stats[0]}")
+        if not silent: logger.info(f"Sample data before testing y:{y_test[0]}\nX:{ps_test_with_stats[0]}")
         if args.dump_all_training_data: 
             with open(f"{output_dir}/all_test_data.csv", 'a') as f:
-                np.savetxt(f, np.hstack((X_test_with_stats, y_test)), delimiter=",")
-        y_pred = self.model.predict(X_test_with_stats)
+                np.savetxt(f, np.hstack((ps_test_with_stats, y_test)), delimiter=",")
+        y_pred = self.model.predict(ps_test_with_stats)
         if args.model_type == 'bayesian':
             (y_pred, y_pred_var) = y_pred
             logger.info(f'prediction variance={y_pred_var}')
-
+        
+        """
         if y_pred.ndim==1:
             y_pred = y_pred.reshape(len(y_pred),1)
             if args.scale_y2:
@@ -181,24 +185,27 @@ class ModelTester:
             else:
                 r2 = r2_score(y_test, y_pred)
         else:
+        """
+        
+        r2 = 1.0 # TBD
+        if y_pred.ndim > 1 and y_pred.shape[0] > 1:
             if not silent: logger.info(f"Prediction vs Test data: \n{np.hstack((y_pred, y_test))[:5]}")
             # Evaluate the model (on a test set, here we just use the training data for simplicity)
             r2 = [r2_score(y_test[:, i], y_pred[:, i]) for i in range(len(y_pred[0]))]
-        if not silent: logger.info("R2 Score: " + str(r2))
 
         if not silent: logger.info(f"Before unscale y_pred: {y_pred[:1]}")
         y_pred = scaler.unscale_y(y_pred)
         if not silent: logger.info(f"After unscale y_pred: {y_pred[:1]}")
         if not silent: logger.info(f"Before unscale y_test: {y_test[:1]}")
-        X_test, y_test = scaler.unscaleXy(X_test, y_test)
+        ps_test, y_test = scaler.unscaleXy(ps_test, y_test)
         if not silent: logger.info(f"After unscale y_test: {y_test[:1]}")
-        if not silent: logger.info(f"unscaled test result {X_test.shape} {y_test.shape} {y_pred.shape}")
+        if not silent: logger.info(f"unscaled test result {ps_test.shape} {y_test.shape} {y_pred.shape}")
 
         # Calculate rmse scores
         #rms_scores = [mean_squared_error(y_test[:, i], y_pred[:, i]) for i in range(len(y_pred[0]))]
         #rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test, axis=0)
         #if not silent: logger.info("RMS Error: " + str(rms_scores_percent))    
-        return X_test, y_test, y_pred, r2
+        return ps_test, y_test, y_pred, r2
 
 def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_train, y_test, 
                     ps_bins_to_make,
@@ -207,44 +214,46 @@ def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_tr
                     model_param2,
                     showplots=False,
                     saveplots=True):
-    run_description = f"output_dir={output_dir} Commandline: {' '.join(sys.argv)}. Parameters: ps_bins_to_make={ps_bins_to_make}, perc_ps_bins_to_use={perc_ps_bins_to_use}, model_param1={model_param1}, model_param2={model_param2}, label={args.label}"
-    logger.info(f"Starting new run: {run_description}")
-    if args.use_log_bins:
-        _, X_train = f21stats.logbin_power_spectrum_by_k(ks=ks, ps=X_train, silent=False)
-    elif args.use_linear_bins:
-        X_train = f21stats.bin_ps_data(X_train, ps_bins_to_make, perc_ps_bins_to_use)
-    logger.info(f"Before scale train: {y_train[:1]}")
-    X_train, y_train = scaler.scaleXy(X_train, y_train)
-    logger.info(f"After scale train: {y_train[:1]}")
-    if X_noise is not None: 
+    if not args.use_saved_data:
+        run_description = f"output_dir={output_dir} Commandline: {' '.join(sys.argv)}. Parameters: ps_bins_to_make={ps_bins_to_make}, perc_ps_bins_to_use={perc_ps_bins_to_use}, model_param1={model_param1}, model_param2={model_param2}, label={args.label}"
+        logger.info(f"Starting new run: {run_description}")
         if args.use_log_bins:
-            _, X_noise = f21stats.logbin_power_spectrum_by_k(ks=ks, ps=X_noise, silent=False)
+            _, X_train = f21stats.logbin_power_spectrum_by_k(ks=ks, ps=X_train, silent=False)
         elif args.use_linear_bins:
-            X_noise = f21stats.bin_ps_data(X_noise, ps_bins_to_make, perc_ps_bins_to_use)
-        X_noise, _ = scaler.scaleXy(X_noise, np.array([[0.0, 0.0]]))
-        if not args.signalonly_training:
-            logger.info(f"Sample PS before noise subtraction: \n{X_train[:2]}")
-            X_train -= X_noise
-            logger.info(f"Sample PS after noise subtraction: \n{X_train[:2]}")
+            X_train = f21stats.bin_ps_data(X_train, ps_bins_to_make, perc_ps_bins_to_use)
+        logger.info(f"Before scale train: {y_train[:1]}")
+        X_train, y_train = scaler.scaleXy(X_train, y_train)
+        logger.info(f"After scale train: {y_train[:1]}")
+        if X_noise is not None: 
+            if args.use_log_bins:
+                _, X_noise = f21stats.logbin_power_spectrum_by_k(ks=ks, ps=X_noise, silent=False)
+            elif args.use_linear_bins:
+                X_noise = f21stats.bin_ps_data(X_noise, ps_bins_to_make, perc_ps_bins_to_use)
+            X_noise, _ = scaler.scaleXy(X_noise, np.array([[0.0, 0.0]]))
+            if not args.signalonly_training:
+                logger.info(f"Sample PS before noise subtraction: \n{X_train[:2]}")
+                X_train -= X_noise
+                logger.info(f"Sample PS after noise subtraction: \n{X_train[:2]}")
 
-    #_, X_train = logbin_power_spectrum_by_k(ks, X_train)
-    logger.info(f"Training dataset: X:{X_train.shape} y:{y_train.shape}")
+        #_, X_train = logbin_power_spectrum_by_k(ks, X_train)
+        logger.info(f"Training dataset: X:{X_train.shape} y:{y_train.shape}")
 
-    y_pred = None
-    rms_scores = None
+        y_pred = None
+        rms_scores = None
 
-    """
-    reg = xgb.XGBRegressor(
-            n_estimators=model_param1,
-            #learning_rate=0.1,
-            max_depth=model_param2,
-            random_state=42
-        )
-    """
+        """
+        reg = xgb.XGBRegressor(
+                n_estimators=model_param1,
+                #learning_rate=0.1,
+                max_depth=model_param2,
+                random_state=42
+            )
+        """
     if args.includestats:
         X_train_with_stats = np.hstack((X_train, stats_train))
     else:
         X_train_with_stats = X_train
+            
     logger.info(f"Sample data before fitting y:{y_train[0]}\nX:{X_train_with_stats[0]}")
     # Train model with different sample sizes
     if args.model_type == 'linear':
@@ -275,7 +284,8 @@ def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_tr
         save_model(reg)
         logger.info(f"Feature importance: {feature_importance}")
 
-    X_train, y_train = scaler.unscaleXy(X_train, y_train)
+    if not args.use_saved_data:
+        X_train, y_train = scaler.unscaleXy(X_train, y_train)
 
     tester = ModelTester(reg, X_noise, ks, ps_bins_to_make, perc_ps_bins_to_use)
     if args.test_multiple:
@@ -283,7 +293,7 @@ def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_tr
         r2 = base.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
         base.save_test_results(all_y_pred, all_y_test, output_dir)
     else:
-        X_test, stats_test, y_test, y_pred, r2 = tester.test(None, X_test, stats_test, y_test)
+        X_test, stats_test, y_test, y_pred, r2 = tester.test(None, X_test, stats_test, y_test, None)
         base.summarize_test_1000(y_pred, y_test, output_dir=output_dir, showplots=showplots, saveplots=saveplots)
         base.save_test_results(y_pred, y_test, output_dir)
 
@@ -375,9 +385,11 @@ parser.add_argument('--signalonly_training', action='store_true', help='Use sign
 parser.add_argument('--use_log_bins', action='store_true', help='Use logarithmically binned Powerspectrum')
 parser.add_argument('--use_linear_bins', action='store_true', help='Use linearly binned Powerspectrum')
 parser.add_argument('--model_type', type=str, default='xgb', help='xgb, linear, nn or bayesian')
+parser.add_argument('--use_saved_data', action='store_true', help='Skip data loading and processing. Use data saved as CSV')
 
 args = parser.parse_args()
 print(args)
+
 if args.perc_ps_bins_to_use < 5 or args.perc_ps_bins_to_use > 100: raise ValueError("--perc_ps_bins_to_use not in acceptable range!")
 if args.use_log_bins and args.use_linear_bins: raise ValueError("--use_log_bins and --use_linear_bins are mutually exclusive!")
 
@@ -394,6 +406,7 @@ handlers = [file_handler, stdout_handler]
 logging.basicConfig(level=logging.INFO, handlers=handlers)
 logger = logging.getLogger(__name__)
 logger.info(f"Commandline: {' '.join(sys.argv)}")
+
 
 sofilepattern = str('%sF21_signalonly_21cmFAST_200Mpc_z%.1f_fX%s_xHI%s_%dkHz.dat' % 
                (args.path, args.redshift,args.log_fx, args.xHI, args.spec_res))
@@ -440,33 +453,48 @@ if args.signalonly_training:
 scaler = Scaling.Scaler(args)
 if args.runmode in ("train_test", "optimize") :
     logger.info(f"Loading train dataset {len(train_files)}")
-    ks, X_train, stats_train, y_train = None, None, None, None
-    if args.use_saved_ps_data:
-        ks, X_train, y_train = load_dataset_from_pkl()
-    else:
-        ks, X_train, stats_train, y_train = load_dataset(train_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=True)
-    logger.info(f"Loaded dataset X_train:{X_train.shape} y:{y_train.shape}")
-    if args.filter_train:
-        # Filter for xHI between 0.1 and 0.4
-        mask = (y_train[:,0] >= 0.1) & (y_train[:,0] <= 0.4)
-        X_train = X_train[mask]
-        y_train = y_train[mask]
-        stats_train = stats_train[mask]
-        logger.info(f"Filtered train dataset to {len(X_train)} samples with 0.1 <= xHI <= 0.4")
+    ks, X_train, X_test, stats_train, stats_test, y_train, y_test = None, None, None, None, None, None, None
     X_noise = None
     stats_noise = None
-    if args.subtractnoise:
-        noisefilepattern = str('%sF21_noiseonly_21cmFAST_200Mpc_z%.1f_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
-               (args.path, args.redshift,args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
-        logger.info(f"Loading noise files with pattern {noisefilepattern}")
-        noisefiles = glob.glob(noisefilepattern)
-        ks, X_noise, stats_noise, y_noise = load_dataset(noisefiles, psbatchsize=1000, limitsamplesize=1000, save=False)
-        #if X_noise[:,0] == 0: X_noise[:,0] = 1 # Avoid div by zero
-        logger.info(f"Loaded noise: {X_noise.shape}")
+    if args.use_saved_data:
+        # saved data for 200 samples per file
+        # data = pd.read_csv('./saved_output/ps_stats_data_200/all_training_data.csv')
+        # data = pd.read_csv('./saved_output/ps_stats_data_200/all_test_data.csv')
 
-    logger.info(f"Loading test dataset {len(test_files)}")
-    ks, X_test, stats_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=False)
-    logger.info(f"Loaded dataset X_test:{X_test.shape} y:{y_test.shape}")
+        # saved data for 400 samples per file
+        training_data = np.loadtxt('./saved_output/ps_stats_data_400/all_training_data.csv', delimiter=',')
+        testing_data = np.loadtxt('./saved_output/ps_stats_data_400/all_test_data.csv', delimiter=',')
+        ks = np.loadtxt('./output/f21_ps_xgb_train_test_uGMRT_t500h_b1_20250109143518/ks.csv', delimiter=',')
+        logger.info(f"Loaded dataset X_train:{training_data.shape} y:{testing_data.shape} ks:{ks.shape}")
+        X_train = training_data[:,:2]
+        stats_train = training_data[:,2:-2]
+        y_train = training_data[:,-2:]
+        X_test = training_data[:,:2]
+        stats_test = training_data[:,2:-2]
+        y_test = training_data[:,-2:]
+    else:
+        ks, X_train, stats_train, y_train = load_dataset(train_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=True)
+        if args.filter_train:
+            # Filter for xHI between 0.1 and 0.4
+            mask = (y_train[:,0] >= 0.1) & (y_train[:,0] <= 0.4)
+            X_train = X_train[mask]
+            y_train = y_train[mask]
+            stats_train = stats_train[mask]
+            logger.info(f"Filtered train dataset to {len(X_train)} samples with 0.1 <= xHI <= 0.4")
+            if args.subtractnoise:
+                noisefilepattern = str('%sF21_noiseonly_21cmFAST_200Mpc_z%.1f_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
+                    (args.path, args.redshift,args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
+                logger.info(f"Loading noise files with pattern {noisefilepattern}")
+                noisefiles = glob.glob(noisefilepattern)
+                ks, X_noise, stats_noise, y_noise = load_dataset(noisefiles, psbatchsize=1000, limitsamplesize=1000, save=False)
+                #if X_noise[:,0] == 0: X_noise[:,0] = 1 # Avoid div by zero
+                logger.info(f"Loaded noise: {X_noise.shape}")
+            logger.info(f"Loading test dataset {len(test_files)}")
+            ks, X_test, stats_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=False)
+
+
+    logger.info(f"Loaded train dataset X_train:{X_train.shape} y:{y_train.shape}")
+    #logger.info(f"Loaded test dataset X_test:{X_test.shape} y:{y_test.shape}")
 
     if args.runmode == "train_test":
         r2, modeltester = run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_train, y_test, ps_bins_to_make=args.ps_bins_to_make, perc_ps_bins_to_use=args.perc_ps_bins_to_use, model_param1=args.model_param1, model_param2=args.model_param2, showplots=args.interactive, saveplots=True)
