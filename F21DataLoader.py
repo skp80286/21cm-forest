@@ -201,14 +201,6 @@ class F21DataLoader:
                     """
                     # Calculate the power spectrum
                     ks,ps = PS1D.get_P(los,bandwidth, scaled=self.scale_ps) #Calculate 1D power spectrum
-                    #print(f"Calculated PS: {ks.shape}, {ps.shape}")
-                    #ks, ps = F21DataLoader.calculate_power_spectrum(los)
-                    if self.ps_bins is not None:
-                        ps, bin_edges, _ = binned_statistic(np.abs(ks), ps, statistic='mean', bins=self.ps_bins)
-                        ks = 0.5 * (bin_edges[1:] + bin_edges[:-1])  # Bin centers
-
-                    #print(f"ks: {ks}")
-                    #print(f"ps: {ps}")
                     power_spectrum.append(ps)
 
                 if samplenum >= Nlos or psbatchnum >= self.psbatchsize:

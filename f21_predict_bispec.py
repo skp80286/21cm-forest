@@ -15,6 +15,7 @@ import math
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.preprocessing import StandardScaler  
 
 import scipy.fftpack as fftpack
 
@@ -46,12 +47,15 @@ def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False, input_poin
         datafiles = datafiles[:args.maxfiles]
 
     # Create processor with desired number of worker threads
-    processor = dl.F21DataLoader(max_workers=16, psbatchsize=psbatchsize, limitsamplesize=limitsamplesize, skip_ps=True, ps_bins=args.bispec_bins, skip_stats=True, use_bispectrum=True, input_points_to_use=input_points_to_use)
+    processor = dl.F21DataLoader(max_workers=16, psbatchsize=psbatchsize, limitsamplesize=limitsamplesize, skip_ps=(not args.includestats), ps_bins=args.bispec_bins, skip_stats=(not args.includestats), use_bispectrum=True, input_points_to_use=input_points_to_use)
         
     # Process all files and get results
     results = processor.process_all_files(datafiles)
         
     # Access results
+    all_los = results['los']
+    all_ks = results['ks']
+    all_ps = results['ps']
     all_params = results['params']
     all_bispec = results['bispectrum']
     all_k_bispec = results['k_bispec']
@@ -65,7 +69,7 @@ def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False, input_poin
     logger.info(f"Combined bispec shape: {all_bispec.shape}")
     logger.info(f"Combined parameters shape: {all_params.shape}")
 
-    return (k_bispec, all_bispec, all_stats, all_params)
+    return (all_ks, all_ps, k_bispec, all_bispec, all_stats, all_params)
 
 def save_model(model):
     # Save the model architecture and weights
@@ -73,21 +77,22 @@ def save_model(model):
     model_json = model.save_model(f"{output_dir}/{args.modelfile}")
 
 class ModelTester:
-    def __init__(self, model, X_noise, k_bispec, ps_bins_to_make, perc_ps_bins_to_use):
+    def __init__(self, model, X_noise, k_bispec, ps_bins_to_make, perc_ps_bins_to_use, stdscaler):
         self.model = model
         self.X_noise = X_noise
         self.ps_bins_to_make = ps_bins_to_make
         self.perc_ps_bins_to_use = perc_ps_bins_to_use
         self.k_bispec = k_bispec
+        self.stdscaler = stdscaler
     
     def test(self, los, ps_test, stats_test, bispec_test, y_test, los_so, silent=False):
         #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Unbinned_PS_with_noise")
         if not silent: logger.info(f"Binning Bispec data: kbispec_size={self.k_bispec.shape}, original_size={bispec_test.shape}, ps_bins_to_make={self.ps_bins_to_make}, num bins to use={self.perc_ps_bins_to_use}")
         if not args.use_saved_data:
             if args.use_log_bins:
-                _, bispec_test = f21stats.logbin_power_spectrum_by_k(self.k_bispec, bispec_test)
+                _, ps_test = f21stats.logbin_power_spectrum_by_k(self.k_bispec, ps_test)
             elif args.use_linear_bins:
-                bispec_test = f21stats.bin_ps_data(bispec_test, self.ps_bins_to_make, self.perc_ps_bins_to_use)
+                ps_test = f21stats.bin_ps_data(ps_test, self.ps_bins_to_make, self.perc_ps_bins_to_use)
             if not silent: logger.info(f"Testing dataset: X:{bispec_test.shape} y:{y_test.shape}")
             #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Binned_PS_with_noise")
 
@@ -107,8 +112,12 @@ class ModelTester:
                 stats_test = stats_test[mask]
                 y_test = y_test[mask]
         #print(f"stats_test.shape={stats_test.shape}")
-        if args.includestats: bispec_test_with_stats = np.hstack((bispec_test, stats_test))
+        if args.includestats: bispec_test_with_stats = np.hstack((ps_test, stats_test, bispec_test))
         else: bispec_test_with_stats = bispec_test
+
+        bispec_test_with_stats = np.log(np.clip(bispec_test_with_stats, 1e-20, None))
+        bispec_test_with_stats = self.stdscaler.transform(bispec_test_with_stats)
+
         if not silent: logger.info("Testing prediction")
         if not silent: logger.info(f"Sample data before testing y:{y_test[0]}\nX:{bispec_test_with_stats[0]}")
         if args.dump_all_training_data: 
@@ -152,7 +161,7 @@ class ModelTester:
         #if not silent: logger.info("RMS Error: " + str(rms_scores_percent))    
         return bispec_test, y_test, y_pred, r2
 
-def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_train, y_test, 
+def run(ks, ps_train, kbispec, bispec_train, stats_train, ps_test, bispec_test, stats_test, ps_noise, bispec_noise, stats_noise, y_train, y_test, 
                     ps_bins_to_make,
                     perc_ps_bins_to_use,
                     model_param1,
@@ -163,25 +172,25 @@ def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_tr
         run_description = f"output_dir={output_dir} Commandline: {' '.join(sys.argv)}. Parameters: ps_bins_to_make={ps_bins_to_make}, perc_ps_bins_to_use={perc_ps_bins_to_use}, model_param1={model_param1}, model_param2={model_param2}, label={args.label}"
         logger.info(f"Starting new run: {run_description}")
         if args.use_log_bins:
-            _, X_train = f21stats.logbin_power_spectrum_by_k(ks=ks, ps=X_train, silent=False)
+            _, ps_train = f21stats.logbin_power_spectrum_by_k(ks=ks, ps=ps_train, silent=False)
         elif args.use_linear_bins:
-            X_train = f21stats.bin_ps_data(X_train, ps_bins_to_make, perc_ps_bins_to_use)
+            ps_train = f21stats.bin_ps_data(ps_train, ps_bins_to_make, perc_ps_bins_to_use)
         logger.info(f"Before scale train: {y_train[:1]}")
-        X_train, y_train = scaler.scaleXy(X_train, y_train)
+        ps_train, y_train = scaler.scaleXy(ps_train, y_train)
         logger.info(f"After scale train: {y_train[:1]}")
-        if X_noise is not None: 
+        if ps_noise is not None: 
             if args.use_log_bins:
-                _, X_noise = f21stats.logbin_power_spectrum_by_k(ks=ks, ps=X_noise, silent=False)
+                _, ps_noise = f21stats.logbin_power_spectrum_by_k(ks=ks, ps=ps_noise, silent=False)
             elif args.use_linear_bins:
-                X_noise = f21stats.bin_ps_data(X_noise, ps_bins_to_make, perc_ps_bins_to_use)
-            X_noise, _ = scaler.scaleXy(X_noise, np.array([[0.0, 0.0]]))
+                ps_noise = f21stats.bin_ps_data(ps_noise, ps_bins_to_make, perc_ps_bins_to_use)
+            ps_noise, _ = scaler.scaleXy(ps_noise, np.array([[0.0, 0.0]]))
             if not args.signalonly_training:
-                logger.info(f"Sample PS before noise subtraction: \n{X_train[:2]}")
-                X_train -= X_noise
-                logger.info(f"Sample PS after noise subtraction: \n{X_train[:2]}")
+                logger.info(f"Sample PS before noise subtraction: \n{ps_train[:2]}")
+                ps_train -= ps_noise
+                logger.info(f"Sample PS after noise subtraction: \n{ps_train[:2]}")
 
         #_, X_train = logbin_power_spectrum_by_k(ks, X_train)
-        logger.info(f"Training dataset: X:{X_train.shape} y:{y_train.shape}")
+        logger.info(f"Training dataset: X:{ps_train.shape} y:{y_train.shape}")
 
         y_pred = None
         rms_scores = None
@@ -195,10 +204,15 @@ def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_tr
             )
         """
     if args.includestats:
-        X_train_with_stats = np.hstack((X_train, stats_train))
+        X_train_with_stats = np.hstack((ps_train, stats_train, bispec_train))
     else:
-        X_train_with_stats = X_train
-            
+        X_train_with_stats = bispec_train
+
+    X_train_with_stats = np.log(np.clip(X_train_with_stats, 1e-20, None))
+    # Normalize the training data
+    stdscaler = StandardScaler()  # Create a scaler instance
+    X_train_with_stats = stdscaler.fit_transform(X_train_with_stats)  # Fit and transform the training data
+
     logger.info(f"Sample data before fitting y:{y_train[0]}\nX:{X_train_with_stats[0]}")
     # Train model with different sample sizes
     if args.model_type == 'linear':
@@ -213,7 +227,7 @@ def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_tr
     logger.info(f"Fitting regressor: {reg}")
     if args.dump_all_training_data: 
         np.savetxt(f"{output_dir}/all_training_data.csv", np.hstack((X_train_with_stats, y_train)), delimiter=",")
-        np.savetxt(f"{output_dir}/kbispec.csv", ks, delimiter=',')
+        np.savetxt(f"{output_dir}/kbispec.csv", kbispec, delimiter=',')
     
     if args.scale_y2:
         reg.fit(X_train_with_stats, y_train[:,2])
@@ -233,11 +247,11 @@ def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_tr
         logger.info(f"Feature importance: {feature_importance}")
 
     if not args.use_saved_data:
-        X_train, y_train = scaler.unscaleXy(X_train, y_train)
+        ps_train, y_train = scaler.unscaleXy(ps_train, y_train)
 
-    tester = ModelTester(reg, X_noise, ks, ps_bins_to_make, perc_ps_bins_to_use)
+    tester = ModelTester(reg, ps_noise, ks, ps_bins_to_make, perc_ps_bins_to_use, stdscaler)
     if args.test_multiple:
-        all_y_pred, all_y_test = base.test_multiple(tester, test_files, reps=args.test_reps, skip_stats=(not args.includestats), skip_ps=True, use_bispectrum=args.use_bispectrum, input_points_to_use=args.input_points_to_use, ps_bins=args.bispec_bins)
+        all_y_pred, all_y_test = base.test_multiple(tester, test_files, reps=args.test_reps, skip_stats=(not args.includestats), skip_ps=(not args.includestats), use_bispectrum=args.use_bispectrum, input_points_to_use=args.input_points_to_use, ps_bins=args.bispec_bins)
         r2 = base.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
         base.save_test_results(all_y_pred, all_y_test, output_dir)
     else:
@@ -267,7 +281,7 @@ def objective(trial):
     }    
     # Run training with the suggested parameters
     try:
-        r2, _ = run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_train, y_test, 
+        r2, _ = run(ks, ps_train, kbispec, bispec_train, stats_train, ps_test, bispec_test, stats_test, ps_noise, bispec_noise, stats_noise, y_train, y_test, 
                    ps_bins_to_make=params['ps_bins_to_make'],
                    perc_ps_bins_to_use=params['perc_ps_bins_to_use'],
                    model_param1=params['model_param1'],
@@ -391,9 +405,9 @@ if args.signalonly_training:
 scaler = Scaling.Scaler(args)
 if args.runmode in ("train_test", "optimize") :
     logger.info(f"Loading train dataset {len(train_files)}")
-    ks, X_train, stats_train, y_train, X_test, stats_test, y_test = None, None, None, None, None, None, None
-    X_noise = None
-    stats_noise = None
+    ks, ps_train, stats_train, y_train, ps_test, stats_test, y_test = None, None, None, None, None, None, None
+    kbispec, bispec_train, bispec_test = None, None, None 
+    ps_noise, bispec_noise, stats_noise = None, None, None
     if args.use_saved_data:
         # saved data for 200 samples per file
         # data = pd.read_csv('./saved_output/ps_stats_data_200/all_training_data.csv')
@@ -402,22 +416,27 @@ if args.runmode in ("train_test", "optimize") :
         # saved data for 400 samples per file
         training_data = np.loadtxt('./saved_output/bispectrum_data/log_training_data.csv', delimiter=',')
         testing_data = np.loadtxt('./saved_output/bispectrum_data/log_test_data.csv', delimiter=',')
+        kbispec = np.loadtxt('./saved_output/bispectrum_data/kbispec.csv', delimiter=',')
+        ## TBD
         ks = np.loadtxt('./saved_output/bispectrum_data/kbispec.csv', delimiter=',')
 
         logger.info(f"Loaded dataset X_train:{training_data.shape} y:{testing_data.shape} ks:{ks.shape}")
-        X_train = training_data[:,:-2]
-        stats_train = None #training_data[:,2:-2]
+        ps_train = training_data[:,:2]
+        stats_train = training_data[:,2:8]
+        bispec_train = training_data[:,8:10]
         y_train = training_data[:,-2:]
-        X_test = testing_data[:,:-2]
-        stats_test = None #training_data[:,2:-2]
+        ps_test = testing_data[:,:2]
+        stats_test = testing_data[:,2:8]
+        bispec_test = testing_data[:,8:10]
         y_test = testing_data[:,-2:]
     else:
-        ks, X_train, stats_train, y_train = load_dataset(train_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=True, input_points_to_use=args.input_points_to_use)
+        ks, ps_train, kbispec, bispec_train, stats_train, y_train = load_dataset(train_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=True, input_points_to_use=args.input_points_to_use)
         if args.filter_train:
             # Filter for xHI between 0.1 and 0.4
             mask = (y_train[:,0] >= 0.1) & (y_train[:,0] <= 0.4)
-            X_train = X_train[mask]
+            ps_train = ps_train[mask]
             y_train = y_train[mask]
+            bispec_train = bispec_train[mask]
             stats_train = stats_train[mask]
             logger.info(f"Filtered train dataset to {len(X_train)} samples with 0.1 <= xHI <= 0.4")
         if args.subtractnoise:
@@ -425,17 +444,17 @@ if args.runmode in ("train_test", "optimize") :
                 (args.path, args.redshift,args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
             logger.info(f"Loading noise files with pattern {noisefilepattern}")
             noisefiles = glob.glob(noisefilepattern)
-            ks, X_noise, stats_noise, y_noise = load_dataset(noisefiles, psbatchsize=1000, limitsamplesize=1000, save=False)
+            ks, ps_noise, kbispec, bispec_noise, stats_noise, y_noise = load_dataset(noisefiles, psbatchsize=1000, limitsamplesize=1000, save=False)
             #if X_noise[:,0] == 0: X_noise[:,0] = 1 # Avoid div by zero
-            logger.info(f"Loaded noise: {X_noise.shape}")
+            logger.info(f"Loaded noise: {ps_noise.shape}")
         logger.info(f"Loading test dataset {len(test_files)}")
-        ks, X_test, stats_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=False, input_points_to_use=args.input_points_to_use)
+        ks, ps_test, kbispec, bispec_test, stats_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=False, input_points_to_use=args.input_points_to_use)
 
-    logger.info(f"Loaded train dataset X_train:{X_train.shape} y:{y_train.shape}")
-    logger.info(f"Loaded test dataset X_test:{X_test.shape} y:{y_test.shape}")
+    logger.info(f"Loaded train dataset X_train:{ps_train.shape}, {stats_train.shape}, {bispec_train.shape},  y:{y_train.shape}")
+    logger.info(f"Loaded test dataset X_test:{ps_test.shape}, {stats_test.shape}, {bispec_test.shape} y:{y_test.shape}")
 
     if args.runmode == "train_test":
-        r2, modeltester = run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_train, y_test, ps_bins_to_make=args.ps_bins_to_make, perc_ps_bins_to_use=args.perc_ps_bins_to_use, model_param1=args.model_param1, model_param2=args.model_param2, showplots=args.interactive, saveplots=True)
+        r2, modeltester = run(ks, ps_train, kbispec, bispec_train, stats_train, ps_test, bispec_test, stats_test, ps_noise, bispec_noise, stats_noise, y_train, y_test, ps_bins_to_make=args.ps_bins_to_make, perc_ps_bins_to_use=args.perc_ps_bins_to_use, model_param1=args.model_param1, model_param2=args.model_param2, showplots=args.interactive, saveplots=True)
 
     elif args.runmode == "optimize":
         # Create study object

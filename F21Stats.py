@@ -354,6 +354,7 @@ def linbin_ps(ks, ps, ps_bins_to_make, perc_ps_bins_to_use):
     return k_binned[:,:num_bins_to_retain], ps_binned[:,:num_bins_to_retain]
 
 def bin_ps_data(X, ps_bins_to_make, perc_ps_bins_to_use):
+    #print(f"Linear binning: {X.shape} {ps_bins_to_make} {perc_ps_bins_to_use}")
     if X.shape[1] <  ps_bins_to_make:
         ps_bins_to_make = X.shape[1]
 
@@ -368,6 +369,8 @@ def bin_ps_data(X, ps_bins_to_make, perc_ps_bins_to_use):
         X_binned = np.array(X_binned)
     else:
         X_binned = X
+
+    #print(f"Linear binning: {X_binned.shape[0]} {num_bins}")
     return X_binned[:,:num_bins]
 
 
