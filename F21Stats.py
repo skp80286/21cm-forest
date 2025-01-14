@@ -7,6 +7,7 @@ import numpy as np
 import logging
 import F21DataLoader as dl
 from scipy.stats import binned_statistic
+from scipy.fft import fft
 
 class F21Stats:
     logger = logging.getLogger(__name__)
@@ -93,10 +94,19 @@ class F21Stats:
         return F21Stats.bin(k, b, num_bins=20)
 
     @staticmethod
-    def bin(k, b, num_bins=20):
-        b_bin, k_bin_edges, _ = binned_statistic(k, b, statistic='mean', bins=num_bins)
+    def bin(k, b, ps_bins_to_make=20, perc_ps_bins_to_use=100):
+        if b.ndim == 1: 
+            signal_size = len(b)
+            b = b.reshape(1,signal_size)
+        else: signal_size = len(b[0])
+        
+        if signal_size <  ps_bins_to_make: ps_bins_to_make = signal_size
+
+        num_bins_to_retain = (ps_bins_to_make*perc_ps_bins_to_use)//100
+
+        b_bin, k_bin_edges, _ = binned_statistic(k, b, statistic='mean', bins=ps_bins_to_make)
         k_bin = 0.5 *(k_bin_edges[:-1] + k_bin_edges[1:])
-        return k_bin, b_bin
+        return k_bin[:num_bins_to_retain], b_bin[:,:num_bins_to_retain]
 
     @staticmethod
     def compute_1d_bispectrum_single(signal):
@@ -118,126 +128,90 @@ class F21Stats:
 
         return k[1:num_bins-1], bispectrum[1:num_bins-1]
     
-    @staticmethod
-    def compute_1d_bispectrum_iter(signal):
-        if signal.ndim == 1: return F21Stats.compute_1d_bispectrum_single(signal)
-        elif signal.ndim == 2:
-            bispect_list = []
-            kbs_list = []
-            for row in signal:
-                kbs, bispec = F21Stats.compute_1d_bispectrum_single(row)
-                bispect_list.append(bispec)
-                kbs_list.append(kbs)
-            return np.array(kbs_list), np.array(bispect_list)
-        else: raise ValueError("Incorrect signal shape!")
 
     @staticmethod
     def compute_1d_bispectrum(signal):
-        if signal.ndim == 1: return F21Stats.compute_1d_bispectrum_single(signal)
-        elif signal.ndim == 2:
-            if signal.shape[0] == 1: return F21Stats.compute_1d_bispectrum_single(signal[0])
-            
-            n_pixels = len(signal[0])
-            delta_k = np.fft.fft(signal, axis=1)
-            num_bins = n_pixels//2+1
-            k = np.fft.fftfreq(n_pixels)
-            # Compute bispectrum for k1 = k2
-            bispectrum = np.zeros((signal.shape[0],num_bins))
-            for i,k1 in enumerate(k[:num_bins]):
-                k1_idx = np.argmin(np.abs(k - k1), axis=0)
-                k3_idx = np.argmin(np.abs(k + 2 * k1), axis=0)
-                # Bispectrum B(k1, k1, -2k1)
-                B = (delta_k[:,k1_idx] * delta_k[:,k1_idx] * delta_k[:,k3_idx].conj()).real
-                bispectrum[:,i] = np.abs(B)
-            return k[1:num_bins-1], bispectrum[:,1:num_bins-1]
-        else: raise ValueError("compute_1d_bispectrum: Incorrect signal shape!")
-
-    @staticmethod
-    def compute_1d_bispectrum_torch(signal):
-        signal = torch.tensor(signal, dtype=torch.float32)
-
-        # FFT of the density field
-        n_pixels = signal.shape[-1]
-        delta_k = torch.fft.fft(signal, axis=0)
+        if signal.ndim == 1: signal = signal.reshape(1, len(signal))# return F21Stats.compute_1d_bispectrum_single(signal)
+        n_pixels = len(signal[0])
+        delta_k = np.fft.fft(signal, axis=1)
         num_bins = n_pixels//2+1
-        k = torch.fft.fftfreq(signal.shape[-1])
-
+        k = np.fft.fftfreq(n_pixels)
         # Compute bispectrum for k1 = k2
-        bispectrum = np.zeros((signal.shape[0], num_bins))
+        bispectrum = np.zeros((signal.shape[0],num_bins))
         for i,k1 in enumerate(k[:num_bins]):
-            k1_idx = torch.argmin(np.abs(k - k1), axis=0)
-            k3_idx = torch.argmin(np.abs(k + 2 * k1), axis=0)
-
+            k1_idx = np.argmin(np.abs(k - k1), axis=0)
+            k3_idx = np.argmin(np.abs(k + 2 * k1), axis=0)
             # Bispectrum B(k1, k1, -2k1)
             B = (delta_k[:,k1_idx] * delta_k[:,k1_idx] * delta_k[:,k3_idx].conj()).real
-            bispectrum[:,i] = torch.abs(B).detach().cpu().numpy()
-
+            bispectrum[:,i] = np.abs(B)
         return k[1:num_bins-1], bispectrum[:,1:num_bins-1]
 
-
     @staticmethod
-    def compute_1d_bispectrum_with_bins(signal, kbins):
-        # FFT of the density field
-        n_pixels = signal.shape[0]
-        delta_k = np.fft.fft(signal)
+    def compute_1d_bispectrum_alt(signal):
+        if signal.ndim == 1: signal = signal.reshape(1, len(signal))# return F21Stats.compute_1d_bispectrum_single(signal)
+        n_pixels = len(signal[0])
+        delta_k = np.fft.fft(signal, axis=1)
         num_bins = n_pixels//2+1
-        k = np.fft.fftfreq(len(signal))[:num_bins]
-
+        k = np.fft.fftfreq(n_pixels)
         # Compute bispectrum for k1 = k2
-        bispectrum = []
-        for k1 in kbins:
-            k1_idx = np.argmin(np.abs(k - k1))
-            k3_idx = np.argmin(np.abs(k + 2 * k1))
-
+        bispectrum = np.zeros((signal.shape[0],num_bins))
+        for i,k1 in enumerate(k[:num_bins]):
+            k1_idx = np.argmin(np.abs(k + k1), axis=0)
+            k3_idx = np.argmin(np.abs(k + 2 * k1), axis=0)
             # Bispectrum B(k1, k1, -2k1)
-            B = (delta_k[k1_idx] * delta_k[k1_idx] * delta_k[k3_idx].conj()).real
-            bispectrum.append(B)
-
-        return kbins, np.array(bispectrum)
+            B = (delta_k * delta_k[:,k1_idx] * delta_k[:,k3_idx].conj()).real
+            bispectrum[:,i] = np.abs(B)
+        return k[1:num_bins-1], bispectrum[:,1:num_bins-1]
 
     @staticmethod
-    def compute_1d_bispectrum_with_size(signal, max_size):
-        # FFT of the density field
-        n_pixels = signal.shape[0]
-        delta_k = np.fft.fft(signal)
+    def compute_1d_bispectrum_fft(signal):
+        """
+        Compute the bispectrum of a 1D signal.
+
+        Parameters:
+            signal: The input signal.
+
+        Returns:
+            B: The bispectrum.
+        """
+
+        if signal.ndim == 1: signal = signal.reshape(1, len(signal))# return F21Stats.compute_1d_bispectrum_single(signal)
+        n_pixels = len(signal[0])
+
+        k = np.fft.fftfreq(n_pixels)
+
+        X = fft(signal, n_pixels)
+
+        bandwidth = n_pixels//2-1
+        B = np.zeros((len(X), bandwidth), dtype=np.float32)
+
+        for k1 in range(1,bandwidth+1):
+                B[:,k1-1] = np.abs(X[:,k1] * X[:,k1] * np.conj(X[:,2*k1]).real)
+
+        return k[1:bandwidth+1], B
+
+    @staticmethod
+    def compute_1d_trispectrum(signal):
+        # Perform the FFT using NumPy
+        if signal.ndim == 1: signal = signal.reshape(1, len(signal))# return F21Stats.compute_1d_bispectrum_single(signal)
+        n_pixels = len(signal[0])
+        delta_k = np.fft.fft(signal, axis=1)
         num_bins = n_pixels//2+1
-        k = np.fft.fftfreq(len(signal))[:num_bins]
+        k = np.fft.fftfreq(len(signal[0]))
 
-        k_fund = 2*np.pi/max_size
-        kbins = np.arange(0,num_bins*k_fund*(1.+1.e-100),k_fund)
+        # Compute trispectrum for k1 = k2 = k3
+        trispectrum = np.zeros((signal.shape[0],num_bins))
+        for i,k1 in enumerate(k[:num_bins]):
+            # Find the closest indices for k1 and -3k1
+            k1_idx = np.argmin(np.abs(k - k1), axis=0)
+            k2_idx = np.argmin(np.abs(k + k1), axis=0)
+            k3_idx = np.argmin(np.abs(k + 2 * k1), axis=0)
+            k4_idx = np.argmin(np.abs(k + 3 * k1), axis=0)
 
-        # Compute bispectrum for k1 = k2
-        bispectrum = []
-        for k1 in kbins:
-            k1_idx = np.argmin(np.abs(k - k1))
-            k3_idx = np.argmin(np.abs(k + 2 * k1))
+            # Trispectrum T(k1, k1, k1, -3k1)
+            trispectrum[:,i] = np.abs((delta_k[:,k1_idx] * delta_k[:,k2_idx] * delta_k[:,k3_idx] * np.conj(delta_k[:,k4_idx])).real)
 
-            # Bispectrum B(k1, k1, -2k1)
-            B = (delta_k[k1_idx] * delta_k[k1_idx] * delta_k[k3_idx].conj()).real
-            bispectrum.append(B)
-
-        return kbins, np.array(bispectrum)
-
-    @staticmethod
-    def compute_1d_bispectrum_torch_with_kbins(delta_x, k1_values):
-        # Convert the input to a PyTorch tensor
-        delta_x_tensor = torch.tensor(delta_x, dtype=torch.float32)
-
-        # Perform the FFT using PyTorch
-        delta_k = torch.fft.fft(delta_x_tensor)
-        k = torch.fft.fftfreq(len(delta_x_tensor))
-
-        # Compute bispectrum for k1 = k2
-        bispectrum = []
-        for k1 in k1_values:
-            k1_idx = torch.argmin(torch.abs(k - k1))
-            k3_idx = torch.argmin(torch.abs(k + 2 * k1))
-
-            # Bispectrum B(k1, k1, -2k1)
-            B = (delta_k[k1_idx] * delta_k[k1_idx] * delta_k[k3_idx].conj()).real
-            bispectrum.append(B.item())
-
-        return np.array(bispectrum)
+        return k[1:num_bins-1], trispectrum[:,1:num_bins-1]
 
     @staticmethod
     def calculate_bispectrum_2d(data, nfft=None):
@@ -302,11 +276,11 @@ def logbin_power_spectrum_by_k(ks, ps, silent=True):
     if not silent: F21Stats.logger.info(f"final ps: {pslist[0,:5]}..{pslist[0,-5:]}")
     return binlist[:,3:5], pslist[:,3:5]
 
-def logbin_power_spectrum_by_k_flex(ks, ps, ps_bins_to_make, perc_ps_bins_to_use):
+def logbin_power_spectrum_by_k_flex(ks, ps, ps_bins_to_make, perc_ps_bins_to_use=100):
     num_bins = ps_bins_to_make*perc_ps_bins_to_use//100
     
     min_log_k = None
-    if (ks[0] > 0): min_log_k = np.log10(ks[0])
+    if (ks[0] > 0): min_log_k = np.log10(ks[0]-1e-10)
     else: min_log_k = np.log10(ks[1]/np.sqrt(10))
     max_log_k = np.log10(ks[-1])
 

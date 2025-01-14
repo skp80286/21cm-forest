@@ -47,7 +47,7 @@ def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False, input_poin
         datafiles = datafiles[:args.maxfiles]
 
     # Create processor with desired number of worker threads
-    processor = dl.F21DataLoader(max_workers=16, psbatchsize=psbatchsize, limitsamplesize=limitsamplesize, skip_ps=(not args.includestats), ps_bins=args.bispec_bins, skip_stats=(not args.includestats), use_bispectrum=True, input_points_to_use=input_points_to_use)
+    processor = dl.F21DataLoader(max_workers=16, psbatchsize=psbatchsize, limitsamplesize=limitsamplesize, skip_ps=(not args.includestats), ps_bins=args.bispec_bins, skip_stats=(not args.includestats), use_bispectrum=True, input_points_to_use=input_points_to_use, perc_bins_to_use=args.perc_ps_bins_to_use)
         
     # Process all files and get results
     results = processor.process_all_files(datafiles)
@@ -60,12 +60,18 @@ def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False, input_poin
     all_bispec = results['bispectrum']
     all_k_bispec = results['k_bispec']
     all_stats = results['stats']
+    logger.info(f"sample ps:{all_ps[0]}")
+    logger.info(f"sample ks:{all_ks[0]}")
+    logger.info(f"sample stats:{all_stats[0]}")
     logger.info(f"sample bispectrum:{all_bispec[0]}")
     logger.info(f"sample k_bispec:{all_k_bispec[0]}")
     logger.info(f"sample params:{all_params[0]}")
     
     k_bispec = all_k_bispec[0]
-    logger.info(f"Combined k_bispec shape: {k_bispec.shape}")
+    logger.info(f"ps shape:{all_ps.shape}")
+    logger.info(f"ks shape:{all_ks.shape}")
+    logger.info(f"stats shape:{all_stats.shape}")
+    logger.info(f"k_bispec shape: {k_bispec.shape}")
     logger.info(f"Combined bispec shape: {all_bispec.shape}")
     logger.info(f"Combined parameters shape: {all_params.shape}")
 
@@ -93,30 +99,30 @@ class ModelTester:
         if stats_test is not None: stats_test = np.mean(stats_test, axis=0, keepdims=True)
         if bispec_test is not None: bispec_test = np.mean(bispec_test, axis=0, keepdims=True)
         y_test = np.mean(y_test, axis=0, keepdims=True)
-        if not args.use_saved_data:
-            if args.use_log_bins:
-                _, ps_test = f21stats.logbin_power_spectrum_by_k(self.ks, ps_test)
-            elif args.use_linear_bins:
-                ps_test = f21stats.bin_ps_data(ps_test, self.ps_bins_to_make, self.perc_ps_bins_to_use)
-            if not silent: logger.info(f"Testing dataset: X:{bispec_test.shape} y:{y_test.shape}")
+
+        if args.use_log_bins:
+            _, ps_test = f21stats.logbin_power_spectrum_by_k(self.ks, ps_test)
+        elif args.use_linear_bins:
+            ps_test = f21stats.bin_ps_data(ps_test, self.ps_bins_to_make, self.perc_ps_bins_to_use)
             #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Binned_PS_with_noise")
 
-            if not silent: logger.info(f"Before scale y_test: {y_test[:1]}")
-            bispec_test, y_test = scaler.scaleXy(bispec_test, y_test)
-            if not silent: logger.info(f"After scale y_test: {y_test[:1]}")
+        if not silent: logger.info(f"Before scale y_test: {y_test[:1]}")
+        bispec_test, y_test = scaler.scaleXy(bispec_test, y_test)
+        if not silent: logger.info(f"After scale y_test: {y_test[:1]}")
 
-            if args.subtractnoise:
-                if not silent: logger.info(f"Subtracting noise from test data. Shapes: {X_test.shape} {self.X_noise.shape}")
-                bispec_test -= self.X_noise
-                #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Unbinned_PS_noise_subtracted")
+        if args.subtractnoise:
+            if not silent: logger.info(f"Subtracting noise from test data. Shapes: {X_test.shape} {self.X_noise.shape}")
+            bispec_test -= self.X_noise
+            #if y_test == [-1.00,0.25]: base.plot_single_power_spectrum(X_test, showplots=False, label="Unbinned_PS_noise_subtracted")
 
-            if args.filter_test:
-                # Filter for xHI between 0.1 and 0.4
-                mask = (y_test[:,0] >= 0.1) & (y_test[:,0] <= 0.4)
-                bispec_test = bispec_test[mask]
-                stats_test = stats_test[mask]
-                y_test = y_test[mask]
+        if args.filter_test:
+            # Filter for xHI between 0.1 and 0.4
+            mask = (y_test[:,0] >= 0.1) & (y_test[:,0] <= 0.4)
+            bispec_test = bispec_test[mask]
+            stats_test = stats_test[mask]
+            y_test = y_test[mask]
         #print(f"stats_test.shape={stats_test.shape}")
+        if not silent: logger.info(f"Testing dataset: ps:{ps_test.shape} stats:{stats_test.shape} bispec:{bispec_test.shape} y:{y_test.shape}")
         if args.includestats: bispec_test_with_stats = np.hstack((ps_test, stats_test, bispec_test))
         else: bispec_test_with_stats = bispec_test
 
@@ -217,8 +223,10 @@ def run(ks, ps_train, kbispec, bispec_train, stats_train, ps_test, bispec_test, 
         """
     if args.includestats:
         X_train_with_stats = np.hstack((ps_train, stats_train, bispec_train))
+        logger.info(f"data for training. ps:{ps_train.shape}, stats:{stats_train.shape}, bispec:{bispec_train.shape} ")
     else:
         X_train_with_stats = bispec_train
+        logger.info(f"data for training. bispec:{bispec_train.shape} ")
 
     X_train_with_stats = np.log(np.clip(X_train_with_stats, 1e-20, None))
     # Normalize the training data
@@ -269,13 +277,15 @@ def run(ks, ps_train, kbispec, bispec_train, stats_train, ps_test, bispec_test, 
         save_model(reg)
         np.savetxt(f"{output_dir}/feature_importance.csv", feature_importance, delimiter=',')
         logger.info(f"Feature importance: {feature_importance}")
+        for imp_type in ['weight','gain', 'cover', 'total_gain', 'total_cover']:
+            logger.info(f"Importance type {imp_type}: {reg.get_booster().get_score(importance_type=imp_type)}")
 
     if not args.use_saved_data:
         ps_train, y_train = scaler.unscaleXy(ps_train, y_train)
 
     tester = ModelTester(reg, ps_noise, ks, kbispec, ps_bins_to_make, perc_ps_bins_to_use, stdscaler)
     if args.test_multiple:
-        all_y_pred, all_y_test = base.test_multiple(tester, test_files, reps=args.test_reps, skip_stats=(not args.includestats), skip_ps=(not args.includestats), use_bispectrum=args.use_bispectrum, input_points_to_use=args.input_points_to_use, ps_bins=args.bispec_bins)
+        all_y_pred, all_y_test = base.test_multiple(tester, test_files, reps=args.test_reps, skip_stats=(not args.includestats), skip_ps=(not args.includestats), use_bispectrum=args.use_bispectrum, input_points_to_use=args.input_points_to_use, ps_bins=args.bispec_bins, perc_bins_to_use=args.perc_ps_bins_to_use)
         r2 = base.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
         base.save_test_results(all_y_pred, all_y_test, output_dir)
     else:
@@ -325,6 +335,8 @@ torch.manual_seed(42)
 np.random.seed(42)
 torch.backends.cudnn.determinisitc=True
 torch.backends.cudnn.benchmark=False
+
+print(f"All arguments: {sys.argv}")
 
 parser = argparse.ArgumentParser(description='Predict reionization parameters from 21cm forest')
 parser.add_argument('-p', '--path', type=str, default='../data/21cmFAST_los/F21_noisy/', help='filepath')
@@ -384,6 +396,9 @@ if args.use_log_bins and args.use_linear_bins: raise ValueError("--use_log_bins 
 output_dir = base.create_output_dir(args)
 logger = base.setup_logging(output_dir)
 
+#logfx_part = '_fX%s_'
+#if args.highlogfx: logfx_part = '_fX%s_'
+
 sofilepattern = str('%sF21_signalonly_21cmFAST_200Mpc_z%.1f_fX%s_xHI%s_%dkHz.dat' % 
                (args.path, args.redshift,args.log_fx, args.xHI, args.spec_res))
 sodatafiles = glob.glob(sofilepattern)
@@ -401,6 +416,11 @@ logger.info(f"Found {len(datafiles)} noisy files and {len(sodatafiles)} signalon
 if len(datafiles) != len(sodatafiles): raise ValueError("noisy files and signalonly files should be the same!")
 sodatafiles = sorted(sodatafiles)
 datafiles = sorted(datafiles)
+
+"""
+print(datafiles)
+sys.exit(0)
+"""
 
 #train_files, test_files = train_test_split(datafiles, test_size=test_size, random_state=42)
 test_points = [[-3.00,0.11],[-2.00,0.11],[-1.00,0.11],[-3.00,0.25],[-2.00,0.25],[-1.00,0.25],[-3.00,0.52],[-2.00,0.52],[-1.00,0.52], [-3.00,0.80],[-2.00,0.80],[-1.00,0.80]]#,[0.00,0.80]]
@@ -438,20 +458,22 @@ if args.runmode in ("train_test", "optimize") :
         # data = pd.read_csv('./saved_output/ps_stats_data_200/all_test_data.csv')
 
         # saved data for 400 samples per file
-        training_data = np.loadtxt('./saved_output/bispectrum_data/log_training_data.csv', delimiter=',')
-        testing_data = np.loadtxt('./saved_output/bispectrum_data/log_test_data.csv', delimiter=',')
+        training_data = np.loadtxt('./saved_output/bispectrum_data/log_normalized_training_data.csv', delimiter=',')
+        #testing_data = np.loadtxt('./saved_output/bispectrum_data/log_normalized_test_data.csv', delimiter=',')
         kbispec = np.loadtxt('./saved_output/bispectrum_data/kbispec.csv', delimiter=',')
         ks = np.loadtxt('./saved_output/bispectrum_data/ks.csv', delimiter=',')
 
-        logger.info(f"Loaded dataset X_train:{training_data.shape} y:{testing_data.shape} ks:{ks.shape}")
+        logger.info(f"Loaded dataset X_train:{training_data.shape} ks:{ks.shape}")
         ps_train = training_data[:,:2]
         stats_train = training_data[:,2:8]
         bispec_train = training_data[:,8:12]
         y_train = training_data[:,-2:]
+        """
         ps_test = testing_data[:,:2]
         stats_test = testing_data[:,2:8]
         bispec_test = testing_data[:,8:12]
         y_test = testing_data[:,-2:]
+        """
     else:
         ks, ps_train, kbispec, bispec_train, stats_train, y_train = load_dataset(train_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=True, input_points_to_use=args.input_points_to_use)
         if args.filter_train:
@@ -474,7 +496,7 @@ if args.runmode in ("train_test", "optimize") :
         ks, ps_test, kbispec, bispec_test, stats_test, y_test = load_dataset(test_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize, save=False, input_points_to_use=args.input_points_to_use)
 
     logger.info(f"Loaded train dataset X_train:{ps_train.shape}, {stats_train.shape}, {bispec_train.shape},  y:{y_train.shape}")
-    logger.info(f"Loaded test dataset X_test:{ps_test.shape}, {stats_test.shape}, {bispec_test.shape} y:{y_test.shape}")
+    #logger.info(f"Loaded test dataset X_test:{ps_test.shape}, {stats_test.shape}, {bispec_test.shape} y:{y_test.shape}")
 
     if args.runmode == "train_test":
         r2, modeltester = run(ks, ps_train, kbispec, bispec_train, stats_train, ps_test, bispec_test, stats_test, ps_noise, bispec_noise, stats_noise, y_train, y_test, ps_bins_to_make=args.ps_bins_to_make, perc_ps_bins_to_use=args.perc_ps_bins_to_use, model_param1=args.model_param1, model_param2=args.model_param2, showplots=args.interactive, saveplots=True)

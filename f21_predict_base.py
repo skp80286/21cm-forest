@@ -655,7 +655,7 @@ def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False, skip_ps=Tr
             
     return (all_los, all_params, los_samples)
 
-def test_multiple(modeltester, datafiles, reps=10000, size=10, save=False, skip_stats=True, use_bispectrum=False, skip_ps=False, so_datafiles=None, input_points_to_use=None, ps_bins=None):
+def test_multiple(modeltester, datafiles, reps=10000, size=10, save=False, skip_stats=True, use_bispectrum=False, skip_ps=False, so_datafiles=None, input_points_to_use=None, ps_bins=None, perc_bins_to_use=100):
     logger.info(f"Test_multiple started. {reps} reps x {size} points will be tested for {len(datafiles)} parameter combinations")
     # Create processor with desired number of worker threads
     all_y_test = []
@@ -663,7 +663,7 @@ def test_multiple(modeltester, datafiles, reps=10000, size=10, save=False, skip_
     # Process all files and get results
     for i, f in enumerate(datafiles):
         if i==0: logger.info(f"Working on param combination #{i+1}: {f.split('/')[-1]}")
-        processor = dl.F21DataLoader(max_workers=8, psbatchsize=1, limitsamplesize=None, ps_bins=ps_bins, skip_ps=skip_ps, skip_stats=skip_stats, use_bispectrum=use_bispectrum, input_points_to_use=input_points_to_use)
+        processor = dl.F21DataLoader(max_workers=8, psbatchsize=1, limitsamplesize=None, ps_bins=ps_bins, skip_ps=skip_ps, skip_stats=skip_stats, use_bispectrum=use_bispectrum, input_points_to_use=input_points_to_use, perc_bins_to_use=perc_bins_to_use)
         results = processor.process_all_files([f])        
         # Access results
         los = results['los']
@@ -678,7 +678,7 @@ def test_multiple(modeltester, datafiles, reps=10000, size=10, save=False, skip_
         los_so = None
         if so_datafiles is not None:
             #logger.info(f"Loading signalonly los")
-            processor = dl.F21DataLoader(max_workers=8, psbatchsize=1, limitsamplesize=None, ps_bins=ps_bins, skip_ps=skip_ps, skip_stats=skip_stats, use_bispectrum=use_bispectrum)
+            processor = dl.F21DataLoader(max_workers=8, psbatchsize=1, limitsamplesize=None, ps_bins=ps_bins, skip_ps=skip_ps, skip_stats=skip_stats, use_bispectrum=use_bispectrum, input_points_to_use=input_points_to_use, perc_bins_to_use=perc_bins_to_use)
             results = processor.process_all_files([so_datafiles[i]])        
             # Access results
             los_so = results['los']

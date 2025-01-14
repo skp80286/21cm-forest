@@ -11,7 +11,7 @@ import logging
 import time
 
 class F21DataLoader:
-    def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None, skip_ps: bool = False, ps_bins = None, ps_smoothing=True, skip_stats=True, use_bispectrum=False, scale_ps = False, input_points_to_use=None):
+    def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None, skip_ps: bool = False, ps_bins = None, ps_smoothing=True, skip_stats=True, use_bispectrum=False, scale_ps = False, input_points_to_use=None, perc_bins_to_use=100):
         np.random.seed(42)
         self.max_workers = max_workers
         self.collector = ThreadSafeArrayCollector()
@@ -24,6 +24,7 @@ class F21DataLoader:
         self.use_bispectrum = use_bispectrum
         self.scale_ps = scale_ps
         self.input_points_to_use = input_points_to_use
+        self.perc_bins_to_use = perc_bins_to_use
 
     def get_los(self, datafile: str) -> None:
         data = np.fromfile(str(datafile), dtype=np.float32)
@@ -213,8 +214,8 @@ class F21DataLoader:
                         #start_time = time.perf_counter()
                         k_bispec, bs = F21Stats.F21Stats.compute_1d_bispectrum(cumulative_los_np)
                         if self.ps_bins is not None:
-                            k_bispec, bs = F21Stats.F21Stats.bin(k_bispec, bs, self.ps_bins)
-                        if len(bs.shape) > 1: bs_mean = np.mean(bs, axis=0)
+                            k_bispec, bs = F21Stats.F21Stats.bin(k_bispec, bs, self.ps_bins, self.perc_bins_to_use)
+                        if bs.ndim > 1: bs_mean = np.mean(bs, axis=0)
                         else: bs_mean = bs
                         #end_time = time.perf_counter() 
                         #print(f"Calculated Bispectrum: {cumulative_los_np.shape}, {k_bispec.shape}, {bs_mean.shape} in {end_time - start_time:.8f} seconds")
