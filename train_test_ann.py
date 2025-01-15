@@ -5,6 +5,7 @@ from sklearn.metrics import r2_score, mean_squared_error
 import matplotlib.pyplot as plt
 import f21_predict_base as base
 import Scaling
+import F21NNRegressor
 
 class Args:
     def __init__(self, runmode='', telescope='uGMRT', t_int=500):
@@ -21,35 +22,21 @@ logger = base.setup_logging(output_dir)
 del_ind = [1,2,3,5,9,11,12] # 6,13
 logger.info(f"Removing features with indices {del_ind}")
 # Load training data using numpy
-#train_data = np.loadtxt('saved_output/bispectrum_data_20k/all_training_data.csv', delimiter=',')
-train_data = np.loadtxt('saved_output/f21_predict_bispec_train_test_uGMRT_t500.0_20250115140235_complete/all_training_data.csv', delimiter=',')
+train_data = np.loadtxt('saved_output/bispectrum_data_20k/all_training_data.csv', delimiter=',')
 X_train = np.delete(train_data[:,:-2], del_ind, axis=1) 
 y_train = train_data[:, -2:]    # Last two columns as output
 logger.info(f"Loaded training data: {X_train.shape} {y_train.shape} (skipped indices {del_ind})")
 
 # Load test data using numpy
-#test_data = np.loadtxt('saved_output/bispectrum_data_20k/all_test_data.csv', delimiter=',')
-test_data = np.loadtxt('saved_output/f21_predict_bispec_train_test_uGMRT_t500.0_20250115140235_complete/all_test_data.csv', delimiter=',')
+test_data = np.loadtxt('saved_output/bispectrum_data_20k/all_test_data.csv', delimiter=',')
 X_test = np.delete(test_data[:,:-2], del_ind, axis=1)  
 y_test = test_data[:, -2:]    # Last two columns as output
 logger.info(f"Loaded test data: {X_test.shape} {y_test.shape} (skipped indices {del_ind})")
 
 # Create and fit the XGBRegressor
-model = XGBRegressor(n_estimators=121, max_depth=9, learning_rate=0.02034585149604065, 
-                     subsample=0.7951818164938813, colsample_bytree=0.8724517169927652, 
-                     min_child_weight=8, gamma=7.718075964724362e-06, 
-                     reg_lambda=1.089312256998268e-07, reg_alpha=0.0003573596701472528)
-model.fit(X_train, y_train)
-logger.info(f"Model fitted")
-
-types = ['weight','gain', 'cover', 'total_gain', 'total_cover']
-imp = np.zeros((X_train.shape[1], len(types)))  
-for j,imp_type in enumerate(types):
-    imp[:,j] = list(model.get_booster().get_score(importance_type=imp_type).values())
-
-logger.info(f"Importances:")
-logger.info(types)
-logger.info(imp)
+model = F21NNRegressor.NNRegressor(X_train.shape[1])
+model.fit(X_train, y_train, epochs=2000)
+logger.info(f"Model fitted. {model}")
 
 # Make predictions
 predictions = model.predict(X_test)
@@ -68,5 +55,3 @@ np.savetxt(f"{output_dir}/test_results.csv", test_results, delimiter=",", header
 predictions = Scaling.Scaler(args).unscale_y(predictions)
 y_test = Scaling.Scaler(args).unscale_y(y_test)
 base.summarize_test_1000(predictions, y_test, output_dir=output_dir, showplots=True, saveplots=True)
-"""
-"""
