@@ -415,8 +415,41 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
         plt.title('Mean Predictions with  ±1σ and ±2σ Contours', fontsize=18)
         plt.legend()
         
-        if showplots: plt.show()
         if saveplots: plt.savefig(f'{output_dir}/f21_prediction_means{label}.png')
+        if showplots: plt.show()
+        plt.clf()
+
+        # Make a scatter plot
+        plt.figure()
+        plt.rcParams['figure.figsize'] = [8, 8]
+        colors = plt.cm.rainbow(np.linspace(0, 1, num_points))
+        # Plot all 10000 predctions
+        for i, test_point in enumerate(unique_test_points):
+            # Find all predictions corresponding to this test point
+            mask = np.all(y_test == test_point, axis=1)
+            corresponding_preds = y_pred[mask]
+            plt.scatter(corresponding_preds[:, 0], corresponding_preds[:, 1], 
+                marker="o", s=25, alpha=0.01, c=colors[i])
+            
+        # Plot mean predictions
+        plt.scatter(mean_predictions[:, 0], mean_predictions[:, 1], 
+                marker="o", edgecolor='b', s=100, label='Mean Predicted', alpha=1, c=colors)
+        # Plot actual points
+        plt.scatter(unique_test_points[:, 0], unique_test_points[:, 1], 
+                marker="*", edgecolor='b', s=200, label='Actual', c=colors)
+
+        plt.xlim(0, 1)
+        plt.ylim(-4, 1)
+
+        plt.xlabel(r'$\langle x_{HI}\rangle$', fontsize=18)
+        plt.ylabel(r'$log_{10}(f_X)$', fontsize=18)
+        plt.yticks(fontsize=18)
+        plt.xticks(fontsize=18)
+        plt.title('All Predictions', fontsize=18)
+        plt.legend()
+
+        if saveplots: plt.savefig(f'{output_dir}/f21_prediction_means_scatter_{label}.png')
+        if showplots: plt.show()
         plt.clf()
     
     # Log statistics
