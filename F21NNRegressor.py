@@ -5,16 +5,19 @@ import torch.optim as optim
 class NNRegressor(nn.Module):
     def __init__(self, input_size, dropout_rate=0.3):
         super(NNRegressor, self).__init__()
-        self.fc0 = nn.Linear(input_size, 128)  # Oth dense layer
+        self.fc0 = nn.Linear(input_size, 256)  # Oth dense layer
         self.dropout0 = nn.Dropout(dropout_rate)  # Dropout layer after first dense layer
-        self.fc1 = nn.Linear(input_size, 64)  # First dense layer
+        self.fc1 = nn.Linear(256, 128)  # First dense layer
         self.dropout1 = nn.Dropout(dropout_rate)  # Dropout layer after first dense layer
-        self.fc2 = nn.Linear(64, 32)           # Second dense layer
+        self.fc2 = nn.Linear(128, 64)           # Second dense layer
         self.dropout2 = nn.Dropout(dropout_rate)  # Dropout layer after second dense layer
-        self.fc3 = nn.Linear(32, 2)            # Output layer (2 values: xHI and logfX)
-        self.relu = nn.ReLU()                   # Activation function
+        self.fc3 = nn.Linear(64, 2)            # Output layer (2 values: xHI and logfX)
+        self.tanh = nn.Tanh()                   # Activation function1
+        self.relu = nn.ReLU()                   # Activation function2
 
     def forward(self, x):
+        x = self.fc0(x)
+        x = self.tanh(x)
         x = self.fc1(x)
         x = self.relu(x)
         x = self.dropout1(x)  # Apply dropout after first dense layer
