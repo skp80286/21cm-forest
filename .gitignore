@@ -180,3 +180,17 @@ power_spectra.png
 ps_log_bin_1_25.csv
 ps_log_bin_4_94.csv
 ks_ps_log_bin_1_25.csv
+saved_output/ps_stats_data_400/all_test_data.csv
+saved_output/ps_stats_data_200/all_test_data.csv
+saved_output/ps_stats_bispec_train_test_log_normalized/xgb-21cmf-bispec-model.json
+saved_output/ps_stats_bispec_train_test_log_normalized/test_results.csv
+saved_output/ps_stats_bispec_train_test_log_normalized/all_training_data.csv
+saved_output/ps_stats_bispec_train_test_log_normalized/all_test_data.csv
+saved_output/bispectrum_data_20k/test_results.csv
+saved_output/bispectrum_data_20k/all_training_data.csv
+saved_output/bispectrum_data_20k/all_test_data.csv
+saved_output/bispectrum_data/log_training_data.csv
+saved_output/bispectrum_data/log_test_data.csv
+saved_output/bispectrum_data/log_normalized_training_data.csv
+saved_output/bispectrum_data/all_training_data.csv
+saved_output/bispectrum_data/all_test_data.csv
