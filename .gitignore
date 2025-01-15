@@ -194,3 +194,7 @@ saved_output/bispectrum_data/log_test_data.csv
 saved_output/bispectrum_data/log_normalized_training_data.csv
 saved_output/bispectrum_data/all_training_data.csv
 saved_output/bispectrum_data/all_test_data.csv
+saved_output/bispectrum_data_complete/all_test_data.csv
+saved_output/bispectrum_data_complete/all_training_data.csv
+saved_output/bispectrum_data_complete/test_results.csv
+saved_output/bispectrum_data_complete/xgb-21cmf-bispec-model.json
