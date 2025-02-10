@@ -27,91 +27,99 @@ import matplotlib.pyplot as plt
 import optuna
 
 class UnetModel(nn.Module):
-    def __init__(self, input_size, input_channels, output_size, kernel1, kernel2, dropout, step=4):
+    def __init__(self, input_size, input_channels, output_size, dropout=0.2, step=4):
         super(UnetModel, self).__init__()
-        
-        kernel_size = kernel1
-        # Encoder (unchanged)
+
+        # Encoder
         self.enc1 = nn.Sequential(
-            nn.Conv1d(input_channels, 64, kernel_size, padding=kernel_size//2),
-            nn.Tanh(),
-            nn.Dropout(dropout),
-            nn.AvgPool1d(step)
-        )
-        
-        kernel_size = kernel_size//step
-        self.enc2 = nn.Sequential(
-            nn.Conv1d(64, 128, kernel_size, padding=kernel_size//2),
+            nn.Conv1d(input_channels, 64, 41, padding=20),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.AvgPool1d(step)
-        )
-        
-        kernel_size = kernel_size//step
-        self.enc3 = nn.Sequential(
-            nn.Conv1d(128, 256, kernel_size, padding=kernel_size//2),
+            nn.Conv1d(64, 64, 21, padding=10),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.AvgPool1d(step)
-        )
-        
-        kernel_size = kernel_size//step
-        self.enc4 = nn.Sequential(
-            nn.Conv1d(256, 512, kernel_size, padding=kernel_size//2),
+            nn.Conv1d(64, 64, 11, padding=5),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.AvgPool1d(step)
-        )
-        """
-        kernel_size = kernel_size//step
-        self.enc5 = nn.Sequential(
-            nn.Conv1d(512, 512, kernel_size, padding=kernel_size//2),
+            nn.Conv1d(64, 64, 5, padding=2),  # New layer added
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.MaxPool1d(step)
         )
-        """
-        
-        # Decoder 
-        """
-        self.dec0 = nn.Sequential(
-            nn.ConvTranspose1d(512, 512, step, stride=4, output_padding=0),
+
+        self.enc2 = nn.Sequential(
+            nn.Conv1d(64, 128, 41, padding=20),
             nn.ReLU(),
-            nn.Dropout(dropout)
+            nn.Dropout(dropout),
+            nn.Conv1d(128, 128, 21, padding=10),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Conv1d(128, 128, 11, padding=5),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Conv1d(128, 128, 5, padding=2),  # New layer added
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.MaxPool1d(step)
         )
-        """
+
+        self.enc3 = nn.Sequential(
+            nn.Conv1d(128, 256, 41, padding=20),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Conv1d(256, 256, 21, padding=10),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Conv1d(256, 256, 11, padding=5),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Conv1d(256, 256, 5, padding=2),  # New layer added
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.MaxPool1d(step)
+        )
+        self.enc4 = nn.Sequential(
+            nn.Conv1d(256, 512, 41, padding=20),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Conv1d(512, 512, 21, padding=10),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Conv1d(512, 512, 11, padding=5),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Conv1d(512, 512, 5, padding=2),  # New layer added
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.MaxPool1d(step)
+        )
+        # Decoder
         self.dec1 = nn.Sequential(
             nn.ConvTranspose1d(512, 256, step, stride=step, output_padding=0),
             nn.ReLU(),
             nn.Dropout(dropout)
         )
-        
+
         self.dec2 = nn.Sequential(
             nn.ConvTranspose1d(512, 128, step, stride=step, output_padding=0),
             nn.ReLU(),
             nn.Dropout(dropout)
         )
-        
+
         self.dec3 = nn.Sequential(
-            nn.ConvTranspose1d(256, 64, step, stride=step, output_padding=0), 
+            nn.ConvTranspose1d(256, 64, step, stride=step, output_padding=0),
             nn.ReLU(),
             nn.Dropout(dropout)
         )
-        
-        self.dec4 = nn.Sequential(
+
+        self.dec4 = nn.Sequential(  # New layer added
             nn.ConvTranspose1d(128, 32, step, stride=step, output_padding=0),
             nn.ReLU(),
             nn.Dropout(dropout)
         )
 
-        # Dense layers after enc4 for parameters extraction
-        self.dense1 = nn.Linear(input_size*512//step**4, 256)  # First dense layer
-        self.dense2 = nn.Linear(256, 64)  # Second dense layer
-        self.dense3 = nn.Linear(64, 2)    # Third dense layer (output 2 values)
-
         # Final layer
-        # Modify the final layer to output the correct shape
-        channels = 32 + input_channels
+        channels = input_channels + 32
         self.final = nn.Sequential(
             nn.Conv1d(channels, 1, 1),  # Change output channels to 1
             nn.Flatten()  # Add flatten layer to match target shape
@@ -135,6 +143,7 @@ class UnetModel(nn.Module):
         enc4 = self.enc4(enc3)
         #print(f"After enc4: {enc4.shape}")        
         
+        """
         # Pass through the dense layers for parameters extraction
         dense_out = self.dense1(enc4.view(enc4.size(0), -1))  # Flatten for dense layer
         #print(f"After dense1: {dense_out.shape}")        
@@ -144,31 +153,34 @@ class UnetModel(nn.Module):
         dense_out = nn.ReLU()(dense_out)
         dense_out = self.dense3(dense_out)
         #print(f"After dense3: {dense_out.shape}")        
-
+        """
         #print(f"Output of parameters extraction network: {dense_out.shape}")
 
         # Decoder with skip connections
         dec1 = self.dec1(enc4)
         #print(f"After dec1: {dec1.shape}")        
         dec1 = torch.cat([dec1, enc3], dim=1)
-        
-        dec2 = self.dec2(dec1)
-        #print(f"After dec2: {dec2.shape}")        
+        #print(f"After dec1-cat: {dec1.shape}")        
+
+        # Decoder with skip connections
+        dec2 = self.dec1(dec1)
+        #print(f"After dec1: {dec1.shape}")        
         dec2 = torch.cat([dec2, enc2], dim=1)
+        #print(f"After dec1-cat: {dec1.shape}")        
         
         dec3 = self.dec3(dec2)
-        #print(f"After dec3: {dec3.shape}")        
+        #print(f"After dec2: {dec2.shape}")        
         dec3 = torch.cat([dec3, enc1], dim=1)
         
-        dec4 = self.dec4(dec3)
-        #print(f"After dec4: {dec4.shape}")
+        dec4 = self.dec3(dec3)
+        #print(f"After dec3: {dec3.shape}")        
         dec4 = torch.cat([dec4, x], dim=1)
- 
+         
         #print(f"Before final: {dec4.shape}")
         out = self.final(dec4)
 
         # Concatenate parameter extraction output with decoder output
-        out = torch.cat((dense_out, out), dim=1)  # Concatenate along the feature dimension
+        # out = torch.cat((dense_out, out), dim=1)  # Concatenate along the feature dimension
         #print(f"Output shape after concatenation: {out.shape}")
 
         #print(f"Output shape: {out.shape}")
@@ -217,42 +229,26 @@ class ModelTester:
 
             # Calculate R2 scores
             y_pred_np = y_pred_tensor.detach().cpu().numpy()
-            y_pred = y_pred_np[:,:2]
-            y_pred_so = y_pred_np[:,2:]
-            r2 = r2_score(y_test, y_pred)
+            #y_pred = y_pred_np[:,:2]
+            y_pred_so = y_pred_np#[:,2:]
+            r2 = r2_score(los_so, y_pred_so)
             #if not silent: logger.info("R2 Score: " + str(r2))
             # Calculate rmse scores
-            rms_scores = mean_squared_error(y_test, y_pred)
-            rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test, axis=0)
+            rms_scores = mean_squared_error(los_so, y_pred_so)
+            rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test_so, axis=0)
             if not silent: logger.info("RMS Error: " + str(rms_scores_percent))
 
             if not silent: plot_predictions(los_test, los_so, y_pred_so, label=f"xHI{y_test[0][0]:.2f}_logfx{5.0*(y_test[0][1] - 0.8):.2f}")
             if not silent: analyse_predictions(los_test, los_so, y_pred_so, label=f"xHI{y_test[0][0]:.2f}_logfx{5.0*(y_test[0][1] - 0.8):.2f}")
     
-            if y_pred.ndim==1:
-                y_pred = y_pred.reshape(len(y_pred),1)
-                if args.scale_y2:
-                    if not silent: logger.info(f"Prediction vs Test data: \n{np.hstack((y_test[:, 2].reshape(len(y_test),1), y_pred))[:5]}")
-                    r2 = r2_score(y_test[:, 2], y_pred)
-                elif args.xhi_only:
-                    if not silent: logger.info(f"Prediction vs Test data: \n{np.hstack((y_test[:, 0].reshape(len(y_test),1), y_pred))[:5]}")
-                    r2 = r2_score(y_test[:, 0], y_pred)
-                elif args.logfx_only:
-                    if not silent: logger.info(f"Prediction vs Test data: \n{np.hstack((y_test[:, 1].reshape(len(y_test),1), y_pred))[:5]}")
-                    r2 = r2_score(y_test[:, 1], y_pred)
-                else:
-                    r2 = r2_score(y_test, y_pred)
-            else:
-                if not silent: logger.info(f"Prediction vs Test data: \n{np.hstack((y_pred, y_test))[:5]}")
-                # Evaluate the model (on a test set, here we just use the training data for simplicity)
-                r2 = [r2_score(y_test[:, i], y_pred[:, i]) for i in range(len(y_pred[0]))]
+            
             #if not silent: logger.info("R2 Score: " + str(r2))
 
             #if not silent: logger.info(f"Before unscale y_pred: {y_pred[:1]}")
-            y_pred = scaler.unscale_y(y_pred)
+            #y_pred = scaler.unscale_y(y_pred)
             #if not silent: logger.info(f"After unscale y_pred: {y_pred[:1]}")
             #if not silent: logger.info(f"Before unscale y_test: {y_test[:1]}")
-            los_test, y_test = scaler.unscaleXy(los_test, y_test)
+            #los_test, y_test = scaler.unscaleXy(los_test, y_test)
             #if not silent: logger.info(f"After unscale y_test: {y_test[:1]}")
             #if not silent: logger.info(f"unscaled test result {los_test.shape} {y_test.shape} {y_pred.shape}")
 
@@ -260,7 +256,11 @@ class ModelTester:
             #rms_scores = [mean_squared_error(y_test[:, i], y_pred[:, i]) for i in range(len(y_pred[0]))]
             #rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test, axis=0)
             #if not silent: logger.info("RMS Error: " + str(rms_scores_percent))    
-        return los_test, y_test, y_pred, r2
+        return los_test, y_test, dummy_y_pred(y_test), r2
+
+def dummy_y_pred(y_test):
+    dummy = np.zeros(y_test.shape)
+    return dummy
 
 def validate_filelist(train_files, so_train_files, test_files, so_test_files):
     if len(train_files) != len(so_train_files):
@@ -298,7 +298,7 @@ def convert_to_pytorch_tensors(X, y, y_so, X_noise, silent=True):
     
     # Convert to PyTorch tensors with float32 dtype
     X_tensor = torch.tensor(combined_input, dtype=torch.float32)
-    y_tensor = torch.tensor(np.hstack((y, y_so)), dtype=torch.float32)
+    y_tensor = torch.tensor(y_so, dtype=torch.float32)
 
     if not silent: logger.info(f"convert_to_pytorch_tensors: shape of tensors: X:{X_tensor.shape}, Y: {y_tensor.shape}")
 
@@ -403,14 +403,14 @@ def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, X_noise, num_ep
     # Convert data to PyTorch tensors
     inputs, outputs = convert_to_pytorch_tensors(X_train, y_train, y_train_so, X_noise)
 
-    logger.info(f"Shape of inouts, outputs: {inputs.shape}, {outputs.shape}")
+    logger.info(f"Shape of inputs, outputs: {inputs.shape}, {outputs.shape}")
     # Create DataLoader for batching
     train_dataset = TensorDataset(inputs, outputs)
     dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
     num_channels = 1
     if args.use_noise_channel: num_channels = 2
-    model = UnetModel(input_size=len(X_train[0]), input_channels=num_channels, output_size=len(y_train[0]), kernel1=kernel1, kernel2=kernel2, dropout=dropout, step=step)
+    model = UnetModel(input_size=len(X_train[0]), input_channels=num_channels, output_size=len(y_train[0]), dropout=dropout, step=step)
     logger.info(f"Created model: {model}")
     # Loss function and optimizer
     #criterion = CustomLoss()  # You can adjust alpha as needed
@@ -476,7 +476,7 @@ def test(X_test, y_test, y_test_so, X_noise, model, criterion, input_points_to_u
         r2 = base.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
         base.save_test_results(all_y_pred, all_y_test, output_dir)
     else:
-        X_test, y_test, y_pred, r2 = tester.test(X_test, None, None, y_test, los_so=y_test_so, silent=False)
+        X_test, y_test, y_pred, r2 = tester.test(X_test, None, None, None, y_test, los_so=y_test_so, silent=False)
         r2 = base.summarize_test_1000(y_pred, y_test, output_dir=output_dir, showplots=args.interactive, saveplots=True)
         base.save_test_results(y_pred, y_test, output_dir)
 
@@ -591,7 +591,7 @@ if args.runmode in ("train_test", "test_only", "optimize") :
         run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, X_noise, args.epochs, args.trainingbatchsize, lr=0.001, kernel1=kernel1, kernel2=kernel1, dropout=0.2, step=step, input_points_to_use=args.input_points_to_use, showplots=args.interactive)
     elif args.runmode == "test_only":
         logger.info(f"Loading model from file {args.modelfile}")
-        model = UnetModel(input_size=args.input_points_to_use, input_channels=1, output_size=args.input_points_to_use+2, kernel1=kernel1, kernel2=kernel1, dropout=0.2, step=step)
+        model = UnetModel(input_size=args.input_points_to_use, input_channels=1, output_size=args.input_points_to_use+2, dropout=0.2, step=step)
         model.load_model(args.modelfile)
         logger.info(f"testing with {len(X_test)} test cases")
         test(X_test, y_test, y_test_so, None, model, nn.MSELoss(), args.input_points_to_use, "test_only")
