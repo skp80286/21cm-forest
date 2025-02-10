@@ -18,18 +18,34 @@ output_dir = base.create_output_dir(args)
 logger = base.setup_logging(output_dir)
 
 # Load training data using numpy
-del_ind = [1,2,3,5,9,11,12] # 6,13
-logger.info(f"Removing features with indices {del_ind}")
+ind_descriptions = np.array(["PS 1st bin",
+                        "PS 2nd bin",
+                        "PS 3rd bin",
+                        "PS 4th bin",
+                        "Total mean",
+                        "Total std",
+                        "Skewness",
+                        "Skewness - std",
+                        "Skew2",
+                        "Min skew",
+                        "Bispectrum 1st bin",
+                        "Bispectrum 2nd bin",
+                        "Bispectrum 3rd bin",
+                        "Bispectrum 4th bin",])
+del_ind = [9] #[1,2,3,5,9,11,12] # 6,13
+logger.info(f"Removing features with indices {ind_descriptions[del_ind]}")
 # Load training data using numpy
 #train_data = np.loadtxt('saved_output/bispectrum_data_20k/all_training_data.csv', delimiter=',')
-train_data = np.loadtxt('saved_output/f21_predict_bispec_train_test_uGMRT_t500.0_20250115140235_complete/all_training_data.csv', delimiter=',')
+#train_data = np.loadtxt('saved_output/f21_predict_bispec_train_test_uGMRT_t500.0_20250115140235_complete/all_training_data.csv', delimiter=',')
+train_data = np.loadtxt('saved_output/bispectrum_data_complete/all_training_data.csv', delimiter=',')
 X_train = np.delete(train_data[:,:-2], del_ind, axis=1) 
 y_train = train_data[:, -2:]    # Last two columns as output
 logger.info(f"Loaded training data: {X_train.shape} {y_train.shape} (skipped indices {del_ind})")
 
 # Load test data using numpy
 #test_data = np.loadtxt('saved_output/bispectrum_data_20k/all_test_data.csv', delimiter=',')
-test_data = np.loadtxt('saved_output/f21_predict_bispec_train_test_uGMRT_t500.0_20250115140235_complete/all_test_data.csv', delimiter=',')
+#test_data = np.loadtxt('saved_output/f21_predict_bispec_train_test_uGMRT_t500.0_20250115140235_complete/all_test_data.csv', delimiter=',')
+test_data = np.loadtxt('saved_output/bispectrum_data_complete/all_test_data.csv', delimiter=',')
 X_test = np.delete(test_data[:,:-2], del_ind, axis=1)  
 y_test = test_data[:, -2:]    # Last two columns as output
 logger.info(f"Loaded test data: {X_test.shape} {y_test.shape} (skipped indices {del_ind})")
@@ -67,6 +83,6 @@ np.savetxt(f"{output_dir}/test_results.csv", test_results, delimiter=",", header
 
 predictions = Scaling.Scaler(args).unscale_y(predictions)
 y_test = Scaling.Scaler(args).unscale_y(y_test)
-base.summarize_test_1000(predictions, y_test, output_dir=output_dir, showplots=True, saveplots=True)
+base.summarize_test_1000(predictions, y_test, output_dir=output_dir, showplots=True, saveplots=True, label="")
 """
 """

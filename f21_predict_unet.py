@@ -34,7 +34,7 @@ class UnetModel(nn.Module):
         # Encoder (unchanged)
         self.enc1 = nn.Sequential(
             nn.Conv1d(input_channels, 64, kernel_size, padding=kernel_size//2),
-            nn.ReLU(),
+            nn.Tanh(),
             nn.Dropout(dropout),
             nn.AvgPool1d(step)
         )
@@ -138,7 +138,7 @@ class UnetModel(nn.Module):
         # Pass through the dense layers for parameters extraction
         dense_out = self.dense1(enc4.view(enc4.size(0), -1))  # Flatten for dense layer
         #print(f"After dense1: {dense_out.shape}")        
-        dense_out = nn.ReLU()(dense_out)
+        dense_out = nn.Tanh()(dense_out)
         dense_out = self.dense2(dense_out)
         #print(f"After dense2: {dense_out.shape}")        
         dense_out = nn.ReLU()(dense_out)
@@ -191,7 +191,7 @@ class ModelTester:
         if noise is not None: self.noise = noise[:, :self.input_points_to_use]
         else: self.noise = None
     
-    def test(self, los_test, p_test, stats_test, y_test, los_so, silent=True):
+    def test(self, los_test, p_test, stats_test, bispectrum_set, y_test, los_so, silent=True):
         if self.input_points_to_use is not None: 
             los_test = los_test[:, :self.input_points_to_use]
             los_so = los_so[:, :self.input_points_to_use]
@@ -209,7 +209,7 @@ class ModelTester:
             # Test the model
             if not silent: logger.info("Testing prediction")
 
-            test_input, test_output = convert_to_pytorch_tensors(los_test, y_test, los_so, self.noise)
+            test_input, test_output = convert_to_pytorch_tensors(los_test, y_test, los_so, self.noise, silent=silent)
             if not silent: logger.info(f"Shape of test_input, test_output: {test_input.shape}, {test_output.shape}")
             y_pred_tensor = self.model(test_input)
             test_loss = self.criterion(y_pred_tensor, test_output)
@@ -281,16 +281,16 @@ def validate_filelist(train_files, so_train_files, test_files, so_test_files):
         if test_file_parts != so_test_file_parts:
             raise ValueError(f'Mismatch in file name. {test_file_parts} does not match {so_test_file_parts}')
 
-def convert_to_pytorch_tensors(X, y, y_so, X_noise):
+def convert_to_pytorch_tensors(X, y, y_so, X_noise, silent=True):
 # Create different channel representations based on args.channels
     channels = []
-    logger.info(f"Appending channel with shape: {X.shape}")
+    if not silent: logger.info(f"Appending channel with shape: {X.shape}")
     channels.append(X)
 
     # Channel 1: Noise
     if args.use_noise_channel:
         noisechannel = np.repeat(X_noise, repeats=len(X), axis=0)
-        logger.info(f"Appending channel with shape: {noisechannel.shape}")
+        if not silent: logger.info(f"Appending channel with shape: {noisechannel.shape}")
         channels.append(noisechannel)
 
     # Stack channels along a new axis
@@ -300,7 +300,7 @@ def convert_to_pytorch_tensors(X, y, y_so, X_noise):
     X_tensor = torch.tensor(combined_input, dtype=torch.float32)
     y_tensor = torch.tensor(np.hstack((y, y_so)), dtype=torch.float32)
 
-    logger.info(f"convert_to_pytorch_tensors: shape of tensors: X:{X_tensor.shape}, Y: {y_tensor.shape}")
+    if not silent: logger.info(f"convert_to_pytorch_tensors: shape of tensors: X:{X_tensor.shape}, Y: {y_tensor.shape}")
 
     return X_tensor, y_tensor 
 
@@ -591,10 +591,10 @@ if args.runmode in ("train_test", "test_only", "optimize") :
         run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, X_noise, args.epochs, args.trainingbatchsize, lr=0.001, kernel1=kernel1, kernel2=kernel1, dropout=0.2, step=step, input_points_to_use=args.input_points_to_use, showplots=args.interactive)
     elif args.runmode == "test_only":
         logger.info(f"Loading model from file {args.modelfile}")
-        model = UnetModel(input_size=args.input_points_to_use, output_size=args.input_points_to_use+2, kernel1=kernel1, kernel2=kernel1, dropout=0.2, step=step)
+        model = UnetModel(input_size=args.input_points_to_use, input_channels=1, output_size=args.input_points_to_use+2, kernel1=kernel1, kernel2=kernel1, dropout=0.2, step=step)
         model.load_model(args.modelfile)
         logger.info(f"testing with {len(X_test)} test cases")
-        test(X_test, y_test, y_test_so, model, nn.MSELoss(), args.input_points_to_use, "test_only")
+        test(X_test, y_test, y_test_so, None, model, nn.MSELoss(), args.input_points_to_use, "test_only")
     elif args.runmode == "optimize":
         # Create study object
         study = optuna.create_study(direction="maximize")

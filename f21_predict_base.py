@@ -47,8 +47,8 @@ def initplt():
     plt.rcParams['ytick.labelsize'] = 18
     plt.rcParams['legend.fontsize'] = 18
 
-colorlabels=[r'$\langle x_{HI}\rangle$', r'$log_{10}fX$']
-colormaps=[plt.cm.inferno, plt.cm.viridis]
+colorlabels=[r'$\langle x_{HI}\rangle$', r'$log_{10}(f_X)$']
+colormaps=[plt.cm.viridis, plt.cm.viridis]
 def plot_power_spectra(ps, ks, params, psn=None, colorind=1, output_dir=".", showplots=False, saveplots=True, label="", scale='log', markers=False):
     #logger.info(f'shapes ps:{ps.shape} ks:{ks.shape}')
     initplt()
@@ -417,7 +417,6 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
         
         if saveplots: plt.savefig(f'{output_dir}/f21_prediction_means{label}.png')
         if showplots: plt.show()
-        plt.clf()
 
         # Make a scatter plot
         plt.figure()
@@ -429,7 +428,7 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
             mask = np.all(y_test == test_point, axis=1)
             corresponding_preds = y_pred[mask]
             plt.scatter(corresponding_preds[:, 0], corresponding_preds[:, 1], 
-                marker="o", s=25, alpha=0.01, c=colors[i])
+                marker="o", s=25, alpha=0.1, c=colors[i])
             
         # Plot mean predictions
         plt.scatter(mean_predictions[:, 0], mean_predictions[:, 1], 
@@ -445,12 +444,11 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
         plt.ylabel(r'$log_{10}(f_X)$', fontsize=18)
         plt.yticks(fontsize=18)
         plt.xticks(fontsize=18)
-        plt.title('All Predictions', fontsize=18)
+        plt.title('Parameter Predictions', fontsize=18)
         plt.legend()
 
         if saveplots: plt.savefig(f'{output_dir}/f21_prediction_means_scatter_{label}.png')
         if showplots: plt.show()
-        plt.clf()
     
     # Log statistics
     logger.info("\nPrediction Statistics:")
