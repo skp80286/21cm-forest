@@ -33,19 +33,15 @@ class UnetModel(nn.Module):
         # Encoder
         self.enc1 = nn.Sequential(
             nn.Conv1d(input_channels, 64, 41, padding=20),
-            nn.BatchNorm1d(64),  # Batch normalization
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Conv1d(64, 64, 21, padding=10),
-            nn.BatchNorm1d(64),  # Batch normalization
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Conv1d(64, 64, 11, padding=5),
-            nn.BatchNorm1d(64),  # Batch normalization
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Conv1d(64, 64, 5, padding=2),  # New layer added
-            nn.BatchNorm1d(64),  # Batch normalization
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.MaxPool1d(step)
@@ -53,19 +49,15 @@ class UnetModel(nn.Module):
 
         self.enc2 = nn.Sequential(
             nn.Conv1d(64, 128, 41, padding=20),
-            nn.BatchNorm1d(128),  # Batch normalization
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Conv1d(128, 128, 21, padding=10),
-            nn.BatchNorm1d(128),  # Batch normalization
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Conv1d(128, 128, 11, padding=5),
-            nn.BatchNorm1d(128),  # Batch normalization
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Conv1d(128, 128, 5, padding=2),  # New layer added
-            nn.BatchNorm1d(128),  # Batch normalization
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.MaxPool1d(step)
@@ -73,42 +65,34 @@ class UnetModel(nn.Module):
 
         self.enc3 = nn.Sequential(
             nn.Conv1d(128, 256, 41, padding=20),
-            nn.BatchNorm1d(256),  # Batch normalization
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Conv1d(256, 256, 21, padding=10),
-            nn.BatchNorm1d(256),  # Batch normalization
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Conv1d(256, 256, 11, padding=5),
-            nn.BatchNorm1d(256),  # Batch normalization
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Conv1d(256, 256, 5, padding=2),  # New layer added
-            nn.BatchNorm1d(256),  # Batch normalization
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.MaxPool1d(step)
         )
-
         # Decoder
         self.dec1 = nn.Sequential(
             nn.ConvTranspose1d(256, 128, step, stride=step, output_padding=0),
-            nn.BatchNorm1d(128),  # Batch normalization
             nn.ReLU(),
             nn.Dropout(dropout)
         )
 
         self.dec2 = nn.Sequential(
             nn.ConvTranspose1d(256, 64, step, stride=step, output_padding=0),
-            nn.BatchNorm1d(64),  # Batch normalization
             nn.ReLU(),
             nn.Dropout(dropout)
         )
 
         self.dec3 = nn.Sequential(
             nn.ConvTranspose1d(128, 32, step, stride=step, output_padding=0),
-            nn.BatchNorm1d(32),  # Batch normalization
             nn.ReLU(),
             nn.Dropout(dropout)
         )
@@ -134,7 +118,7 @@ class UnetModel(nn.Module):
         enc2 = self.enc2(enc1)
         #print(f"After enc2: {enc2.shape}")        
         enc3 = self.enc3(enc2)
-        print(f"After enc3: {enc3.shape}")        
+        #print(f"After enc3: {enc3.shape}")        
         
         """
         # Pass through the dense layers for parameters extraction
@@ -164,7 +148,7 @@ class UnetModel(nn.Module):
         dec3 = self.dec3(dec2)
         #print(f"After dec2: {dec2.shape}")        
         dec3 = torch.cat([dec3, x], dim=1)
-                 
+        
         #print(f"Before final: {dec4.shape}")
         out = self.final(dec3)
 
@@ -199,7 +183,7 @@ class ModelTester:
 
         if not silent: logger.info(f"Testing dataset: X:{los_test.shape} y:{y_test.shape}")
         #if not silent: logger.info(f"Before scale y_test: {y_test[:1]}")
-        los_test, y_test = scaler.scaleXy(los_test, y_test)
+        #los_test, y_test = scaler.scaleXy(los_test, y_test)
         #if not silent: logger.info(f"After scale y_test: {y_test[:1]}")
 
         #if not silent: logger.info("Testing prediction")
@@ -219,16 +203,16 @@ class ModelTester:
             # Calculate R2 scores
             y_pred_np = y_pred_tensor.detach().cpu().numpy()
             #y_pred = y_pred_np[:,:2]
-            y_pred_so = y_pred_np#[:,2:]
-            r2 = r2_score(los_so, y_pred_so)
+            y_pred_los = y_pred_np#[:,2:]
+            r2 = r2_score(los_test, y_pred_los)
             #if not silent: logger.info("R2 Score: " + str(r2))
             # Calculate rmse scores
-            rms_scores = mean_squared_error(los_so, y_pred_so)
-            rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test_so, axis=0)
+            rms_scores = mean_squared_error(los_test, y_pred_los)
+            rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(los_test, axis=0)
             if not silent: logger.info("RMS Error: " + str(rms_scores_percent))
 
-            if not silent: plot_predictions(los_test, los_so, y_pred_so, label=f"xHI{y_test[0][0]:.2f}_logfx{5.0*(y_test[0][1] - 0.8):.2f}")
-            if not silent: analyse_predictions(los_test, los_so, y_pred_so, label=f"xHI{y_test[0][0]:.2f}_logfx{5.0*(y_test[0][1] - 0.8):.2f}")
+            if not silent: plot_predictions(los_test, los_so, y_pred_los, label=f"xHI{y_test[0][0]:.2f}_logfx{5.0*(y_test[0][1] - 0.8):.2f}")
+            if not silent: analyse_predictions(los_test, los_so, y_pred_los, label=f"xHI{y_test[0][0]:.2f}_logfx{5.0*(y_test[0][1] - 0.8):.2f}")
     
             
             #if not silent: logger.info("R2 Score: " + str(r2))
@@ -287,7 +271,7 @@ def convert_to_pytorch_tensors(X, y, y_so, X_noise, silent=True):
     
     # Convert to PyTorch tensors with float32 dtype
     X_tensor = torch.tensor(combined_input, dtype=torch.float32)
-    y_tensor = torch.tensor(y_so, dtype=torch.float32)
+    y_tensor = torch.tensor(X, dtype=torch.float32)
 
     if not silent: logger.info(f"convert_to_pytorch_tensors: shape of tensors: X:{X_tensor.shape}, Y: {y_tensor.shape}")
 
@@ -378,9 +362,9 @@ def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, X_noise, num_ep
     run_description = f"Commandline: {' '.join(sys.argv)}. Parameters: epochs: {num_epochs}, batch_size: {batch_size}, lr: {lr}, kernel_sizes: [{kernel1}, {kernel2}], dropout: {dropout}, points: {input_points_to_use}, label={args.label}"
     logger.info(f"Starting new run: {run_description}")
     logger.info(f"Before scale train: {y_train[:1]}")
-    X_train, y_train = scaler.scaleXy(X_train, y_train)
-    if X_noise is not None: X_noise, _ = scaler.scaleXy(X_noise, None)
-    logger.info(f"After scale train: {y_train[:1]}")
+    #X_train, y_train = scaler.scaleXy(X_train, y_train)
+    #if X_noise is not None: X_noise, _ = scaler.scaleXy(X_noise, None)
+    #logger.info(f"After scale train: {y_train[:1]}")
 
     if input_points_to_use is not None:
         X_train = X_train[:, :input_points_to_use]
@@ -605,4 +589,6 @@ if args.runmode in ("train_test", "test_only", "optimize") :
             for key, value in trial.params.items():
                 f.write(f"{key}: {value}\n")
             f.write(f"\nBest R2 score: {trial.value}")
+
+
 
