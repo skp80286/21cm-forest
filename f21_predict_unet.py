@@ -18,6 +18,7 @@ import F21DataLoader as dl
 import f21_predict_base as base
 import Scaling
 import PS1D
+import F21Stats as f21stats
 
 import numpy as np
 import sys
@@ -321,11 +322,14 @@ def plot_power_spectra(ps_set, ks, title, labels, xscale='log', yscale='log', sh
 
 def analyse_predictions(los_test, y_test_so, y_pred_so, samples=1, showplots=False, saveplots=True, label='', signal_bandwidth=22089344.0):
     ks_noisy, ps_noisy = PS1D.get_P_set(los_test, signal_bandwidth, scaled=True)
+    ps_noisy = f21stats.logbin_power_spectrum_by_k(ks_noisy, ps_noisy)
     logger.info(f'get_P_set: {ks_noisy.shape}, {ps_noisy.shape},')
     ps_noisy_mean = np.mean(ps_noisy, axis=0)
     ks_so, ps_so = PS1D.get_P_set(y_test_so, signal_bandwidth, scaled=True)
+    ps_so = f21stats.logbin_power_spectrum_by_k(ks_so, ps_so)
     ps_so_mean = np.mean(ps_so, axis=0)
     ks_pred, ps_pred = PS1D.get_P_set(y_pred_so, signal_bandwidth, scaled=True)
+    ps_pred = f21stats.logbin_power_spectrum_by_k(ks_pred, ps_pred)
     ps_pred_mean = np.mean(ps_pred, axis=0)
 
     plot_power_spectra(np.vstack((ps_so_mean,ps_noisy_mean,ps_pred_mean)), ks_noisy[0,:], title=label, labels=["signal-only", "noisy-signal", "reconstructed"])
