@@ -19,6 +19,7 @@ import f21_predict_base as base
 import Scaling
 import PS1D
 import F21Stats as f21stats
+from UnetModel import UnetModel
 
 import numpy as np
 import sys
@@ -26,128 +27,6 @@ import sys
 import matplotlib.pyplot as plt
 
 import optuna
-
-class UnetModel(nn.Module):
-    def __init__(self, input_size, input_channels, output_size, dropout=0.2, step=4):
-        super(UnetModel, self).__init__()
-
-        # Encoder
-        self.enc1 = nn.Sequential(
-            nn.Conv1d(input_channels, 64, 5, padding=1),
-            nn.ReLU(),
-            nn.Conv1d(64, 64, 3, padding=2),
-            nn.ReLU(),
-            nn.MaxPool1d(step)
-        )
-
-        self.enc2 = nn.Sequential(
-            nn.Conv1d(64, 128, 5, padding=1),
-            nn.ReLU(),
-            nn.Conv1d(128, 128, 3, padding=2),
-            nn.ReLU(),
-            nn.MaxPool1d(step)
-        )
-
-        self.enc3 = nn.Sequential(
-            nn.Conv1d(128, 256, 5, padding=1),
-            nn.ReLU(),
-            nn.Conv1d(256, 256, 3, padding=2),
-            nn.ReLU(),
-            nn.MaxPool1d(step)
-        )
-
-        # Decoder
-        self.dec1 = nn.Sequential(
-            nn.ConvTranspose1d(256, 128, step, stride=step, output_padding=0),
-            nn.BatchNorm1d(128),  # Batch normalization
-            nn.ReLU(),
-            nn.Dropout(dropout)
-        )
-
-        self.dec2 = nn.Sequential(
-            nn.ConvTranspose1d(256, 64, step, stride=step, output_padding=0),
-            nn.BatchNorm1d(64),  # Batch normalization
-            nn.ReLU(),
-            nn.Dropout(dropout)
-        )
-
-        self.dec3 = nn.Sequential(
-            nn.ConvTranspose1d(128, 32, step, stride=step, output_padding=0),
-            nn.BatchNorm1d(32),  # Batch normalization
-            nn.ReLU(),
-            nn.Dropout(dropout)
-        )
-
-        # Final layer
-        channels = input_channels + 32
-        self.final = nn.Sequential(
-            nn.Conv1d(channels, 1, 1),  # Change output channels to 1
-            nn.Flatten()  # Add flatten layer to match target shape
-        )
-
-    def forward(self, x):
-        # Print shapes for debugging
-        #print(f"Input shape: {x.shape}")
-        # If input is single channel, add channel dimension
-        if len(x.shape) == 2:
-            x = x.unsqueeze(1)  # Add channel dimension
-        # If input already has channels, it will remain unchanged
-        #print(f"After unsqueeze: {x.shape}")        
-        # Encoder
-        enc1 = self.enc1(x)
-        #print(f"After enc1: {enc1.shape}")        
-        enc2 = self.enc2(enc1)
-        #print(f"After enc2: {enc2.shape}")        
-        enc3 = self.enc3(enc2)
-        #print(f"After enc3: {enc3.shape}")        
-        
-        """
-        # Pass through the dense layers for parameters extraction
-        dense_out = self.dense1(enc4.view(enc4.size(0), -1))  # Flatten for dense layer
-        #print(f"After dense1: {dense_out.shape}")        
-        dense_out = nn.Tanh()(dense_out)
-        dense_out = self.dense2(dense_out)
-        #print(f"After dense2: {dense_out.shape}")        
-        dense_out = nn.ReLU()(dense_out)
-        dense_out = self.dense3(dense_out)
-        #print(f"After dense3: {dense_out.shape}")        
-        """
-        #print(f"Output of parameters extraction network: {dense_out.shape}")
-
-        # Decoder with skip connections
-        dec1 = self.dec1(enc3)
-        #print(f"After dec1: {dec1.shape}")        
-        dec1 = torch.cat([dec1, enc2], dim=1)
-        #print(f"After dec1-cat: {dec1.shape}")        
-
-        # Decoder with skip connections
-        dec2 = self.dec2(dec1)
-        #print(f"After dec1: {dec1.shape}")        
-        dec2 = torch.cat([dec2, enc1], dim=1)
-        #print(f"After dec1-cat: {dec1.shape}")        
-        
-        dec3 = self.dec3(dec2)
-        #print(f"After dec2: {dec2.shape}")        
-        dec3 = torch.cat([dec3, x], dim=1)
-                 
-        #print(f"Before final: {dec4.shape}")
-        out = self.final(dec3)
-
-        # Concatenate parameter extraction output with decoder output
-        # out = torch.cat((dense_out, out), dim=1)  # Concatenate along the feature dimension
-        #print(f"Output shape after concatenation: {out.shape}")
-
-        #print(f"Output shape: {out.shape}")
-        return out
-
-    def save_model(self, file_path):
-        """Save the model to a file."""
-        torch.save(self.state_dict(), file_path)  # Save the model's state_dict
-
-    def load_model(self, file_path):
-        """Load the model from a file."""
-        self.load_state_dict(torch.load(file_path))  # Load the model's state_dict
-        self.eval()  # Set the model to evaluation mode
 
 class ModelTester:
     def __init__(self, model, criterion, input_points_to_use, noise):
@@ -322,14 +201,14 @@ def plot_power_spectra(ps_set, ks, title, labels, xscale='log', yscale='log', sh
 
 def analyse_predictions(los_test, y_test_so, y_pred_so, samples=1, showplots=False, saveplots=True, label='', signal_bandwidth=22089344.0):
     ks_noisy, ps_noisy = PS1D.get_P_set(los_test, signal_bandwidth, scaled=True)
-    ps_noisy = f21stats.logbin_power_spectrum_by_k(ks_noisy, ps_noisy)
+    ks_noisy, ps_noisy = f21stats.logbin_power_spectrum_by_k(ks_noisy, ps_noisy)
     logger.info(f'get_P_set: {ks_noisy.shape}, {ps_noisy.shape},')
     ps_noisy_mean = np.mean(ps_noisy, axis=0)
     ks_so, ps_so = PS1D.get_P_set(y_test_so, signal_bandwidth, scaled=True)
-    ps_so = f21stats.logbin_power_spectrum_by_k(ks_so, ps_so)
+    ks_so, ps_so = f21stats.logbin_power_spectrum_by_k(ks_so, ps_so)
     ps_so_mean = np.mean(ps_so, axis=0)
     ks_pred, ps_pred = PS1D.get_P_set(y_pred_so, signal_bandwidth, scaled=True)
-    ps_pred = f21stats.logbin_power_spectrum_by_k(ks_pred, ps_pred)
+    ks_pred, ps_pred = f21stats.logbin_power_spectrum_by_k(ks_pred, ps_pred)
     ps_pred_mean = np.mean(ps_pred, axis=0)
 
     plot_power_spectra(np.vstack((ps_so_mean,ps_noisy_mean,ps_pred_mean)), ks_noisy[0,:], title=label, labels=["signal-only", "noisy-signal", "reconstructed"])
