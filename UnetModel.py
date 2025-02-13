@@ -9,53 +9,47 @@ class UnetModel(nn.Module):
 
         # Encoder
         self.enc1 = nn.Sequential(
-            nn.Conv1d(input_channels, 64, 5, padding=1),
+            nn.Conv1d(input_channels, 16, 5, padding=2),
             nn.ReLU(),
-            nn.Conv1d(64, 64, 3, padding=2),
+            nn.Conv1d(16, 16, 3, padding=1),
             nn.ReLU(),
             nn.MaxPool1d(step)
         )
 
         self.enc2 = nn.Sequential(
-            nn.Conv1d(64, 128, 5, padding=1),
+            nn.Conv1d(16, 32, 5, padding=2),
             nn.ReLU(),
-            nn.Conv1d(128, 128, 3, padding=2),
+            nn.Conv1d(32, 32, 3, padding=1),
             nn.ReLU(),
             nn.MaxPool1d(step)
         )
 
         self.enc3 = nn.Sequential(
-            nn.Conv1d(128, 256, 5, padding=1),
+            nn.Conv1d(32, 64, 5, padding=2),
             nn.ReLU(),
-            nn.Conv1d(256, 256, 3, padding=2),
+            nn.Conv1d(64, 64, 3, padding=1),
             nn.ReLU(),
             nn.MaxPool1d(step)
         )
 
         # Decoder
         self.dec1 = nn.Sequential(
-            nn.ConvTranspose1d(256, 128, step, stride=step, output_padding=0),
-            nn.BatchNorm1d(128),  # Batch normalization
+            nn.ConvTranspose1d(64, 32, step, stride=step, output_padding=0),
             nn.ReLU(),
-            nn.Dropout(dropout)
         )
 
         self.dec2 = nn.Sequential(
-            nn.ConvTranspose1d(256, 64, step, stride=step, output_padding=0),
-            nn.BatchNorm1d(64),  # Batch normalization
+            nn.ConvTranspose1d(64, 16, step, stride=step, output_padding=0),
             nn.ReLU(),
-            nn.Dropout(dropout)
         )
 
         self.dec3 = nn.Sequential(
-            nn.ConvTranspose1d(128, 32, step, stride=step, output_padding=0),
-            nn.BatchNorm1d(32),  # Batch normalization
+            nn.ConvTranspose1d(32, 8, step, stride=step, output_padding=0),
             nn.ReLU(),
-            nn.Dropout(dropout)
         )
 
         # Final layer
-        channels = input_channels + 32
+        channels = input_channels + 8
         self.final = nn.Sequential(
             nn.Conv1d(channels, 1, 1),  # Change output channels to 1
             nn.Flatten()  # Add flatten layer to match target shape

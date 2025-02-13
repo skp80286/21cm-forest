@@ -36,6 +36,7 @@ def get_P(signal,max_size, scaled=False):
 
 def get_P_set(signal,max_size, scaled=False):
   results = np.apply_along_axis(lambda row: get_P(row, max_size, scaled), 1, signal)
+  #print(f"get_P_set: {results.shape}")
   return results[:,0], results[:,1]
   
    

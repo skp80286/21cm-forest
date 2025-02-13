@@ -171,7 +171,7 @@ class ChiSquareLoss(nn.Module):
         return mse/var
 
 def plot_power_spectra(ps_set, ks, title, labels, xscale='log', yscale='log', showplots=False, saveplots=True):
-    print(f"shapes: {ps_set.shape},{ks.shape}")
+    #print(f"plot_power_spectra: shapes: {ps_set.shape},{ks.shape}")
 
     base.initplt()
     plt.title(f'{title}')
@@ -201,8 +201,9 @@ def plot_power_spectra(ps_set, ks, title, labels, xscale='log', yscale='log', sh
 
 def analyse_predictions(los_test, y_test_so, y_pred_so, samples=1, showplots=False, saveplots=True, label='', signal_bandwidth=22089344.0):
     ks_noisy, ps_noisy = PS1D.get_P_set(los_test, signal_bandwidth, scaled=True)
+    #logger.info(f'get_P_set: {ks_noisy.shape}, {ps_noisy.shape},')
     ks_noisy, ps_noisy = f21stats.logbin_power_spectrum_by_k(ks_noisy, ps_noisy)
-    logger.info(f'get_P_set: {ks_noisy.shape}, {ps_noisy.shape},')
+    #logger.info(f'get_P_set: {ks_noisy.shape}, {ps_noisy.shape},')
     ps_noisy_mean = np.mean(ps_noisy, axis=0)
     ks_so, ps_so = PS1D.get_P_set(y_test_so, signal_bandwidth, scaled=True)
     ks_so, ps_so = f21stats.logbin_power_spectrum_by_k(ks_so, ps_so)

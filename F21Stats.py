@@ -274,7 +274,7 @@ def logbin_power_spectrum_by_k(ks, ps, silent=True):
 
     if not silent: F21Stats.logger.info(f"logbin_power_spectrum_by_k: final ks: {binlist[0,:5]}..{binlist[0,-5:]}")
     if not silent: F21Stats.logger.info(f"final ps: {pslist[0,:5]}..{pslist[0,-5:]}")
-    return binlist[:,3:5], pslist[:,3:5]
+    return binlist, pslist
 
 def logbin_power_spectrum_by_k_flex(ks, ps, ps_bins_to_make, perc_ps_bins_to_use=100):
     num_bins = ps_bins_to_make*perc_ps_bins_to_use//100
