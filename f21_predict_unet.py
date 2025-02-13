@@ -32,62 +32,26 @@ class UnetModel(nn.Module):
 
         # Encoder
         self.enc1 = nn.Sequential(
-            nn.Conv1d(input_channels, 64, 41, padding=20),
-            nn.BatchNorm1d(64),  # Batch normalization
+            nn.Conv1d(input_channels, 64, 5, padding=1),
             nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Conv1d(64, 64, 21, padding=10),
-            nn.BatchNorm1d(64),  # Batch normalization
+            nn.Conv1d(64, 64, 3, padding=2),
             nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Conv1d(64, 64, 11, padding=5),
-            nn.BatchNorm1d(64),  # Batch normalization
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Conv1d(64, 64, 5, padding=2),  # New layer added
-            nn.BatchNorm1d(64),  # Batch normalization
-            nn.ReLU(),
-            nn.Dropout(dropout),
             nn.MaxPool1d(step)
         )
 
         self.enc2 = nn.Sequential(
-            nn.Conv1d(64, 128, 41, padding=20),
-            nn.BatchNorm1d(128),  # Batch normalization
+            nn.Conv1d(64, 128, 5, padding=1),
             nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Conv1d(128, 128, 21, padding=10),
-            nn.BatchNorm1d(128),  # Batch normalization
+            nn.Conv1d(128, 128, 3, padding=2),
             nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Conv1d(128, 128, 11, padding=5),
-            nn.BatchNorm1d(128),  # Batch normalization
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Conv1d(128, 128, 5, padding=2),  # New layer added
-            nn.BatchNorm1d(128),  # Batch normalization
-            nn.ReLU(),
-            nn.Dropout(dropout),
             nn.MaxPool1d(step)
         )
 
         self.enc3 = nn.Sequential(
-            nn.Conv1d(128, 256, 41, padding=20),
-            nn.BatchNorm1d(256),  # Batch normalization
+            nn.Conv1d(128, 256, 5, padding=1),
             nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Conv1d(256, 256, 21, padding=10),
-            nn.BatchNorm1d(256),  # Batch normalization
+            nn.Conv1d(256, 256, 3, padding=2),
             nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Conv1d(256, 256, 11, padding=5),
-            nn.BatchNorm1d(256),  # Batch normalization
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Conv1d(256, 256, 5, padding=2),  # New layer added
-            nn.BatchNorm1d(256),  # Batch normalization
-            nn.ReLU(),
-            nn.Dropout(dropout),
             nn.MaxPool1d(step)
         )
 
@@ -134,7 +98,7 @@ class UnetModel(nn.Module):
         enc2 = self.enc2(enc1)
         #print(f"After enc2: {enc2.shape}")        
         enc3 = self.enc3(enc2)
-        print(f"After enc3: {enc3.shape}")        
+        #print(f"After enc3: {enc3.shape}")        
         
         """
         # Pass through the dense layers for parameters extraction
@@ -199,7 +163,7 @@ class ModelTester:
 
         if not silent: logger.info(f"Testing dataset: X:{los_test.shape} y:{y_test.shape}")
         #if not silent: logger.info(f"Before scale y_test: {y_test[:1]}")
-        los_test, y_test = scaler.scaleXy(los_test, y_test)
+        #los_test, y_test = scaler.scaleXy(los_test, y_test)
         #if not silent: logger.info(f"After scale y_test: {y_test[:1]}")
 
         #if not silent: logger.info("Testing prediction")
@@ -221,14 +185,16 @@ class ModelTester:
             #y_pred = y_pred_np[:,:2]
             y_pred_so = y_pred_np#[:,2:]
             r2 = r2_score(los_so, y_pred_so)
-            #if not silent: logger.info("R2 Score: " + str(r2))
+            if not silent: logger.info("R2 Score: " + str(r2))
             # Calculate rmse scores
-            rms_scores = mean_squared_error(los_so, y_pred_so)
-            rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test_so, axis=0)
-            if not silent: logger.info("RMS Error: " + str(rms_scores_percent))
+            rms_score = np.mean(mean_squared_error(los_so, y_pred_so))
+            #rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test_so, axis=0)
+            if not silent: logger.info("RMS Error: " + str(rms_score))
 
-            if not silent: plot_predictions(los_test, los_so, y_pred_so, label=f"xHI{y_test[0][0]:.2f}_logfx{5.0*(y_test[0][1] - 0.8):.2f}")
-            if not silent: analyse_predictions(los_test, los_so, y_pred_so, label=f"xHI{y_test[0][0]:.2f}_logfx{5.0*(y_test[0][1] - 0.8):.2f}")
+            if not silent:
+                for i in range(0, len(los_test), args.limitsamplesize):
+                    plot_predictions(los_test[i:i+1], los_so[i:i+1], y_pred_so[i:i+1], label=f"xHI{y_test[i][0]:.2f}_logfx{y_test[i][1]:.2f}")
+                    analyse_predictions(los_test[i:i+1], los_so[i:i+1], y_pred_so[i:i+1], label=f"xHI{y_test[i][0]:.2f}_logfx{y_test[i][1]:.2f}")
     
             
             #if not silent: logger.info("R2 Score: " + str(r2))
@@ -310,6 +276,20 @@ class CustomLoss(nn.Module):
 
         return total_loss
     
+class ChiSquareLoss(nn.Module):
+    def __init__(self):
+        super(ChiSquareLoss, self).__init__()
+        self.mse = nn.MSELoss()
+    
+    def forward(self, predictions, targets):
+        # First component: MSE between predictions and targets
+        #mse_loss_xHI = self.mse(predictions[:,0], targets[:,0])
+        mse = self.mse(predictions, targets)
+        var = targets.var()
+        if var < 1e-8: var = 1.0
+
+        return mse/var
+
 def plot_power_spectra(ps_set, ks, title, labels, xscale='log', yscale='log', showplots=False, saveplots=True):
     print(f"shapes: {ps_set.shape},{ks.shape}")
 
@@ -351,20 +331,20 @@ def analyse_predictions(los_test, y_test_so, y_pred_so, samples=1, showplots=Fal
     plot_power_spectra(np.vstack((ps_so_mean,ps_noisy_mean,ps_pred_mean)), ks_noisy[0,:], title=label, labels=["signal-only", "noisy-signal", "reconstructed"])
 
 def plot_predictions(los_test, y_test_so, y_pred_so, samples=1, showplots=False, saveplots=True, label=''):
-    plt.rcParams['figure.figsize'] = [15, 9]
-    plt.title(f'Reconstructed LoS vs Actual Noiseless LoS {label}')
     for i, (noisy, test, pred) in enumerate(zip(los_test[:samples], y_test_so[:samples], y_pred_so[:samples])):
+        plt.figure()
+        plt.rcParams['figure.figsize'] = [15, 9]
+        plt.title(f'Reconstructed LoS vs Actual Noiseless LoS {label}')
         plt.plot(noisy-0.01, label='Signal with Noise')
         plt.plot(test, label='Actual signal')
         plt.plot(pred+0.01, label='Reconstructed')
         plt.plot(test-pred+0.98, label='Reconstructed - Signal')
-        if i> 2: break
-    plt.xlabel('frequency'), 
-    plt.ylabel('flux/S147')
-    plt.legend()
-    if showplots: plt.show()
-    if saveplots: plt.savefig(f"{output_dir}/reconstructed_los_{label}.png")
-    plt.clf()
+        plt.xlabel('frequency'), 
+        plt.ylabel('flux/S147')
+        plt.legend()
+        if showplots: plt.show()
+        if saveplots: plt.savefig(f"{output_dir}/reconstructed_los_{label}.png")
+        if i> 5: break
 
 def load_noise():
     X_noise = None
@@ -374,7 +354,7 @@ def load_noise():
         logger.info(f"Loaded noise with shape: {X_noise.shape}")
     return X_noise
     
-def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, X_noise, num_epochs, batch_size, lr, kernel1, kernel2, dropout, step, input_points_to_use, showplots=False, saveplots=True):
+def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, X_noise, num_epochs, batch_size, lr, kernel1, kernel2, dropout, step, input_points_to_use, showplots=False, saveplots=True, criterion=nn.MSELoss()):
     run_description = f"Commandline: {' '.join(sys.argv)}. Parameters: epochs: {num_epochs}, batch_size: {batch_size}, lr: {lr}, kernel_sizes: [{kernel1}, {kernel2}], dropout: {dropout}, points: {input_points_to_use}, label={args.label}"
     logger.info(f"Starting new run: {run_description}")
     logger.info(f"Before scale train: {y_train[:1]}")
@@ -401,10 +381,7 @@ def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, X_noise, num_ep
     if args.use_noise_channel: num_channels = 2
     model = UnetModel(input_size=len(X_train[0]), input_channels=num_channels, output_size=len(y_train[0]), dropout=dropout, step=step)
     logger.info(f"Created model: {model}")
-    # Loss function and optimizer
-    #criterion = CustomLoss()  # You can adjust alpha as needed
-    criterion = nn.MSELoss()
-
+    
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
     # Training loop    
@@ -423,6 +400,7 @@ def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, X_noise, num_ep
             # Compute the loss
 
             loss = criterion(predictions, output_batch)
+            #if i == 50: logger.info(f'predictions:{predictions}\input_batch:{input_batch}\noutput_batch:{output_batch}\nloss:{loss}')
 
             # Backpropagation
             loss.backward()
@@ -511,6 +489,20 @@ def objective(trial):
         logger.error(f"Trial failed with error: {str(e)}")
         return float('-inf')
 
+def reorder_so(y_so, keys_so, keys):
+    logger.info(f"Reordering.. {len(y_so)}, {len(keys_so)}, {len(keys)}")
+    key_to_index = {key: index for index, key in enumerate(keys_so)}
+    y_so_reordered = np.zeros_like(y_so)
+
+    for index, key in enumerate(keys):
+        if key in key_to_index:
+            y_so_reordered[index] = y_so[key_to_index[key]]
+        else:
+            raise ValueError(f"key not found! {key}")
+
+    keys_so = [keys_so[key_to_index[key]] for key in keys if key in key_to_index]
+    return y_so_reordered
+
 # main code starts here
 parser = base.setup_args_parser()
 parser.add_argument('--test_multiple', action='store_true', help='Test 1000 sets of 10 LoS for each test point and plot it')
@@ -565,25 +557,33 @@ logger.info("####")
 logger.info(f"### Using \"{device}\" device ###")
 logger.info("####")
 
-if args.runmode in ("train_test", "test_only", "optimize") :
+if args.runmode in ("train_test", "test_only", "optimize"):
+    # Loss function and optimizer
+    #criterion = CustomLoss()  # You can adjust alpha as needed
+    #criterion = nn.MSELoss()
+    criterion = ChiSquareLoss()  
+    
     if args.runmode in ("train_test", "optimize") :
         logger.info(f"Loading train dataset {len(train_files)}")
-        X_train, y_train, _ = base.load_dataset(train_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
-        y_train_so, _, _ = base.load_dataset(sotrain_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
+        X_train, y_train, _, keys = base.load_dataset(train_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
+        y_train_so, _, _, keys_so = base.load_dataset(sotrain_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
+        y_train_so = reorder_so(y_train_so, keys_so, keys)
         logger.info(f"Loaded datasets X_train:{X_train.shape} y_train:{y_train.shape} y_train_so:{y_train_so.shape}")
     logger.info(f"Loading test dataset {len(test_files)}")
-    X_test, y_test, _ = base.load_dataset(test_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
-    y_test_so, _, _ = base.load_dataset(sotest_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
+    X_test, y_test, _, keys = base.load_dataset(test_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
+    y_test_so, _, _, keys_so = base.load_dataset(sotest_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
+    y_test_so = reorder_so(y_test_so, keys_so, keys)
+
     logger.info(f"Loaded dataset X_test:{X_test.shape} y_test:{y_test.shape} y_test_so:{y_test_so.shape}")
     X_noise = load_noise()
     if args.runmode == "train_test":
-        run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, X_noise, args.epochs, args.trainingbatchsize, lr=0.001, kernel1=kernel1, kernel2=kernel1, dropout=0.2, step=step, input_points_to_use=args.input_points_to_use, showplots=args.interactive)
+        run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, X_noise, args.epochs, args.trainingbatchsize, lr=0.001, kernel1=kernel1, kernel2=kernel1, dropout=0.2, step=step, input_points_to_use=args.input_points_to_use, showplots=args.interactive, criterion=criterion)
     elif args.runmode == "test_only":
         logger.info(f"Loading model from file {args.modelfile}")
         model = UnetModel(input_size=args.input_points_to_use, input_channels=1, output_size=args.input_points_to_use+2, dropout=0.2, step=step)
         model.load_model(args.modelfile)
         logger.info(f"testing with {len(X_test)} test cases")
-        test(X_test, y_test, y_test_so, None, model, nn.MSELoss(), args.input_points_to_use, "test_only")
+        test(X_test, y_test, y_test_so, None, model, criterion, args.input_points_to_use, "test_only")
     elif args.runmode == "optimize":
         # Create study object
         study = optuna.create_study(direction="maximize")

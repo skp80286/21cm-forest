@@ -46,6 +46,7 @@ def initplt():
     plt.rcParams['xtick.labelsize'] = 18
     plt.rcParams['ytick.labelsize'] = 18
     plt.rcParams['legend.fontsize'] = 18
+    plt.figure()
 
 colorlabels=[r'$\langle x_{HI}\rangle$', r'$log_{10}(f_X)$']
 colormaps=[plt.cm.viridis, plt.cm.viridis]
@@ -659,16 +660,17 @@ def get_datafile_list(type, args):
     return datafiles
 
 
-def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False, skip_ps=True):
+def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False, skip_ps=True, max_workers=8):
     # Lists to store combined data
     all_params = []
     # Create processor with desired number of worker threads
-    processor = dl.F21DataLoader(max_workers=8, psbatchsize=psbatchsize, limitsamplesize=limitsamplesize, skip_ps=skip_ps)
+    processor = dl.F21DataLoader(max_workers=max_workers, psbatchsize=psbatchsize, limitsamplesize=limitsamplesize, skip_ps=skip_ps)
 
     # Process all files and get results
     results = processor.process_all_files(datafiles)
     logger.info(f"Finished data loading.")
     # Access results
+    keys = results['key']
     all_los = results['los']
     los_samples = results['los_samples']
     all_params = results['params']
@@ -684,7 +686,7 @@ def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False, skip_ps=Tr
         with open('los-21cm-forest.pkl', 'w+b') as f:  # open a text file
             pickle.dump({"all_los": all_los, "all_params": all_params}, f)
             
-    return (all_los, all_params, los_samples)
+    return (all_los, all_params, los_samples, keys)
 
 def test_multiple(modeltester, datafiles, reps=10000, size=10, save=False, skip_stats=True, use_bispectrum=False, skip_ps=False, so_datafiles=None, input_points_to_use=None, ps_bins=None, perc_bins_to_use=100):
     logger.info(f"Test_multiple started. {reps} reps x {size} points will be tested for {len(datafiles)} parameter combinations")

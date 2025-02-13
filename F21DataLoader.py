@@ -9,6 +9,8 @@ import instrumental_features
 import F21Stats
 import logging
 import time
+import hashlib
+
 
 class F21DataLoader:
     def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None, skip_ps: bool = False, ps_bins = None, ps_smoothing=True, skip_stats=True, use_bispectrum=False, scale_ps = False, input_points_to_use=None, perc_bins_to_use=100):
@@ -171,7 +173,7 @@ class F21DataLoader:
 
             # Used for bispectrum calculation
             if self.limitsamplesize is not None and len(los_arr) > self.limitsamplesize:
-                los_arr = los_arr[np.random.randint(len(los_arr), size=self.limitsamplesize)]
+                los_arr = los_arr[range(self.limitsamplesize)]#np.random.randint(len(los_arr), size=self.limitsamplesize)]
             Nlos = len(los_arr)
  
             Nbins = len(freq_axis)
@@ -188,6 +190,7 @@ class F21DataLoader:
             """
             params = np.array([xHI_mean, logfX])
             for j in range(Nlos):
+                key = f"{xHI_mean:.2f}_{logfX:.2f}_{j}"
                 psbatchnum += 1
                 samplenum += 1
                 los=los_arr[j]
@@ -227,7 +230,7 @@ class F21DataLoader:
                         #print(stats_mean)
 
                         
-                    self.collector.add_data(ks, ps_mean, ps_std, los_mean, los_std, freq_axis, params, los_samples, ps_samples, stats_mean, bs_mean, k_bispec)
+                    self.collector.add_data(ks, ps_mean, ps_std, los_mean, los_std, freq_axis, params, los_samples, ps_samples, stats_mean, bs_mean, k_bispec, key)
                     psbatchnum = 0
                     power_spectrum = []
                     bispectrum = []
@@ -253,6 +256,7 @@ class F21DataLoader:
 class ThreadSafeArrayCollector:
     def __init__(self):
         self._data = {
+            'key': [],
             'ks': [],
             'ps': [],
             'ps_std': [],
@@ -268,8 +272,9 @@ class ThreadSafeArrayCollector:
         }
         self._lock = threading.Lock()
         
-    def add_data(self, ks, ps, ps_std, los, los_std, freq_axis, params, los_samples, ps_samples, stats, bispectrum, k_bispec):
+    def add_data(self, ks, ps, ps_std, los, los_std, freq_axis, params, los_samples, ps_samples, stats, bispectrum, k_bispec, key=''):
         with self._lock:
+            self._data['key'].append(key)
             self._data['ks'].append(ks)
             self._data['ps'].append(ps)
             self._data['ps_std'].append(ps_std)
@@ -286,6 +291,7 @@ class ThreadSafeArrayCollector:
     def get_arrays(self):
         with self._lock:
             return {
+                'key': np.array(self._data['key']),
                 'ks': np.array(self._data['ks']),
                 'ps': np.array(self._data['ps']),
                 'ps_std': np.array(self._data['ps_std']),
