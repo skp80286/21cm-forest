@@ -70,11 +70,24 @@ class ModelTester:
             rms_score = np.mean(mean_squared_error(los_so, y_pred_so))
             #rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test_so, axis=0)
             if not silent: logger.info("RMS Error: " + str(rms_score))
+            if not silent:
+                    # Write each array to separate CSV files
+                    np.savetxt(f"{output_dir}/los_test.csv", X_test, delimiter=",")
+                    np.savetxt(f"{output_dir}/los_so.csv", y_test_so, delimiter=",")
+                    np.savetxt(f"{output_dir}/y_pred_so.csv", y_pred_so, delimiter=",")
+                    np.savetxt(f"{output_dir}/y_test.csv", y_test, delimiter=",")
 
             if not silent:
-                for i in range(0, len(los_test), args.limitsamplesize):
-                    plot_predictions(los_test[i:i+1], los_so[i:i+1], y_pred_so[i:i+1], label=f"xHI{y_test[i][0]:.2f}_logfx{y_test[i][1]:.2f}")
-                    analyse_predictions(los_test[i:i+1], los_so[i:i+1], y_pred_so[i:i+1], label=f"xHI{y_test[i][0]:.2f}_logfx{y_test[i][1]:.2f}")
+                # for i in range(0, len(los_test)):
+                #     logger.info(f"los_test[{i}/{len(los_test)}]:xHI{y_test[i][0]:.2f}_logfx{y_test[i][1]:.2f}")
+                processed_labels = set() 
+                for i in range(len(los_test)):
+                    label=f"xHI{y_test[i][0]:.2f}_logfx{y_test[i][1]:.2f}"
+                    if label in processed_labels:  # Skip if label has already been processed
+                        continue
+                    processed_labels.add(label)  # Add label to the set
+                    plot_predictions(los_test[i:i+1], los_so[i:i+1], y_pred_so[i:i+1], label=label)
+                    analyse_predictions(los_test[i:i+1], los_so[i:i+1], y_pred_so[i:i+1], label=label)
     
             
             #if not silent: logger.info("R2 Score: " + str(r2))
@@ -170,6 +183,7 @@ class ChiSquareLoss(nn.Module):
 
         return mse/var
 
+markers=['o', 'x', '*']
 def plot_power_spectra(ps_set, ks, title, labels, xscale='log', yscale='log', showplots=False, saveplots=True):
     #print(f"plot_power_spectra: shapes: {ps_set.shape},{ks.shape}")
 
@@ -177,12 +191,13 @@ def plot_power_spectra(ps_set, ks, title, labels, xscale='log', yscale='log', sh
     plt.title(f'{title}')
     if len(ps_set.shape) > 1:
         for i, ps in enumerate(ps_set):
+
             if labels is not None: label = labels[i]
             row_ks = None
             if ks is not None:
                 if len(ks.shape) > 1: row_ks = ks[i]
                 else: row_ks = ks
-            plt.plot(row_ks*1e6, ps, label=label, marker='o')
+            plt.plot(row_ks*1e6, ps, label=label, marker=markers[i% len(markers)], alpha=0.5)
     else:
         row_ks = None
         if ks is not None:
@@ -197,7 +212,7 @@ def plot_power_spectra(ps_set, ks, title, labels, xscale='log', yscale='log', sh
     plt.legend()
     if showplots: plt.show()
     if saveplots: plt.savefig(f"{output_dir}/reconstructed_ps_{title}.png")
-    plt.clf()
+    plt.close()
 
 def analyse_predictions(los_test, y_test_so, y_pred_so, samples=1, showplots=False, saveplots=True, label='', signal_bandwidth=22089344.0):
     ks_noisy, ps_noisy = PS1D.get_P_set(los_test, signal_bandwidth, scaled=True)
@@ -229,6 +244,7 @@ def plot_predictions(los_test, y_test_so, y_pred_so, samples=1, showplots=False,
         if showplots: plt.show()
         if saveplots: plt.savefig(f"{output_dir}/reconstructed_los_{label}.png")
         if i> 5: break
+        plt.close()
 
 def load_noise():
     X_noise = None

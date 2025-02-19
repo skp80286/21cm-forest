@@ -31,7 +31,7 @@ def plot_single_power_spectrum(ps, ks, output_dir=".", showplots=False, saveplot
     plt.ylabel(r'P$_{21}$(k)')
     if showplots: plt.show()
     if saveplots: plt.savefig(f"{output_dir}/power_spectra.png")
-    plt.clf()
+    plt.close()
 
 def decide_alpha(num_ps):
     if num_ps >= 1000: return 0.01
@@ -91,7 +91,7 @@ def plot_power_spectra(ps, ks, params, psn=None, colorind=1, output_dir=".", sho
     
     if showplots: plt.show()
     if saveplots: plt.savefig(f"{output_dir}/power_spectra.png")
-    plt.clf()
+    plt.close()
 
 def plot_pca(ps, params, colorind=1, output_dir=".", showplots=False, saveplots=True, label=""):
     #logger.info(f'shapes ps:{ps.shape} ks:{ks.shape}')
@@ -121,7 +121,7 @@ def plot_pca(ps, params, colorind=1, output_dir=".", showplots=False, saveplots=
     
     if showplots: plt.show()
     if saveplots: plt.savefig(f"{output_dir}/pca.png")
-    plt.clf()
+    plt.close()
 
 #statlabels=[]
 statlabels=[['ps1', 'ps2', 'total_mean', 'total_std', 'mean_skew', 'std_skew', 'skew2', 'min_skew'],
@@ -162,7 +162,7 @@ def plot_stats(stats, params, colorind=1, statind=0, output_dir=".", showplots=F
     plt.legend(loc=legendpos[colorind], ncol=len(statlabels[statind])//2, fontsize=12)
     if showplots: plt.show()
     if saveplots: plt.savefig(f"{output_dir}/statistics.png")
-    plt.clf()
+    plt.close()
 
 def plot_single_los(los, freq_axis, output_dir=".", showplots=False, saveplots=True, label=""):
     plt.rcParams['figure.figsize'] = [12, 5]
@@ -171,7 +171,7 @@ def plot_single_los(los, freq_axis, output_dir=".", showplots=False, saveplots=T
     plt.xlabel('frequency[MHz]'), plt.ylabel('flux/S147')
     if showplots: plt.show()
     if saveplots: plt.savefig(f"{output_dir}/los_{label}.png")
-    plt.clf()
+    plt.close()
 
 def plot_los(los, freq_axis, output_dir=".", showplots=False, saveplots=True, label=""):
     plt.rcParams['figure.figsize'] = [15, 9]
@@ -182,7 +182,7 @@ def plot_los(los, freq_axis, output_dir=".", showplots=False, saveplots=True, la
     plt.xlabel('frequency[MHz]'), plt.ylabel('flux/S147')
     if showplots: plt.show()
     if saveplots: plt.savefig(f"{output_dir}/los.png")
-    plt.clf()
+    plt.close()
 
 def plot_predictions(df_y, colors):
     """
@@ -231,6 +231,7 @@ def plot_predictions(df_y, colors):
     plt.plot([], [], 'c--', alpha=0.5, label='Prediction Boundary')
     plt.legend()
     plt.show()
+    plt.close()
 
 def save_test_results(y_pred, y_test, output_dir, label=""):
     """
@@ -418,6 +419,7 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
         
         if saveplots: plt.savefig(f'{output_dir}/f21_prediction_means{label}.png')
         if showplots: plt.show()
+        plt.close()
 
         # Make a scatter plot
         plt.figure()
@@ -450,7 +452,7 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
 
         if saveplots: plt.savefig(f'{output_dir}/f21_prediction_means_scatter_{label}.png')
         if showplots: plt.show()
-    
+        plt.close()
     # Log statistics
     logger.info("\nPrediction Statistics:")
     logger.info(f"Mean xHI std: {np.mean(std_predictions[:, 0]):.4f}")
@@ -518,7 +520,7 @@ def summarize_test(y_pred, y_test, output_dir=".", showplots=False, saveplots=Tr
         plt.colorbar(label=f'RMS Error ({rmse_min:.2f} to {rmse_max:.2f})')
         if showplots: plt.show()
         if saveplots: plt.savefig(f'{output_dir}/f21_prediction{label}.png')
-        plt.clf()
+        plt.close()
     return mean_r2_score
     
     """

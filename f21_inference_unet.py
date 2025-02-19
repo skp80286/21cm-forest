@@ -97,28 +97,30 @@ if args.input_points_to_use is not None:
 X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
 train_enc3_flattened = model.get_latent_features(X_train_tensor)
 logger.info(f"train_enc3_flattened.shape={train_enc3_flattened.shape}")
+params_train, latent_train = UnetModel.aggregate_latent_data(y_train, train_enc3_flattened, 10)
 # Save the enc3 output to a file
-np.savetxt(f"{output_dir}/train_latent_features.csv", train_enc3_flattened)
-logger.info(f"Saved enc3 layer output to {output_dir}/train_latent_features.npy")
+np.savetxt(f"{output_dir}/train_latent_features.csv", latent_train)
+logger.info(f"Saved enc3 layer output to {output_dir}/train_latent_features.csv")
 
 # Train XGBoostRegressor on the enc3 output
 regressor = XGBRegressor()
-regressor.fit(train_enc3_flattened, y_train)  # Train on the flattened enc3 output
+regressor.fit(latent_train, params_train)  # Train on the flattened enc3 output
 
 # Predict parameters for the test dataset
 X_test_tensor = torch.tensor(X_test, dtype=torch.float32)
 test_enc3_flattened = model.get_latent_features(X_test_tensor)
+params_test, latent_test = UnetModel.aggregate_latent_data(y_test, test_enc3_flattened, 10)
 
 # Save the enc3 output to a file
-np.savetxt(f"{output_dir}/test_latent_features.csv", test_enc3_flattened)
-logger.info(f"Saved enc3 layer output to {output_dir}/test_latent_features.npy")
-logger.info(f"test_enc3_flattened.shape={test_enc3_flattened.shape}")
+np.savetxt(f"{output_dir}/test_latent_features.csv", latent_test)
+logger.info(f"Saved enc3 layer output to {output_dir}/test_latent_features.csv")
+logger.info(f"test_enc3_flattened.shape={latent_test.shape}")
 
-y_pred = regressor.predict(test_enc3_flattened)  # Predict using the trained regressor
-results = np.column_stack((y_test, y_pred))  # Combine y_test and y_pred
+y_pred = regressor.predict(latent_test)  # Predict using the trained regressor
+results = np.column_stack((params_test, y_pred))  # Combine y_test and y_pred
 np.savetxt(f"{output_dir}/test_predictions.csv", results, delimiter=",",  fmt='%.2f', header="actual_xHI, actual_logfX, pred_xHI, pred_logfX", comments="")
 logger.info(f"Saved y_test and y_pred to {output_dir}/test_predictions.csv")
 
 # Calculate R2 score
-r2 = r2_score(y_test, y_pred)
+r2 = r2_score(params_test, y_pred)
 logger.info(f"R2 Score for inference: {r2}")
