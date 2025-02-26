@@ -32,7 +32,7 @@ ind_descriptions = np.array(["PS 1st bin",
                         "Bispectrum 2nd bin",
                         "Bispectrum 3rd bin",
                         "Bispectrum 4th bin",])
-del_ind = [9] #[1,2,3,5,9,11,12] # 6,13
+del_ind = [4,5,6,7,8,9,10,11,12,13] #[9] #[1,2,3,5,9,11,12] # 6,13
 logger.info(f"Removing features with indices {ind_descriptions[del_ind]}")
 # Load training data using numpy
 #train_data = np.loadtxt('saved_output/bispectrum_data_20k/all_training_data.csv', delimiter=',')

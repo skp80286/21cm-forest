@@ -13,7 +13,7 @@ import hashlib
 
 
 class F21DataLoader:
-    def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None, skip_ps: bool = False, ps_bins = None, ps_smoothing=True, skip_stats=True, use_bispectrum=False, scale_ps = False, input_points_to_use=None, perc_bins_to_use=100):
+    def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None, skip_ps: bool = False, ps_bins = None, ps_smoothing=True, skip_stats=True, use_bispectrum=False, scale_ps = False, input_points_to_use=None, perc_bins_to_use=100, use_new_ps_calc=False):
         np.random.seed(42)
         self.max_workers = max_workers
         self.collector = ThreadSafeArrayCollector()
@@ -27,6 +27,7 @@ class F21DataLoader:
         self.scale_ps = scale_ps
         self.input_points_to_use = input_points_to_use
         self.perc_bins_to_use = perc_bins_to_use
+        self.use_new_ps_calc = use_new_ps_calc
 
     def get_los(self, datafile: str) -> None:
         data = np.fromfile(str(datafile), dtype=np.float32)
@@ -204,7 +205,10 @@ class F21DataLoader:
                         los = signal_smooth[:-1]
                     """
                     # Calculate the power spectrum
-                    ks,ps = PS1D.get_P(los,bandwidth, scaled=self.scale_ps) #Calculate 1D power spectrum
+                    if self.use_new_ps_calc:
+                        ks,ps = PS1D.get_P_new(los,bandwidth, scaled=self.scale_ps) #Calculate 1D power spectrum
+                    else:
+                        ks,ps = PS1D.get_P(los,bandwidth, scaled=self.scale_ps) #Calculate 1D power spectrum
                     power_spectrum.append(ps)
 
                 if samplenum >= Nlos or psbatchnum >= self.psbatchsize:

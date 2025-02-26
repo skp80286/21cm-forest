@@ -80,7 +80,7 @@ def plot_power_spectra(ps, ks, params, psn=None, colorind=1, output_dir=".", sho
         # Plot noise curve
 
     if psn is not None: 
-        ax.plot(ks[0,1:]*1e6, psn[1:], "r--", linewidth=0.5, label="Noise", marker= marker)
+        ax.plot(ks[0,1:]*1e6, psn[1:], "r--", linewidth=0.5, label="Noise")
 
     plt.legend()
     plt.xlabel(r"k (Hz$^{-1}$)")
@@ -431,7 +431,7 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
             mask = np.all(y_test == test_point, axis=1)
             corresponding_preds = y_pred[mask]
             plt.scatter(corresponding_preds[:, 0], corresponding_preds[:, 1], 
-                marker="o", s=25, alpha=0.1, c=colors[i])
+                marker="o", s=25, alpha=0.01, c=colors[i])
             
         # Plot mean predictions
         plt.scatter(mean_predictions[:, 0], mean_predictions[:, 1], 
@@ -592,7 +592,10 @@ def setup_logging(output_dir):
     file_handler = logging.FileHandler(filename=f"{output_dir}/{sys.argv[0].split(sep=os.sep)[-1].rstrip('.py')}.log")
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     handlers = [file_handler, stdout_handler]
-    logging.basicConfig(level=logging.INFO, handlers=handlers)
+    logging.basicConfig(level=logging.INFO, 
+                        handlers=handlers, 
+                        format='%(asctime)s %(levelname)-8s %(message)s', 
+                        datefmt='%Y-%m-%d %H:%M:%S')
     logger = logging.getLogger(__name__)
     logger.info(f"Commandline: {' '.join(sys.argv)}")
     return logger

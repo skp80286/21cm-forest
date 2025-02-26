@@ -29,6 +29,49 @@ import matplotlib.pyplot as plt
 import optuna
 from xgboost import XGBRegressor
 
+def test_multiple(datafiles, regression_model, latent_model, reps=10000, size=10, input_points_to_use=None):
+    logger.info(f"Test_multiple started. {reps} reps x {size} points will be tested for {len(datafiles)} parameter combinations")
+    # Create processor with desired number of worker threads
+    all_y_test = np.zeros((len(datafiles)*reps, 2))
+    all_y_pred = np.zeros((len(datafiles)*reps, 2))
+    # Process all files and get results
+    for i, f in enumerate(datafiles):
+        if i==0: logger.info(f"Working on param combination #{i+1}: {f.split('/')[-1]}")
+        los, params, _, _ = base.load_dataset([f], psbatchsize=1, limitsamplesize=None, save=False)
+        if args.input_points_to_use is not None:
+            los = los[:, :args.input_points_to_use]
+
+        los_tensor = torch.tensor(los, dtype=torch.float32)
+        latent_features = latent_model.get_latent_features(los_tensor)
+
+        #if i == 0: logger.info(f"sample test los_so:{los[:1]}")
+        y_pred_for_test_point = []
+        for j in range(reps):
+            #pick 10 samples
+            rdm = np.random.randint(len(los), size=size)
+            latent_features_set = latent_features[rdm]
+
+            #print(f"latent_features_set.shape={latent_features_set.shape}")
+            latent_features_mean = np.mean(latent_features_set, axis=0, keepdims=True)
+            #print(f"latent_features_mean.shape={latent_features_mean.shape}")
+            y_pred = regression_model.predict(latent_features_mean)  # Predict using the trained regressor
+        
+            y_pred_for_test_point.append(y_pred)
+            all_y_pred[i*reps+j,:] = y_pred
+            all_y_test[i*reps+j,:] = params[0]
+        if i==0: 
+            logger.info(f"Test_multiple: param combination min, max should be the same:{np.min(params, axis=0)}, {np.max(params, axis=0)}")
+            
+    logger.info(f"Test_multiple: param combination:{params[0]} predicted mean:{np.mean(y_pred_for_test_point, axis=0)}")
+
+    logger.info(f"Test_multiple completed. actual shape {all_y_test.shape} predicted shape {all_y_pred.shape}")
+    
+    r2_means = base.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
+    r2 = np.mean(r2_means)
+    base.save_test_results(all_y_pred, all_y_test, output_dir)
+
+    return r2
+
 # main code starts here
 torch.manual_seed(42)
 np.random.seed(42)
@@ -52,6 +95,7 @@ logger = base.setup_logging(output_dir)
 
 ## Loading data
 datafiles = base.get_datafile_list(type='noisy', args=args)
+if args.maxfiles is not None: datafiles = datafiles[:args.maxfiles]
 
 test_points = [[-3.00,0.11],[-2.00,0.11],[-1.00,0.11],[-3.00,0.25],[-2.00,0.25],[-1.00,0.25],[-3.00,0.52],[-2.00,0.52],[-1.00,0.52], [-3.00,0.80],[-2.00,0.80],[-1.00,0.80]]#,[0.00,0.80]]
 train_files = []
@@ -88,39 +132,24 @@ logger.info(f"Loading training dataset {len(train_files)}")
 X_train, y_train, _, keys = base.load_dataset(train_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
 if args.input_points_to_use is not None:
     X_train = X_train[:, :args.input_points_to_use]
-logger.info(f"Loading test dataset {len(test_files)}")
-X_test, y_test, _, keys = base.load_dataset(test_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
-if args.input_points_to_use is not None:
-    X_test = X_test[:, :args.input_points_to_use]
 
 # Predict on training data
+logger.info(f"Mapping latent features for training dataset")
 X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
 train_enc3_flattened = model.get_latent_features(X_train_tensor)
-logger.info(f"train_enc3_flattened.shape={train_enc3_flattened.shape}")
+logger.info(f"Training set latent features shape={train_enc3_flattened.shape}")
 params_train, latent_train = UnetModel.aggregate_latent_data(y_train, train_enc3_flattened, 10)
 # Save the enc3 output to a file
 np.savetxt(f"{output_dir}/train_latent_features.csv", latent_train)
-logger.info(f"Saved enc3 layer output to {output_dir}/train_latent_features.csv")
+logger.info(f"Saved training data latent features to {output_dir}/train_latent_features.csv")
 
 # Train XGBoostRegressor on the enc3 output
-regressor = XGBRegressor()
+regressor = XGBRegressor(random_state=42)
+logger.info(f"Fitting regressor model {regressor}")
 regressor.fit(latent_train, params_train)  # Train on the flattened enc3 output
 
 # Predict parameters for the test dataset
-X_test_tensor = torch.tensor(X_test, dtype=torch.float32)
-test_enc3_flattened = model.get_latent_features(X_test_tensor)
-params_test, latent_test = UnetModel.aggregate_latent_data(y_test, test_enc3_flattened, 10)
-
-# Save the enc3 output to a file
-np.savetxt(f"{output_dir}/test_latent_features.csv", latent_test)
-logger.info(f"Saved enc3 layer output to {output_dir}/test_latent_features.csv")
-logger.info(f"test_enc3_flattened.shape={latent_test.shape}")
-
-y_pred = regressor.predict(latent_test)  # Predict using the trained regressor
-results = np.column_stack((params_test, y_pred))  # Combine y_test and y_pred
-np.savetxt(f"{output_dir}/test_predictions.csv", results, delimiter=",",  fmt='%.2f', header="actual_xHI, actual_logfX, pred_xHI, pred_logfX", comments="")
-logger.info(f"Saved y_test and y_pred to {output_dir}/test_predictions.csv")
+r2 = test_multiple(test_files, regression_model=regressor, latent_model=model, input_points_to_use=args.input_points_to_use)
 
 # Calculate R2 score
-r2 = r2_score(params_test, y_pred)
-logger.info(f"R2 Score for inference: {r2}")
+logger.info(f"R2 Score for 10k inference: {r2}")
