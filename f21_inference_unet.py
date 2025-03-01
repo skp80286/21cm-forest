@@ -66,7 +66,10 @@ def test_multiple(datafiles, regression_model, latent_model, reps=10000, size=10
 
     logger.info(f"Test_multiple completed. actual shape {all_y_test.shape} predicted shape {all_y_pred.shape}")
     
+    base.calc_squared_error(all_y_pred, all_y_test)
+
     r2_means = base.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
+
     r2 = np.mean(r2_means)
     base.save_test_results(all_y_pred, all_y_test, output_dir)
 
@@ -97,7 +100,9 @@ logger = base.setup_logging(output_dir)
 datafiles = base.get_datafile_list(type='noisy', args=args)
 if args.maxfiles is not None: datafiles = datafiles[:args.maxfiles]
 
-test_points = [[-3.00,0.11],[-2.00,0.11],[-1.00,0.11],[-3.00,0.25],[-2.00,0.25],[-1.00,0.25],[-3.00,0.52],[-2.00,0.52],[-1.00,0.52], [-3.00,0.80],[-2.00,0.80],[-1.00,0.80]]#,[0.00,0.80]]
+#test_points = [[-3.00,0.11],[-2.00,0.11],[-1.00,0.11],[-3.00,0.25],[-2.00,0.25],[-1.00,0.25],[-3.00,0.52],[-2.00,0.52],[-1.00,0.52], [-3.00,0.80],[-2.00,0.80],[-1.00,0.80]]#,[0.00,0.80]]
+test_points = [[-3,0.11], [-3,0.80], [-1,0.11], [-1,0.80], [-2,0.52]]
+
 train_files = []
 test_files = []
 for nof in datafiles:

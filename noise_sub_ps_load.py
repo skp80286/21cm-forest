@@ -119,7 +119,7 @@ logger.info(f"### Using \"{device}\" device ###")
 logger.info("####")
 
 logger.info(f"Loading train dataset {len(train_files)}")
-ps_train, ks_train, y_train, keys_train = load_dataset(train_files, psbatchsize=10, limitsamplesize=args.limitsamplesize)
+ps_train, ks_train, y_train, keys_train = load_dataset(train_files, psbatchsize=args.psbatchsize, limitsamplesize=args.limitsamplesize)
 logger.info(f"Loaded datasets ps:{ps_train.shape} y_train:{y_train.shape}")
 logger.info(f"Loading test dataset {len(test_files)}")
 ps_test, ks_test, y_test, keys_test = load_dataset(test_files, psbatchsize=1, limitsamplesize=1000)

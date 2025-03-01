@@ -262,7 +262,11 @@ def logbin_power_spectrum_by_k(ks, ps, silent=True):
 
     binlist=np.zeros((ps.shape[0], len(k_bins_cent)))
     pslist=np.zeros((ps.shape[0], len(k_bins_cent)))
-    for i, (row_ks, row_ps) in enumerate(zip(ks, ps)):
+    if len(ks.shape) > 1:
+        row_ks = ks[0]
+    else:
+        row_ks = ks
+    for i, (row_ps) in enumerate(ps):
       for l in range(len(k_bins_cent)):
         mask = (row_ks >= k_bins[l]) & (row_ks < k_bins[l+1])
         # If any values fall in this bin, take their mean

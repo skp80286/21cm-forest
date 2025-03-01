@@ -84,6 +84,8 @@ parser.add_argument('--without_noise', action='store_true', help='Use PS without
 
 args = parser.parse_args()
 
+if not args.train_test_filepath.endswith('/'):
+    args.train_test_filepath += '/'
 output_dir = base.create_output_dir(args)
 logger = base.setup_logging(output_dir)
 
@@ -122,7 +124,7 @@ y_test = np.loadtxt(f'{args.train_test_filepath}y_test.csv', delimiter=',')
 logger.info(f"Loaded training data: {X_train.shape} {y_train.shape}")
 logger.info(f"Loaded test data: {X_test.shape} {y_test.shape}")
 grouped_test_data = group_by_params(X_test, y_test)
-test_multiple(grouped_test_data, model)
+test_multiple(grouped_test_data, model, size=args.psbatchsize)
 # Make predictions
 #predictions = model.predict(X_test)
 

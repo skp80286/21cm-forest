@@ -821,3 +821,37 @@ def unscale_y(y, args):
         y = np.hstack((xHI, fx))
     
     return y
+
+def split_key(key):
+    # Split the key into two float values
+    xHI, logfX = map(float, key.split('_'))
+    return xHI, logfX
+
+def create_key(xHI, logfX):
+    return f"{xHI:.2f}_{logfX:.2f}" 
+
+
+selected_keys = ["0.80_-3.00","0.11_-3.00","0.52_-2.00","0.80_-1.00","0.11_-1.00"]
+def calc_squared_error(predictions, y_test):
+    # Create keys for each row
+    keys = [create_key(y_test[i][0], y_test[i][1]) for i in range(len(y_test))]
+    
+    # Calculate mean predictions for each unique key
+    unique_keys = set(keys)
+    mean_predictions = {key: [] for key in unique_keys}
+    
+    for i, key in enumerate(keys):
+        mean_predictions[key].append(predictions[i])
+    
+    mean_values = {key: np.mean(values, axis=0) for key, values in mean_predictions.items()}
+    
+    # Calculate squared error
+    total_squared_error = 0
+    for i, key in enumerate(selected_keys):
+        xHI, logfX = split_key(key)
+        squared_error = (xHI - mean_values[key][0])**2 + (logfX - mean_values[key][1])**2 
+        logger.info(f"key: {key}, mean_values: {mean_values[key]}, squared_error: {squared_error}")
+        total_squared_error += squared_error
+    
+    logger.info(f"Total Squared Error: {total_squared_error}")
+    
