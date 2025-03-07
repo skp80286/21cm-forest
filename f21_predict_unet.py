@@ -19,7 +19,7 @@ import f21_predict_base as base
 import Scaling
 import PS1D
 import F21Stats as f21stats
-from UnetModel import UnetModel
+from UnetModelNoInputSkipConn import UnetModel
 
 import numpy as np
 import sys

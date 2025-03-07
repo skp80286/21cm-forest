@@ -1,5 +1,5 @@
 '''
-Predict parameters fX and xHI from the 21cm forest data using CNN.
+Use the U-Net to denoise signal and then calculate PS of denoised signal. Use this PS for inference.
 '''
 
 import torch
@@ -42,19 +42,21 @@ def test_multiple(datafiles, regression_model, latent_model, reps=10000, size=10
             los = los[:, :args.input_points_to_use]
 
         los_tensor = torch.tensor(los, dtype=torch.float32)
-        latent_features = latent_model.get_latent_features(los_tensor)
-
+        denoised_los_tensor = latent_model.get_denoised_signal(los_tensor)
+        logger.info(f"Computing powerspectrum")
+        ks, ps = PS1D.get_P_set(denoised_los_tensor.cpu().numpy())
+        ks_bin, ps_bin = f21stats.logbin_power_spectrum_by_k(ks, ps)
         #if i == 0: logger.info(f"sample test los_so:{los[:1]}")
         y_pred_for_test_point = []
         for j in range(reps):
             #pick 10 samples
             rdm = np.random.randint(len(los), size=size)
-            latent_features_set = latent_features[rdm]
+            ps_set = ps_bin[rdm]
 
             #print(f"latent_features_set.shape={latent_features_set.shape}")
-            latent_features_mean = np.mean(latent_features_set, axis=0, keepdims=True)
+            ps_mean = np.mean(ps_set, axis=0, keepdims=True)
             #print(f"latent_features_mean.shape={latent_features_mean.shape}")
-            y_pred = regression_model.predict(latent_features_mean)  # Predict using the trained regressor
+            y_pred = regression_model.predict(ps_mean)  # Predict using the trained regressor
         
             y_pred_for_test_point.append(y_pred)
             all_y_pred[i*reps+j,:] = y_pred
@@ -139,19 +141,26 @@ if args.input_points_to_use is not None:
     X_train = X_train[:, :args.input_points_to_use]
 
 # Predict on training data
-logger.info(f"Mapping latent features for training dataset")
-X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
-train_enc3_flattened = model.get_latent_features(X_train_tensor)
-logger.info(f"Training set latent features shape={train_enc3_flattened.shape}")
-params_train, latent_train = f21stats.aggregate_f21_data(y_train, train_enc3_flattened, 10)
+logger.info(f"Denoising training signal")
+los_tensor = torch.tensor(X_train, dtype=torch.float32)
+denoised_los_tensor = model.get_denoised_signal(los_tensor)
+logger.info(f"Computing powerspectrum of denoised signal")
+ks, ps = PS1D.get_P_set(denoised_los_tensor.cpu().numpy())
+logger.info(f"Binning powerspectrum")
+ks_bin, ps_bin = f21stats.logbin_power_spectrum_by_k(ks, ps)
+logger.info(f"Training set PS shape={ps_bin.shape}")
+
+params_train, ps_train = f21stats.aggregate_f21_data(y_train, ps_bin, 10)
+logger.info(f"Saving powerspectrum to {output_dir}")
+np.savetxt(f"{output_dir}/train_denoised_ps.csv", ps_train)
+np.savetxt(f"{output_dir}/train_denoised_ks.csv", ks_bin[0])
+
 # Save the enc3 output to a file
-np.savetxt(f"{output_dir}/train_latent_features.csv", latent_train)
-logger.info(f"Saved training data latent features to {output_dir}/train_latent_features.csv")
 
 # Train XGBoostRegressor on the enc3 output
 regressor = XGBRegressor(random_state=42)
 logger.info(f"Fitting regressor model {regressor}")
-regressor.fit(latent_train, params_train)  # Train on the flattened enc3 output
+regressor.fit(ps_train, params_train)  # Train on the flattened enc3 output
 
 # Predict parameters for the test dataset
 r2 = test_multiple(test_files, regression_model=regressor, latent_model=model, input_points_to_use=args.input_points_to_use)
