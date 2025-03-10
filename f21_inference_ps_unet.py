@@ -44,7 +44,7 @@ def test_multiple(datafiles, regression_model, latent_model, reps=10000, size=10
         los_tensor = torch.tensor(los, dtype=torch.float32)
         denoised_los_tensor = latent_model.get_denoised_signal(los_tensor)
         logger.info(f"Computing powerspectrum")
-        ks, ps = PS1D.get_P_set(denoised_los_tensor.cpu().numpy())
+        ks, ps = PS1D.get_P_set(denoised_los_tensor.cpu().numpy(), max_size=22089344.0, scaled=True)
         ks_bin, ps_bin = f21stats.logbin_power_spectrum_by_k(ks, ps)
         #if i == 0: logger.info(f"sample test los_so:{los[:1]}")
         y_pred_for_test_point = []
@@ -77,6 +77,11 @@ def test_multiple(datafiles, regression_model, latent_model, reps=10000, size=10
 
     return r2
 
+def save_model(model):
+    # Save the model architecture and weights
+    logger.info(f'Saving model to: {output_dir}/{args.modelfile}')
+    model_json = model.save_model(f"{output_dir}/{args.modelfile}")
+
 # main code starts here
 torch.manual_seed(42)
 np.random.seed(42)
@@ -86,6 +91,7 @@ torch.backends.cudnn.benchmark=False
 parser = base.setup_args_parser()
 parser.add_argument('--test_multiple', action='store_true', help='Test 1000 sets of 10 LoS for each test point and plot it')
 parser.add_argument('--test_reps', type=int, default=10000, help='Test repetitions for each parameter combination')
+parser.add_argument('--modelfile', type=str, default="xgb-f21-inf-ps-unet-model.json", help='model file')
 args = parser.parse_args()
 if args.input_points_to_use not in [2048, 128]: raise ValueError(f"Invalid input_points_to_use {args.input_points_to_use}")
 if args.input_points_to_use == 2048: 
@@ -145,7 +151,7 @@ logger.info(f"Denoising training signal")
 los_tensor = torch.tensor(X_train, dtype=torch.float32)
 denoised_los_tensor = model.get_denoised_signal(los_tensor)
 logger.info(f"Computing powerspectrum of denoised signal")
-ks, ps = PS1D.get_P_set(denoised_los_tensor.cpu().numpy())
+ks, ps = PS1D.get_P_set(denoised_los_tensor.cpu().numpy(), max_size=22089344.0, scaled=True)
 logger.info(f"Binning powerspectrum")
 ks_bin, ps_bin = f21stats.logbin_power_spectrum_by_k(ks, ps)
 logger.info(f"Training set PS shape={ps_bin.shape}")
@@ -155,12 +161,18 @@ logger.info(f"Saving powerspectrum to {output_dir}")
 np.savetxt(f"{output_dir}/train_denoised_ps.csv", ps_train)
 np.savetxt(f"{output_dir}/train_denoised_ks.csv", ks_bin[0])
 
-# Save the enc3 output to a file
-
-# Train XGBoostRegressor on the enc3 output
+# Train XGBoostRegressor 
 regressor = XGBRegressor(random_state=42)
 logger.info(f"Fitting regressor model {regressor}")
 regressor.fit(ps_train, params_train)  # Train on the flattened enc3 output
+logger.info(f"Fitted regressor: {regressor}")
+logger.info(f"Booster: {regressor.get_booster()}")
+feature_importance = regressor.feature_importances_
+save_model(regressor)
+np.savetxt(f"{output_dir}/feature_importance.csv", feature_importance, delimiter=',')
+logger.info(f"Feature importance: {feature_importance}")
+for imp_type in ['weight','gain', 'cover', 'total_gain', 'total_cover']:
+    logger.info(f"Importance type {imp_type}: {reg.get_booster().get_score(importance_type=imp_type)}")
 
 # Predict parameters for the test dataset
 r2 = test_multiple(test_files, regression_model=regressor, latent_model=model, input_points_to_use=args.input_points_to_use)

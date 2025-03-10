@@ -162,32 +162,3 @@ class UnetModel(nn.Module):
         self.load_state_dict(torch.load(file_path))  # Load the model's state_dict
         self.eval()  # Set the model to evaluation mode
 
-    @staticmethod
-    def aggregate_latent_data(params, latent_features, num_rows=10):
-        # Create a dictionary to hold the aggregated results
-        aggregated_data = {}
-        
-        for i in range(len(params)):
-            # Create a key by combining both values in the row
-            key = f"{params[i][0]:.2f}_{params[i][1]:.2f}"
-            
-            # If the key is not in the dictionary, initialize it
-            if key not in aggregated_data:
-                aggregated_data[key] = []
-            
-            # Append the corresponding latent feature to the key
-            aggregated_data[key].append(latent_features[i])
-        
-        # Prepare results
-        result_keys = []
-        result_means = []
-        
-        for key, features in aggregated_data.items():
-            # Aggregate in chunks of num_rows
-            for start in range(0, len(features), num_rows):
-                chunk = features[start:start + num_rows]
-                result_keys.append(key)
-                result_means.append(np.mean(chunk, axis=0))  # Mean across the chunk
-        
-        parsed_keys = np.array([[float(x) for x in key.split('_')] for key in result_keys])  # Parse keys into floats
-        return parsed_keys, np.array(result_means)
