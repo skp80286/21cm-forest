@@ -500,8 +500,8 @@ parser = base.setup_args_parser()
 parser.add_argument('--test_multiple', action='store_true', help='Test 1000 sets of 10 LoS for each test point and plot it')
 parser.add_argument('--test_reps', type=int, default=10000, help='Test repetitions for each parameter combination')
 args = parser.parse_args()
-if args.input_points_to_use not in [2048, 128]: raise ValueError(f"Invalid input_points_to_use {args.input_points_to_use}")
-if args.input_points_to_use == 2048: 
+#if args.input_points_to_use not in [2048, 128]: raise ValueError(f"Invalid input_points_to_use {args.input_points_to_use}")
+if args.input_points_to_use >= 2048: 
     step = 4
     kernel1 = 256
 else: 

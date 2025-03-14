@@ -1,0 +1,15 @@
+#!/bin/sh
+#PBS -l cput=72:00:00
+#PBS -l walltime=72:00:00
+#PBS -l mem=64gb
+#PBS -N f21unet
+#PBS -o /user1/sameer.patil/pbsf21unet.out
+#PBS -j oe
+#PBS -m abe
+#PBS -M sameerkpatil@gmail.com
+#PBS -V
+#PBS -l nodes=1:ppn=10
+
+cd /user1/sameer.patil/girish-kulkarni/21cm-forest
+
+time python ./f21_predict_unet.py --limitsamplesize 100 --psbatchsize 1 --scale_y --runmode train_test  --label "without skip connection for the input"  --t_int 500 --epochs 150 -p /user1/21cm_forest/21cmFAST_los/F21_noisy/ --input_points_to_use 2762

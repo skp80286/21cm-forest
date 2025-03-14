@@ -384,7 +384,7 @@ parser.add_argument('--use_log_bins', action='store_true', help='Use logarithmic
 parser.add_argument('--use_linear_bins', action='store_true', help='Use linearly binned Powerspectrum')
 parser.add_argument('--model_type', type=str, default='xgb', help='xgb, linear, nn or bayesian')
 parser.add_argument('--use_saved_data', action='store_true', help='Skip data loading and processing. Use data saved as CSV')
-parser.add_argument('--input_points_to_use', type=int, default=2048, help='use the first n points of los. ie truncate the los to first 690 points')
+parser.add_argument('--input_points_to_use', type=int, default=2762, help='use the first n points of los. ie truncate the los to first 690 points')
 parser.add_argument('--bispec_bins', type=int, default=20, help='use bispec binning')
 
 args = parser.parse_args()

@@ -2,11 +2,14 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.distributions import Normal
+import torch.nn.functional as F 
 import numpy as np
 
-class UnetModel(nn.Module):
-    def __init__(self, input_size, input_channels, output_size, dropout=0.2, step=4):
-        super(UnetModel, self).__init__()
+class UnetModelVAE(nn.Module):
+    def __init__(self, input_size, input_channels, output_size, dropout=0.2, step=4, latent_dim=512):
+        super(UnetModelVAE, self).__init__()
+        self.input_size = input_size
+        self.step = step
 
         # Encoder
         self.enc1 = nn.Sequential(
@@ -44,6 +47,17 @@ class UnetModel(nn.Module):
             nn.Dropout(dropout),
             nn.MaxPool1d(step)
         )
+
+        # Latent space
+        self.flatten = nn.Flatten()
+
+        # Calculate the correct input size for the linear layer
+        # Assuming input dimensions (depth, height, width) are 64x64x64
+        # After 4 pooling operations with stride 2, the size will be reduced by a factor of 2^4 = 16
+        self.flat_size = 256 * (input_size // (step ** 3))
+        self.fc_mu = nn.Linear(self.flat_size, latent_dim)
+        self.fc_logvar = nn.Linear(self.flat_size, latent_dim)
+        self.fc_dec = nn.Linear(latent_dim, self.flat_size)
 
         # Decoder
         self.dec1 = nn.Sequential(
@@ -90,44 +104,24 @@ class UnetModel(nn.Module):
         enc3 = self.enc3(enc2)
         #print(f"After enc3: {enc3.shape}")        
         
-        """
-        # Pass through the dense layers for parameters extraction
-        dense_out = self.dense1(enc4.view(enc4.size(0), -1))  # Flatten for dense layer
-        #print(f"After dense1: {dense_out.shape}")        
-        dense_out = nn.Tanh()(dense_out)
-        dense_out = self.dense2(dense_out)
-        #print(f"After dense2: {dense_out.shape}")        
-        dense_out = nn.ReLU()(dense_out)
-        dense_out = self.dense3(dense_out)
-        #print(f"After dense3: {dense_out.shape}")        
-        """
-        #print(f"Output of parameters extraction network: {dense_out.shape}")
+        # Latent space
+        latent_input = self.flatten(enc3)
+        mu = self.fc_mu(latent_input)
+        logvar = self.fc_logvar(latent_input)
+        z = self.reparameterize(mu, logvar)
 
+        # Decode from latent space
+        # Decode from latent space
+        dec1 = self.fc_dec(z).view(-1, 256, int(self.input_size // (self.step ** 3)), 1) 
         # Decoder with skip connections
-        dec1 = self.dec1(enc3)
-        #print(f"After dec1: {dec1.shape}")  
-        # Calculate the difference in size
-        size_diff = enc2.size(2) - dec1.size(2)  # Assuming the size is in the last dimension
-
-        # Pad dec1 if necessary
-        if size_diff > 0:
-            pad = (0, size_diff)  # (padding_left, padding_right)
-            dec1 = torch.nn.functional.pad(dec1, pad)
-
+        dec1 = self.dec1(dec1)  # Changed from enc3 to dec1
+        #print(f"After dec1: {dec1.shape}")        
         dec1 = torch.cat([dec1, enc2], dim=1)
         #print(f"After dec1-cat: {dec1.shape}")        
 
         # Decoder with skip connections
         dec2 = self.dec2(dec1)
         #print(f"After dec1: {dec1.shape}")        
-        # Calculate the difference in size
-        size_diff = enc1.size(2) - dec2.size(2)  # Assuming the size is in the last dimension
-
-        # Pad dec2 if necessary
-        if size_diff > 0:
-            pad = (0, size_diff)  # (padding_left, padding_right)
-            dec2 = torch.nn.functional.pad(dec2, pad)
-
         dec2 = torch.cat([dec2, enc1], dim=1)
         #print(f"After dec1-cat: {dec1.shape}")        
         
@@ -137,18 +131,12 @@ class UnetModel(nn.Module):
                  
         #print(f"Before final: {dec4.shape}")
         out = self.final(dec3)
-        # Calculate the difference in size
-        #print(f"out.shape={out.shape}, x.shape={x.shape}")
-        #print(f"out.size(1)={out.size(1)}, x.size(2)={x.size(2)}")
-        size_diff = x.size(2) - out.size(1) # Assuming the size is in the last dimension
-
-        # Pad dec2 if necessary
-        if size_diff > 0:
-            pad = (0, size_diff)  # (padding_left, padding_right)
-            out = torch.nn.functional.pad(out, pad)
+        # Concatenate parameter extraction output with decoder output
+        # out = torch.cat((dense_out, out), dim=1)  # Concatenate along the feature dimension
+        #print(f"Output shape after concatenation: {out.shape}")
 
         #print(f"Output shape: {out.shape}")
-        return out
+        return out, mu, logvar
 
     def get_denoised_signal(self, x):
         self.eval()  # Set the model to evaluation mode
@@ -183,3 +171,7 @@ class UnetModel(nn.Module):
         self.load_state_dict(torch.load(file_path))  # Load the model's state_dict
         self.eval()  # Set the model to evaluation mode
 
+def vae_loss(recon_x, x, mu, logvar):
+    recon_loss = F.mse_loss(recon_x, x)
+    kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
+    return recon_loss + kl_loss

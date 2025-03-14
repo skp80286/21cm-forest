@@ -622,7 +622,7 @@ def setup_args_parser():
     parser.add_argument('--use_saved_los_data', action='store_true', help='load LoS data from pkl file.')
     parser.add_argument('--epochs', type=int, default=15, help='Number of epoch of training.')
     parser.add_argument('--trainingbatchsize', type=int, default=32, help='Size of batch for training.')
-    parser.add_argument('--input_points_to_use', type=int, default=2048, help='use the first n points of los. ie truncate the los to first 690 points')
+    parser.add_argument('--input_points_to_use', type=int, default=2762, help='use the first n points of los. ie truncate the los to first 690 points')
     parser.add_argument('--scale_y', action='store_true', help='Scale the y parameters (logfX).')
     parser.add_argument('--scale_y0', action='store_true', help='Scale the y parameters (xHI).')
     parser.add_argument('--scale_y1', action='store_true', help='Scale logfx and calculate product of logfx with xHI.')
@@ -679,6 +679,7 @@ def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False, skip_ps=Tr
     all_los = results['los']
     los_samples = results['los_samples']
     all_params = results['params']
+    freq_axis = results['freq_axis']
     logger.info(f"sample los:{all_los[0]}")
     logger.info(f"sample params:{all_params[0]}")
     
@@ -691,7 +692,7 @@ def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False, skip_ps=Tr
         with open('los-21cm-forest.pkl', 'w+b') as f:  # open a text file
             pickle.dump({"all_los": all_los, "all_params": all_params}, f)
             
-    return (all_los, all_params, los_samples, keys)
+    return (all_los, all_params, los_samples, keys, freq_axis)
 
 def test_multiple(modeltester, datafiles, reps=10000, size=10, save=False, skip_stats=True, use_bispectrum=False, skip_ps=False, so_datafiles=None, input_points_to_use=None, ps_bins=None, perc_bins_to_use=100):
     logger.info(f"Test_multiple started. {reps} reps x {size} points will be tested for {len(datafiles)} parameter combinations")
