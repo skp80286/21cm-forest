@@ -106,13 +106,6 @@ class UnetModel(nn.Module):
         # Decoder with skip connections
         dec1 = self.dec1(enc3)
         #print(f"After dec1: {dec1.shape}")  
-        # Calculate the difference in size
-        size_diff = enc2.size(2) - dec1.size(2)  # Assuming the size is in the last dimension
-
-        # Pad dec1 if necessary
-        if size_diff > 0:
-            pad = (0, size_diff)  # (padding_left, padding_right)
-            dec1 = torch.nn.functional.pad(dec1, pad)
 
         dec1 = torch.cat([dec1, enc2], dim=1)
         #print(f"After dec1-cat: {dec1.shape}")        
@@ -120,13 +113,6 @@ class UnetModel(nn.Module):
         # Decoder with skip connections
         dec2 = self.dec2(dec1)
         #print(f"After dec1: {dec1.shape}")        
-        # Calculate the difference in size
-        size_diff = enc1.size(2) - dec2.size(2)  # Assuming the size is in the last dimension
-
-        # Pad dec2 if necessary
-        if size_diff > 0:
-            pad = (0, size_diff)  # (padding_left, padding_right)
-            dec2 = torch.nn.functional.pad(dec2, pad)
 
         dec2 = torch.cat([dec2, enc1], dim=1)
         #print(f"After dec1-cat: {dec1.shape}")        
@@ -140,13 +126,6 @@ class UnetModel(nn.Module):
         # Calculate the difference in size
         #print(f"out.shape={out.shape}, x.shape={x.shape}")
         #print(f"out.size(1)={out.size(1)}, x.size(2)={x.size(2)}")
-        size_diff = x.size(2) - out.size(1) # Assuming the size is in the last dimension
-
-        # Pad dec2 if necessary
-        if size_diff > 0:
-            pad = (0, size_diff)  # (padding_left, padding_right)
-            out = torch.nn.functional.pad(out, pad)
-
         #print(f"Output shape: {out.shape}")
         return out
 
