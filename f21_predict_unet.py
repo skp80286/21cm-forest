@@ -274,12 +274,12 @@ def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, X_noise, num_ep
 
     logger.info(f"Shape of inputs, outputs: {inputs.shape}, {outputs.shape}")
     # Create DataLoader for batching
-    train_dataset = TensorDataset(inputs, outputs)
+    train_dataset = TensorDataset(inputs, inputs)
     dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
     num_channels = 1
     if args.use_noise_channel: num_channels = 2
-    model = UnetModel(input_size=len(X_train[0]), input_channels=num_channels, output_size=len(y_train[0]), dropout=dropout, step=step)
+    model = UnetModel(input_size=len(X_train[0]), input_channels=num_channels, output_size=len(X_train[0]), dropout=dropout, step=step)
     logger.info(f"Created model: {model}")
     
     optimizer = optim.Adam(model.parameters(), lr=lr)
@@ -299,7 +299,7 @@ def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, X_noise, num_ep
             
             # Compute the loss
 
-            loss = criterion(predictions, output_batch)
+            loss = criterion(predictions.view(-1), output_batch.view(-1))
             #if i == 50: logger.info(f'predictions:{predictions}\input_batch:{input_batch}\noutput_batch:{output_batch}\nloss:{loss}')
 
             # Backpropagation
@@ -465,13 +465,13 @@ if args.runmode in ("train_test", "test_only", "optimize"):
     
     if args.runmode in ("train_test", "optimize") :
         logger.info(f"Loading train dataset {len(train_files)}")
-        X_train, y_train, _, keys = base.load_dataset(train_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
-        y_train_so, _, _, keys_so = base.load_dataset(sotrain_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
+        X_train, y_train, _, keys, freq_axis = base.load_dataset(train_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
+        y_train_so, _, _, keys_so, freq_axis = base.load_dataset(sotrain_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
         y_train_so = reorder_so(y_train_so, keys_so, keys)
         logger.info(f"Loaded datasets X_train:{X_train.shape} y_train:{y_train.shape} y_train_so:{y_train_so.shape}")
     logger.info(f"Loading test dataset {len(test_files)}")
-    X_test, y_test, _, keys = base.load_dataset(test_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
-    y_test_so, _, _, keys_so = base.load_dataset(sotest_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
+    X_test, y_test, _, keys, _ = base.load_dataset(test_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
+    y_test_so, _, _, keys_so, _ = base.load_dataset(sotest_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
     y_test_so = reorder_so(y_test_so, keys_so, keys)
 
     logger.info(f"Loaded dataset X_test:{X_test.shape} y_test:{y_test.shape} y_test_so:{y_test_so.shape}")

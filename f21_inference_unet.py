@@ -37,7 +37,7 @@ def test_multiple(datafiles, regression_model, latent_model, reps=10000, size=10
     # Process all files and get results
     for i, f in enumerate(datafiles):
         if i==0: logger.info(f"Working on param combination #{i+1}: {f.split('/')[-1]}")
-        los, params, _, _ = base.load_dataset([f], psbatchsize=1, limitsamplesize=None, save=False)
+        los, params, _, _, _ = base.load_dataset([f], psbatchsize=1, limitsamplesize=None, save=False)
         if args.input_points_to_use is not None:
             los = los[:, :args.input_points_to_use]
 
@@ -130,11 +130,11 @@ logger.info("####")
 
 ## Load the trained Unet model
 logger.info(f"Loading model from file {args.modelfile}")
-model = UnetModel(input_size=args.input_points_to_use, input_channels=1, output_size=args.input_points_to_use+2, dropout=0.2, step=step)
+model = UnetModel(input_size=args.input_points_to_use, input_channels=1, output_size=args.input_points_to_use, dropout=0.2, step=step)
 model.load_model(args.modelfile)
 
 logger.info(f"Loading training dataset {len(train_files)}")
-X_train, y_train, _, keys = base.load_dataset(train_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
+X_train, y_train, _, keys, _ = base.load_dataset(train_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
 if args.input_points_to_use is not None:
     X_train = X_train[:, :args.input_points_to_use]
 

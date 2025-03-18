@@ -138,7 +138,7 @@ logger.info("####")
 
 ## Load the trained Unet model
 logger.info(f"Loading model from file {args.modelfile}")
-model = UnetModel(input_size=args.input_points_to_use, input_channels=1, output_size=args.input_points_to_use+2, dropout=0.2, step=step)
+model = UnetModel(input_size=args.input_points_to_use, input_channels=1, output_size=args.input_points_to_use, dropout=0.2, step=step)
 model.load_model(args.modelfile)
 
 logger.info(f"Loading training dataset {len(train_files)}")
