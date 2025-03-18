@@ -582,7 +582,7 @@ def summarize_test(y_pred, y_test, output_dir=".", showplots=False):
 
 def create_output_dir(args):
     param_str = f'{args.runmode}_{args.telescope}_t{args.t_int}'
-    output_dir = f'output/{sys.argv[0].split(sep=os.sep)[-1].rstrip('.py')}_{param_str}_{datetime.now().strftime("%Y%m%d%H%M%S")}'
+    output_dir = f'output/{sys.argv[0].split(sep=os.sep)[-1].rstrip(".py")}_{param_str}_{datetime.now().strftime("%Y%m%d%H%M%S")}'
     if not os.path.exists(output_dir):
         os.mkdir(output_dir)
         print("created " + output_dir)
