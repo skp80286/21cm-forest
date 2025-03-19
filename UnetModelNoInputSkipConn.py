@@ -3,10 +3,25 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.distributions import Normal
 import numpy as np
+import time  # Import time module
+import logging
 
 class UnetModel(nn.Module):
+    logger = logging.getLogger(__name__)
     def __init__(self, input_size, input_channels, output_size, dropout=0.2, step=4):
         super(UnetModel, self).__init__()
+        self.timing_info = {
+            'enc1_time': 0,
+            'enc2_time': 0,
+            'enc3_time': 0,
+            'dec1_time': 0,
+            'dec2_time': 0,
+            'dec3_time': 0,
+            'dec1cat_time': 0,
+            'dec2cat_time': 0,
+
+            'overall_time': 0
+        }
 
         # Encoder
         self.enc1 = nn.Sequential(
@@ -75,6 +90,8 @@ class UnetModel(nn.Module):
         )
 
     def forward(self, x):
+        start_time = time.time()  # Start timing
+
         # Print shapes for debugging
         #print(f"Input shape: {x.shape}")
         # If input is single channel, add channel dimension
@@ -83,41 +100,45 @@ class UnetModel(nn.Module):
         # If input already has channels, it will remain unchanged
         #print(f"After unsqueeze: {x.shape}")        
         # Encoder
+        enc1_start = time.time()  # Start timing for enc1
         enc1 = self.enc1(x)
+        self.timing_info['enc1_time'] += (time.time() - enc1_start)  # Time taken for enc1
         #print(f"After enc1: {enc1.shape}")        
+        enc2_start = time.time()  # Start timing for enc2
         enc2 = self.enc2(enc1)
+        self.timing_info['enc2_time'] += (time.time() - enc2_start)  # Time taken for enc2
         #print(f"After enc2: {enc2.shape}")        
+        enc3_start = time.time()  # Start timing for enc3
         enc3 = self.enc3(enc2)
+        self.timing_info['enc3_time'] += (time.time() - enc3_start)  # Time taken for enc3
         #print(f"After enc3: {enc3.shape}")        
-        
-        """
-        # Pass through the dense layers for parameters extraction
-        dense_out = self.dense1(enc4.view(enc4.size(0), -1))  # Flatten for dense layer
-        #print(f"After dense1: {dense_out.shape}")        
-        dense_out = nn.Tanh()(dense_out)
-        dense_out = self.dense2(dense_out)
-        #print(f"After dense2: {dense_out.shape}")        
-        dense_out = nn.ReLU()(dense_out)
-        dense_out = self.dense3(dense_out)
-        #print(f"After dense3: {dense_out.shape}")        
-        """
-        #print(f"Output of parameters extraction network: {dense_out.shape}")
+
 
         # Decoder with skip connections
+        dec1_start = time.time()  # Start timing for dec1
         dec1 = self.dec1(enc3)
+        self.timing_info['dec1_time'] += (time.time() - dec1_start)  # Time taken for dec1
         #print(f"After dec1: {dec1.shape}")  
 
+        dec1cat_start = time.time()  # Start timing for dec1
         dec1 = torch.cat([dec1, enc2], dim=1)
+        self.timing_info['dec1cat_time'] += (time.time() - dec1cat_start)  # Time taken for dec1cat
         #print(f"After dec1-cat: {dec1.shape}")        
 
         # Decoder with skip connections
+        dec2_start = time.time()  # Start timing for dec2
         dec2 = self.dec2(dec1)
+        self.timing_info['dec2_time'] += (time.time() - dec2_start)  # Time taken for dec2
         #print(f"After dec1: {dec1.shape}")        
 
+        dec2cat_start = time.time()  # Start timing for dec1
         dec2 = torch.cat([dec2, enc1], dim=1)
+        self.timing_info['dec2cat_time'] += (time.time() - dec2cat_start)  # Time taken for dec1
         #print(f"After dec1-cat: {dec1.shape}")        
         
+        dec3_start = time.time()  # Start timing for dec3
         dec3 = self.dec3(dec2)
+        self.timing_info['dec3_time'] += (time.time() - dec3_start)  # Time taken for dec3
         #print(f"After dec2: {dec2.shape}")        
         #dec3 = torch.cat([dec3, x], dim=1)
                  
@@ -127,6 +148,11 @@ class UnetModel(nn.Module):
         #print(f"out.shape={out.shape}, x.shape={x.shape}")
         #print(f"out.size(1)={out.size(1)}, x.size(2)={x.size(2)}")
         #print(f"Output shape: {out.shape}")
+
+        # Print overall time taken for the forward pass
+        self.timing_info['overall_time'] += (time.time() - start_time)
+
+
         return out
 
     def get_denoised_signal(self, x):
@@ -162,3 +188,16 @@ class UnetModel(nn.Module):
         self.load_state_dict(torch.load(file_path))  # Load the model's state_dict
         self.eval()  # Set the model to evaluation mode
 
+    def get_timing_info(self):
+        """Print the timing information for each stage."""
+        timing_info_str = f"Timing Information:\n"
+        timing_info_str += f"Encoder 1 time: {self.timing_info['enc1_time']:.4f}s\n"
+        timing_info_str += f"Encoder 2 time: {self.timing_info['enc2_time']:.4f}s\n"
+        timing_info_str += f"Encoder 3 time: {self.timing_info['enc3_time']:.4f}s\n"
+        timing_info_str += f"Decoder 1 time: {self.timing_info['dec1_time']:.4f}s\n"
+        timing_info_str += f"Decoder 1 Concat time: {self.timing_info['dec1cat_time']:.4f}s\n"
+        timing_info_str += f"Decoder 2 time: {self.timing_info['dec2_time']:.4f}s\n"
+        timing_info_str += f"Decoder 2 Concat time: {self.timing_info['dec2cat_time']:.4f}s\n"
+        timing_info_str += f"Decoder 3 time: {self.timing_info['dec3_time']:.4f}s\n"
+        timing_info_str += f"Overall time for forward pass: {self.timing_info['overall_time']:.4f}s\n"
+        return timing_info_str        

@@ -35,6 +35,7 @@ torch.backends.cudnn.determinisitc=True
 torch.backends.cudnn.benchmark=False
 
 parser = base.setup_args_parser()
+parser.add_argument('--dataset', type=str, default='full', help='one of full, test_only, small_set')
 args = parser.parse_args()
 #if args.input_points_to_use not in [2048, 128]: raise ValueError(f"Invalid input_points_to_use {args.input_points_to_use}")
 if args.input_points_to_use >= 2048: 
@@ -91,7 +92,11 @@ denoised_ps_dir = f'{output_dir}/denoised_ps'
 os.mkdir(denoised_los_dir)
 os.mkdir(denoised_ps_dir)
 
-for i,datafile in enumerate(train_files + test_files):
+fileset = None
+if args.dataset == "full": fileset = train_files + test_files
+elif args.dataset == "test_only": fileset = test_files
+ 
+for i,datafile in enumerate(fileset):
     logger.info(f"Loading file {i+1}/{len(datafiles)}: {datafile}")
     file_name = os.path.basename(datafile)  # Extract the filename from the path
     file_name_no_ext = os.path.splitext(file_name)[0]  # Remove the extension
