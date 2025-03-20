@@ -311,9 +311,12 @@ def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, X_noise, num_ep
             running_loss += loss.item()
         
         # Print loss for every epoch
-        logger.info(f'Epoch [{epoch+1}/{num_epochs}], Loss: {running_loss / len(dataloader):.8f}')
-        logger.info(f'{model.get_timing_info()}')
+        logger.info(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {running_loss / len(dataloader):.8f}')
 
+        if (epoch + 1) % 20 == 0:
+            model.eval()
+            model.save_model(f"{output_dir}/unet_model_{epoch + 1}.pth")  
+            logger.info(f'{model.get_timing_info()}')
 
     # Evaluate the model (on a test set, here we just use the training data for simplicity)
     model.eval()  # Set the model to evaluation mode
