@@ -13,7 +13,7 @@ import hashlib
 
 
 class F21DataLoader:
-    def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None, skip_ps: bool = False, ps_bins = None, ps_smoothing=True, skip_stats=True, use_bispectrum=False, scale_ps = False, input_points_to_use=None, perc_bins_to_use=100, use_new_ps_calc=False):
+    def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None, skip_ps: bool = False, ps_bins = None, ps_smoothing=True, skip_stats=True, use_bispectrum=False, scale_ps = False, input_points_to_use=None, perc_bins_to_use=100, use_new_ps_calc=False, shuffle_samples = False):
         np.random.seed(42)
         self.max_workers = max_workers
         self.collector = ThreadSafeArrayCollector()
@@ -28,6 +28,7 @@ class F21DataLoader:
         self.input_points_to_use = input_points_to_use
         self.perc_bins_to_use = perc_bins_to_use
         self.use_new_ps_calc = use_new_ps_calc
+        self.shuffle_samples = shuffle_samples
 
     def get_los(self, datafile: str) -> None:
         data = np.fromfile(str(datafile), dtype=np.float32)
@@ -174,7 +175,10 @@ class F21DataLoader:
 
             # Used for bispectrum calculation
             if self.limitsamplesize is not None and len(los_arr) > self.limitsamplesize:
-                los_arr = los_arr[range(self.limitsamplesize)]#np.random.randint(len(los_arr), size=self.limitsamplesize)]
+                if self.shuffle_samples:
+                    los_arr = los_arr[np.random.randint(len(los_arr), size=self.limitsamplesize)]
+                else:
+                    los_arr = los_arr[range(self.limitsamplesize)]#
             Nlos = len(los_arr)
  
             Nbins = len(freq_axis)

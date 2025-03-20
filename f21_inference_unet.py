@@ -134,7 +134,7 @@ model = UnetModel(input_size=args.input_points_to_use, input_channels=1, output_
 model.load_model(args.modelfile)
 
 logger.info(f"Loading training dataset {len(train_files)}")
-X_train, y_train, _, keys, _ = base.load_dataset(train_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
+X_train, y_train, _, keys, _ = base.load_dataset(train_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False, shuffle_samples = True)
 if args.input_points_to_use is not None:
     X_train = X_train[:, :args.input_points_to_use]
 

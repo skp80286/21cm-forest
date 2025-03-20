@@ -665,11 +665,11 @@ def get_datafile_list(type, args):
     return datafiles
 
 
-def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False, skip_ps=True, max_workers=8):
+def load_dataset(datafiles, psbatchsize, limitsamplesize, save=False, skip_ps=True, max_workers=8, shuffle_samples = False):
     # Lists to store combined data
     all_params = []
     # Create processor with desired number of worker threads
-    processor = dl.F21DataLoader(max_workers=max_workers, psbatchsize=psbatchsize, limitsamplesize=limitsamplesize, skip_ps=skip_ps)
+    processor = dl.F21DataLoader(max_workers=max_workers, psbatchsize=psbatchsize, limitsamplesize=limitsamplesize, skip_ps=skip_ps, shuffle_samples=shuffle_samples)
 
     # Process all files and get results
     results = processor.process_all_files(datafiles)
