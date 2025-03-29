@@ -199,3 +199,5 @@ saved_output/bispectrum_data_complete/all_training_data.csv
 saved_output/bispectrum_data_complete/test_results.csv
 saved_output/bispectrum_data_complete/xgb-21cmf-bispec-model.json
 *.swp
+f21_prediction_means.png
+f21_prediction_means_scatter_.png
