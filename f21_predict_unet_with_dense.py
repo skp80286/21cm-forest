@@ -153,19 +153,25 @@ def convert_to_pytorch_tensors(X, y, y_so, X_noise, silent=True):
     return X_tensor, y_tensor 
 
 class CustomLoss(nn.Module):
-    def __init__(self, alpha=0.5):
+    def __init__(self, alpha):
         super(CustomLoss, self).__init__()
-        self.alpha = alpha  # Weight for balancing the two loss components
         self.mse = nn.MSELoss()
+        self.alpha = alpha
     
     def forward(self, predictions, targets):
         # First component: MSE between predictions and targets
-        #mse_loss_xHI = self.mse(predictions[:,0], targets[:,0])
-        mse_params = self.mse(predictions[:,:2], targets[:,:2])
-        mse_los = self.mse(predictions[:,2:], targets[:,2:])
+        mse_los = self.mse(predictions, targets)
+        loss_var = 0.0
+        var_pred = predictions.var()
+        var_targ = targets.var()
+        #logger.info(f'std_pred={std_pred}')
+        if var_pred > 1e-8:
+            #logger.info(f'std_targ={std_targ}')
+            if var_pred > var_targ:
+                loss_var = 1.0 - (var_targ/var_pred)
         
         # Combine both losses
-        total_loss = self.alpha * mse_params + (1 - self.alpha) * mse_los
+        total_loss = self.alpha * mse_los/var_targ + (1 - self.alpha) * loss_var
 
         return total_loss
     
@@ -464,9 +470,9 @@ logger.info("####")
 
 if args.runmode in ("train_test", "test_only", "optimize"):
     # Loss function and optimizer
-    #criterion = CustomLoss()  # You can adjust alpha as needed
+    criterion = CustomLoss(alpha=0.5)  # You can adjust alpha as needed
     #criterion = nn.MSELoss()
-    criterion = ChiSquareLoss()  
+    #criterion = ChiSquareLoss()  
     
     if args.runmode in ("train_test", "optimize") :
         logger.info(f"Loading train dataset {len(train_files)}")
@@ -482,7 +488,7 @@ if args.runmode in ("train_test", "test_only", "optimize"):
     logger.info(f"Loaded dataset X_test:{X_test.shape} y_test:{y_test.shape} y_test_so:{y_test_so.shape}")
     X_noise = load_noise()
     if args.runmode == "train_test":
-        run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, X_noise, args.epochs, args.trainingbatchsize, lr=0.001, kernel1=kernel1, kernel2=kernel1, dropout=0.2, step=step, input_points_to_use=args.input_points_to_use, showplots=args.interactive, criterion=criterion)
+        run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, X_noise, args.epochs, args.trainingbatchsize, lr=0.0001, kernel1=kernel1, kernel2=kernel1, dropout=0.2, step=step, input_points_to_use=args.input_points_to_use, showplots=args.interactive, criterion=criterion)
     elif args.runmode == "test_only":
         logger.info(f"Loading model from file {args.modelfile}")
         model = UnetModel(input_size=args.input_points_to_use, input_channels=1, output_size=args.input_points_to_use+2, dropout=0.2, step=step)
