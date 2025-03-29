@@ -249,8 +249,17 @@ class F21Stats:
         return bispectrum_mean_np
     
 def logbin_power_spectrum_by_k(ks, ps, silent=True):
+    squeeze_ps = False
+    if len(ps.shape) < 2: 
+        ps = np.reshape(ps, (1,ps.shape[0]))
+        squeeze_ps = True
+    if len(ks.shape) > 1:
+        row_ks = ks[0]
+    else:
+        row_ks = ks
+        
     if not silent: F21Stats.logger.info(f"logbin_power_spectrum_by_k: Shapes: {ks.shape} {ps.shape}")
-    if not silent: F21Stats.logger.info(f"logbin_power_spectrum_by_k: original ks: {ks[0,:5]} .. {ks[0,-5:]}")
+    if not silent: F21Stats.logger.info(f"logbin_power_spectrum_by_k: original ks: {row_ks[:5]} .. {row_ks[-5:]}")
     if not silent: F21Stats.logger.info(f"original ps: {ps[0,:5]}..{ps[0,-5:]}")
 
     d_log_k_bins = 0.25
@@ -262,10 +271,7 @@ def logbin_power_spectrum_by_k(ks, ps, silent=True):
 
     binlist=np.zeros((ps.shape[0], len(k_bins_cent)))
     pslist=np.zeros((ps.shape[0], len(k_bins_cent)))
-    if len(ks.shape) > 1:
-        row_ks = ks[0]
-    else:
-        row_ks = ks
+
     for i, (row_ps) in enumerate(ps):
       for l in range(len(k_bins_cent)):
         mask = (row_ks >= k_bins[l]) & (row_ks < k_bins[l+1])
@@ -278,6 +284,8 @@ def logbin_power_spectrum_by_k(ks, ps, silent=True):
 
     if not silent: F21Stats.logger.info(f"logbin_power_spectrum_by_k: final ks: {binlist[0,:5]}..{binlist[0,-5:]}")
     if not silent: F21Stats.logger.info(f"final ps: {pslist[0,:5]}..{pslist[0,-5:]}")
+    if squeeze_ps: pslist.squeeze(axis=0)
+    if not silent: F21Stats.logger.info(f"final ps after squeeze: {pslist}")
     return binlist, pslist
 
 def logbin_power_spectrum_by_k_flex(ks, ps, ps_bins_to_make, perc_ps_bins_to_use=100):

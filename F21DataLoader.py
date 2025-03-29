@@ -13,7 +13,7 @@ import hashlib
 
 
 class F21DataLoader:
-    def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None, skip_ps: bool = False, ps_bins = None, ps_smoothing=True, skip_stats=True, use_bispectrum=False, scale_ps = False, input_points_to_use=None, perc_bins_to_use=100, use_new_ps_calc=False, shuffle_samples = False):
+    def __init__(self, max_workers: int = 4, psbatchsize: int = 1000, limitsamplesize: int = None, skip_ps: bool = False, ps_bins = None, ps_smoothing=True, skip_stats=True, use_bispectrum=False, scale_ps = False, input_points_to_use=None, perc_bins_to_use=100, use_new_ps_calc=False, shuffle_samples = False, ps_log_bins = False):
         np.random.seed(42)
         self.max_workers = max_workers
         self.collector = ThreadSafeArrayCollector()
@@ -29,6 +29,7 @@ class F21DataLoader:
         self.perc_bins_to_use = perc_bins_to_use
         self.use_new_ps_calc = use_new_ps_calc
         self.shuffle_samples = shuffle_samples
+        self.ps_log_bins = ps_log_bins
 
     def get_los(self, datafile: str) -> None:
         data = np.fromfile(str(datafile), dtype=np.float32)
@@ -221,13 +222,19 @@ class F21DataLoader:
                     cumulative_los_np = np.array(cumulative_los)
                     ps_mean, ps_std, ps_samples, stats_mean, bs_mean = None, None, None, None, None
                     if not self.skip_ps: (ps_mean, ps_std, ps_samples) = self.aggregate(np.array(power_spectrum))
+                    if self.ps_log_bins:
+                        ks, ps_mean = F21Stats.logbin_power_spectrum_by_k(ks, ps_mean, silent= (j!=0))
+                        # logging.info(f"Shape of ps_mean: {ps_mean.shape}")
+                        if ps_mean.shape[0] == 1: ps_mean = ps_mean.squeeze(axis=0)
                     if self.use_bispectrum: 
                         #start_time = time.perf_counter()
                         k_bispec, bs = F21Stats.F21Stats.compute_1d_bispectrum(cumulative_los_np)
                         if self.ps_bins is not None:
-                            k_bispec, bs = F21Stats.F21Stats.bin(k_bispec, bs, self.ps_bins, self.perc_bins_to_use)
+                            k_bispec, bs = F21Stats.logbin_power_spectrum_by_k_flex(k_bispec, bs, self.ps_bins, self.perc_bins_to_use)
+                            
                         if bs.ndim > 1: bs_mean = np.mean(bs, axis=0)
                         else: bs_mean = bs
+                        if j == 0: logging.info(f"Bispec shape {k_bispec.shape}, {bs.shape}") 
                         #end_time = time.perf_counter() 
                         #print(f"Calculated Bispectrum: {cumulative_los_np.shape}, {k_bispec.shape}, {bs_mean.shape} in {end_time - start_time:.8f} seconds")
                     
@@ -237,7 +244,7 @@ class F21DataLoader:
                         stats_mean = np.mean(curr_statcalc, axis=0)
                         #print(stats_mean)
 
-                        
+                    if ks is not None: ks = ks[0]
                     self.collector.add_data(ks, ps_mean, ps_std, los_mean, los_std, freq_axis, params, los_samples, ps_samples, stats_mean, bs_mean, k_bispec, key)
                     psbatchnum = 0
                     power_spectrum = []

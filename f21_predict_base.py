@@ -314,8 +314,13 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
     std_predictions = np.array(std_predictions)
     
     # Calculate R2 score using mean predictions
-    r2 = [r2_score(unique_test_points[:, i], mean_predictions[:, i]) for i in range(2)]
-    logger.info("R2 Score (using means): " + str(r2))
+    r2_means = [r2_score(unique_test_points[:, i], mean_predictions[:, i]) for i in range(2)]
+    r2_means_combined = np.mean(r2_means)
+    logger.info(f"R2 Score (using means): {r2_means}, combined score: {r2_means_combined}")
+    r2_total = r2_score(y_test, y_pred)
+    logger.info(f"R2 Score for All Predictions: {r2_total}")
+    tse, rmse_means =  calc_squared_error(y_pred, y_test)
+    rmse_total = rmse_all(y_pred, y_test)
     
     # Plotting
     if showplots or saveplots:
@@ -415,6 +420,13 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
         plt.yticks(fontsize=18)
         plt.xticks(fontsize=18)
         plt.title('Mean Predictions with  ±1σ and ±2σ Contours', fontsize=18)
+
+        # Overlay RMSE, R2 means, and R2 total on the graph
+        textstr = f'RMSE (Means): {rmse_means:.4f}\nRMSE (Total): {rmse_total:.4f}\nR² (Means): {r2_means_combined:.4f}\nR² (Total): {r2_total:.4f}'
+        props = dict(facecolor='white', alpha=0.5)
+        ax.text(0.05, 0.95, textstr, transform=ax.transAxes, fontsize=18,
+                verticalalignment='top', bbox=props)
+
         plt.legend()
         
         if saveplots: plt.savefig(f'{output_dir}/f21_prediction_means{label}.png')
@@ -424,6 +436,7 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
         # Make a scatter plot
         plt.figure()
         plt.rcParams['figure.figsize'] = [8, 8]
+        fig, ax = plt.subplots()
         colors = plt.cm.rainbow(np.linspace(0, 1, num_points))
         # Plot all 10000 predctions
         for i, test_point in enumerate(unique_test_points):
@@ -448,6 +461,8 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
         plt.yticks(fontsize=18)
         plt.xticks(fontsize=18)
         plt.title('Parameter Predictions', fontsize=18)
+        ax.text(0.05, 0.95, textstr, transform=ax.transAxes, fontsize=18,
+                verticalalignment='top', bbox=props)
         plt.legend()
 
         if saveplots: plt.savefig(f'{output_dir}/f21_prediction_means_scatter_{label}.png')
@@ -458,7 +473,7 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
     logger.info(f"Mean xHI std: {np.mean(std_predictions[:, 0]):.4f}")
     logger.info(f"Mean logfX std: {np.mean(std_predictions[:, 1]):.4f}")
     
-    return r2
+    return r2_means_combined
 
 def summarize_test(y_pred, y_test, output_dir=".", showplots=False, saveplots=True, label=""):
     logger.info(f"y_pred: {y_pred}")
@@ -631,7 +646,7 @@ def setup_args_parser():
     parser.add_argument('--channels', type=int, default=1, help='Use multiple channel inputs for the CNN.')
     parser.add_argument('--psbatchsize', type=int, default=None, help='batching for PS data.')
     parser.add_argument('--label', type=str, default='', help='just a descriptive text for the purpose of the run.')
-    parser.add_argument('--trials', type=int, default=15, help='Optimization trials')
+    parser.add_argument('--trials', type=int, default=50, help='Optimization trials')
     parser.add_argument('--use_noise_channel', action='store_true', help='Use noise channel as input.')
     parser.add_argument('--xhi_only', action='store_true', help='calc loss for xhi only')
     parser.add_argument('--logfx_only', action='store_true', help='calc loss for logfx only')
@@ -640,21 +655,43 @@ def setup_args_parser():
 
     return parser
 
-def get_datafile_list(type, args):
+test_points = [[-3.00,0.11],[-1.00,0.11],[-2.00,0.52], [-3.00,0.80],[-1.00,0.80]]#,[0.00,0.80]]
+
+def get_datafile_list(type, args, extn='dat', filter=None, override_path=None):
+    path = args.path
+    if override_path is not None:
+        path = override_path
     if type == 'noisy':
-        filepattern = str('%sF21_noisy_21cmFAST_200Mpc_z%.1f_fX%s_xHI%s_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
-               (args.path, args.redshift,args.log_fx, args.xHI, args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
+        filepattern = str('%sF21_noisy_21cmFAST_200Mpc_z%.1f_fX%s_xHI%s_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.%s' % 
+               (path, args.redshift,args.log_fx, args.xHI, args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r, extn))
     elif type == 'signalonly':
-        filepattern = str('%sF21_signalonly_21cmFAST_200Mpc_z%.1f_fX%s_xHI%s_%dkHz.dat' % 
-               (args.path, args.redshift,args.log_fx, args.xHI, args.spec_res))
+        filepattern = str('%sF21_signalonly_21cmFAST_200Mpc_z%.1f_fX%s_xHI%s_%dkHz.%s' % 
+               (path, args.redshift,args.log_fx, args.xHI, args.spec_res, extn))
     elif type == 'noiseonly':
-        filepattern = str('%sF21_noiseonly_21cmFAST_200Mpc_z%.1f_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.dat' % 
-               (args.path, args.redshift,args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r))
+        filepattern = str('%sF21_noiseonly_21cmFAST_200Mpc_z%.1f_%s_%dkHz_t%dh_Smin%.1fmJy_alphaR%.2f.%s' % 
+               (path, args.redshift,args.telescope, args.spec_res, args.t_int, args.s147, args.alpha_r, extn))
 
 
     logger.info(f"Loading files with pattern {filepattern}")
 
     datafiles = glob.glob(filepattern)
+
+    # apply filter if specified
+    if filter is not None:
+        train_files = []
+        test_files = []
+        for file in datafiles:
+            is_test_file = False
+            for p in test_points:
+                if file.find(f"fX{p[0]:.2f}_xHI{p[1]:.2f}") >= 0:
+                    test_files.append(file)
+                    is_test_file = True
+                    break
+            if not is_test_file:
+                train_files.append(file)
+        if filter == 'test_only': datafiles = test_files
+        elif filter == 'train_only': datafiles = train_files
+
     datafiles = sorted(datafiles) # sorting is important because we want to reliably reproduce the test results 
 
     if args.maxfiles is not None:
@@ -854,5 +891,20 @@ def calc_squared_error(predictions, y_test):
         logger.info(f"key: {key}, mean_values: {mean_values[key]}, squared_error: {squared_error}")
         total_squared_error += squared_error
     
-    logger.info(f"Total Squared Error: {total_squared_error}")
+    logger.info(f"Total Squared Error (Means): {total_squared_error}")
+    mse_means = total_squared_error/len(selected_keys)
+    logger.info(f"MSE (Means): {mse_means}")
+    rmse_means = np.sqrt(mse_means)
+    logger.info(f"RMSE (Means): {rmse_means}")
+    return total_squared_error, rmse_means
+
+def mean_squared_error(predictions, y_test):
+    mse = calc_squared_error(predictions, y_test)/5.0
+    return mse
+
+def rmse_all(y_pred, y_test):
+    rmse_all = np.sqrt(np.mean((y_test - y_pred) ** 2))
+    logger.info(f"RMSE (all predictions): {rmse_all}")
+    return rmse_all
+
     
