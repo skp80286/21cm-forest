@@ -40,6 +40,7 @@ class Scaler:
                 y = np.hstack((xHI, scaledfx, product))
                 if self.args.trials == 1: logger.info(f"ScaledXy: {y}")
         if X is not None:
+            print(f"### Scaler: Logscale X applied")
             if self.args.logscale_X: X = np.log(np.clip(X, 1e-20, None))
         return X, y
 
