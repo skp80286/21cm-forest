@@ -45,13 +45,22 @@ class CnnInferenceModel(nn.Module):
             nn.MaxPool1d(step)
         )
 
-        # Dense layers for parameter inference
-        self.dense1 = nn.Linear(256 * (input_size // (step ** 3)), 512)  # Adjust input size based on pooling
-        self.dense2 = nn.Linear(512, 128)  # Adjust input size based on pooling
-        self.dense3 = nn.Linear(128, 32)
-        self.dense4 = nn.Linear(32, 8)
-        self.dense5 = nn.Linear(8, 2)  # Output 2 parameters
+        self.enc4 = nn.Sequential(
+            nn.Conv1d(256, 512, 5, padding=2),
+            nn.BatchNorm1d(512),  # Batch normalization
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Conv1d(512, 512, 3, padding=1),
+            nn.BatchNorm1d(512),  # Batch normalization
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.MaxPool1d(step)
+        )
 
+        # Dense layers for parameter inference
+        self.dense1 = nn.Linear(512 * (input_size // (step ** 4)), 512)  # Adjust input size based on pooling
+        self.dense2 = nn.Linear(512, 128)  # Adjust input size based on pooling
+        self.dense3 = nn.Linear(128, 2) # Output 2 parameters
 
     def forward(self, x):
         # Print shapes for debugging
@@ -68,17 +77,16 @@ class CnnInferenceModel(nn.Module):
         #print(f"After enc2: {enc2.shape}")        
         enc3 = self.enc3(enc2)
         #print(f"After enc3: {enc3.shape}")        
+        enc4 = self.enc4(enc3)
+        #print(f"After enc4: {enc4.shape}")        
         
         # Pass through the dense layers for parameters extraction
-        dense_out = self.dense1(enc3.view(enc3.size(0), -1))  # Flatten for dense layer
+        dense_out = self.dense1(enc4.view(enc4.size(0), -1))  # Flatten for dense layer
         dense_out = nn.Tanh()(dense_out)
         dense_out = self.dense2(dense_out)
         dense_out = nn.ReLU()(dense_out)
         dense_out = self.dense3(dense_out)
         dense_out = nn.ReLU()(dense_out)
-        dense_out = self.dense4(dense_out)
-        dense_out = nn.ReLU()(dense_out)
-        dense_out = self.dense5(dense_out)
         #print(f"Output of parameters extraction network: {dense_out.shape}")
         return dense_out
 

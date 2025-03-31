@@ -75,6 +75,11 @@ def test_multiple(datafiles, regression_model, latent_model, reps=10000, size=10
 
     return r2
 
+def save_model(model):
+    # Save the model architecture and weights
+    logger.info(f'Saving model to: {output_dir}/f21_inference_xgb.pth')
+    model_json = model.save_model(f"{output_dir}/f21_inference_xgb.pth")
+
 # main code starts here
 torch.manual_seed(42)
 np.random.seed(42)
@@ -152,6 +157,12 @@ logger.info(f"Saved training data latent features to {output_dir}/train_latent_f
 regressor = XGBRegressor(random_state=42)
 logger.info(f"Fitting regressor model {regressor}")
 regressor.fit(latent_train, params_train)  # Train on the flattened enc3 output
+feature_importance = regressor.feature_importances_
+save_model(regressor)
+np.savetxt(f"{output_dir}/feature_importance.csv", feature_importance, delimiter=',')
+logger.info(f"Feature importance: {feature_importance}")
+for imp_type in ['weight','gain', 'cover', 'total_gain', 'total_cover']:
+    logger.info(f"Importance type {imp_type}: {regressor.get_booster().get_score(importance_type=imp_type)}")
 
 # Predict parameters for the test dataset
 r2 = test_multiple(test_files, regression_model=regressor, latent_model=model, input_points_to_use=args.input_points_to_use)

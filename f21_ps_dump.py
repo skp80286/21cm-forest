@@ -61,7 +61,19 @@ def dump_ps(datafile, dir, psbatchsize, save_ks):
     file_name = os.path.basename(datafile)  # Extract the filename from the path
     file_name_no_ext = os.path.splitext(file_name)[0]  # Remove the extension
 
-    ks, ps, k_bispec, bispec, params, keys, freq_axis = load_dataset([datafile], max_workers=1, psbatchsize=psbatchsize)
+    ks, ps, k_bispec, bispec, params, keys, freq_axis = load_dataset([datafile], max_workers=1, psbatchsize=1)
+    if psbatchsize > 1:
+        # need to aggregate. use the specified aggregation
+        n_batches = len(ps) // psbatchsize
+    
+        if args.aggtype.lower() == 'mean':
+            ps = np.nanmean(ps[:n_batches * psbatchsize].reshape(-1, psbatchsize), axis=1)
+            bispec = np.nanmean(bispec[:n_batches * psbatchsize].reshape(-1, psbatchsize), axis=1)
+        elif args.aggtype.lower() == 'median':
+            ps = np.nanmedian(ps[:n_batches * psbatchsize].reshape(-1, psbatchsize), axis=1)
+            bispec = np.nanmedian(bispec[:n_batches * psbatchsize].reshape(-1, psbatchsize), axis=1)
+        else:
+            raise ValueError(f"Invalid aggregation type: {args.aggtype}. Use 'mean' or 'median'")
     
     if save_ks:
         logger.info(f'Saving PS, bispec data. PS shape:{ps.shape}, ks shape:{ks.shape}, bispec shape: {bispec.shape}, k_bispec shape: {k_bispec.shape}')
@@ -79,16 +91,18 @@ torch.backends.cudnn.determinisitc=True
 torch.backends.cudnn.benchmark=False
 
 parser = base.setup_args_parser()
-parser.add_argument('--dataset', type=str, default='full', help='one of full, test_only, small_set')
+parser.add_argument('--dataset', type=str, default='full', help='full/test_only/small_set')
+parser.add_argument('--signaltype', type=str, default='noisy', help='noisy/signalonly')
+parser.add_argument('--aggtype', type=str, default='mean', help='mean/median')
 args = parser.parse_args()
 
 output_dir = base.create_output_dir(args=args)
 logger = base.setup_logging(output_dir)
 
 ## Loading data
-train_files = base.get_datafile_list(type='noisy', args=args, filter='train_only')
+train_files = base.get_datafile_list(type=args.signaltype, args=args, filter='train_only')
 if args.maxfiles is not None: datafiles = train_files[:args.maxfiles]
-test_files = base.get_datafile_list(type='noisy', args=args, filter='test_only')
+test_files = base.get_datafile_list(type=args.signaltype, args=args, filter='test_only')
 
 # Initialize the network
 device = (

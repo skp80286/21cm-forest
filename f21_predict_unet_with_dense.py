@@ -1,7 +1,6 @@
 '''
 Predict parameters fX and xHI from the 21cm forest data using CNN.
 '''
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -323,6 +322,10 @@ def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, X_noise, num_ep
             model.eval()
             model.save_model(f"{output_dir}/unet_model_{epoch + 1}.pth")  
             logger.info(f'{model.get_timing_info()}')
+            try:
+                test(X_test, y_test, y_test_so, X_noise, model, criterion, input_points_to_use, run_description)
+            except Exception as e:
+                logger.error(f"An error occurred: {str(e)}")
 
     # Evaluate the model (on a test set, here we just use the training data for simplicity)
     model.eval()  # Set the model to evaluation mode
@@ -470,9 +473,9 @@ logger.info("####")
 
 if args.runmode in ("train_test", "test_only", "optimize"):
     # Loss function and optimizer
-    criterion = CustomLoss(alpha=0.5)  # You can adjust alpha as needed
+    #criterion = CustomLoss(alpha=0.5)  # You can adjust alpha as needed
     #criterion = nn.MSELoss()
-    #criterion = ChiSquareLoss()  
+    criterion = ChiSquareLoss()  
     
     if args.runmode in ("train_test", "optimize") :
         logger.info(f"Loading train dataset {len(train_files)}")

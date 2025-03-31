@@ -37,7 +37,7 @@ def test_multiple(datafiles, model, reps=10000, size=10, input_points_to_use=Non
     # Process all files and get results
     for i, f in enumerate(datafiles):
         if i==0: logger.info(f"Working on param combination #{i+1}: {f.split('/')[-1]}")
-        los, params, _, _ = base.load_dataset([f], psbatchsize=1, limitsamplesize=None, save=False)
+        los, params, _, _, _ = base.load_dataset([f], psbatchsize=1, limitsamplesize=None, save=False)
         if input_points_to_use is not None:
             los = los[:, :input_points_to_use]
 
@@ -59,7 +59,7 @@ def test_multiple(datafiles, model, reps=10000, size=10, input_points_to_use=Non
             all_y_pred[i*reps+j,:] = params_pred_mean
             all_y_test[i*reps+j,:] = params[0]
             
-    logger.info(f"Test_multiple: param combination:{params[0]} predicted mean:{np.mean(y_pred_for_test_point, axis=0)}")
+        logger.info(f"Test_multiple: param combination:{params[0]} predicted mean:{np.mean(y_pred_for_test_point, axis=0)}")
 
     logger.info(f"Test_multiple completed. actual shape {all_y_test.shape} predicted shape {all_y_pred.shape}")
     
@@ -231,13 +231,13 @@ if args.runmode in ("train_test", "test_only", "optimize"):
     
     if args.runmode in ("train_test", "optimize") :
         logger.info(f"Loading training dataset {len(train_files)}")
-        X_train, y_train, _, keys = base.load_dataset(train_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False, skip_ps=True)
+        X_train, y_train, _, keys, _ = base.load_dataset(train_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False, skip_ps=True)
         if args.input_points_to_use is not None:
             X_train = X_train[:, :args.input_points_to_use]
         logger.info(f"Loaded datasets X_train:{X_train.shape} y_train:{y_train.shape}")
 
     if args.runmode == "train_test":
-        run(X_train, y_train, test_files, args.epochs, args.trainingbatchsize, lr=0.001, kernel1=kernel1, kernel2=kernel1, dropout=0.2, step=step, input_points_to_use=args.input_points_to_use, showplots=args.interactive, criterion=criterion)
+        run(X_train, y_train, test_files, args.epochs, args.trainingbatchsize, lr=0.0001, kernel1=kernel1, kernel2=kernel1, dropout=0.2, step=step, input_points_to_use=args.input_points_to_use, showplots=args.interactive, criterion=criterion)
     elif args.runmode == "test_only":
         logger.info(f"Loading model from file {args.modelfile}")
         model = CnnInferenceModel(input_size=args.input_points_to_use, input_channels=1, output_size=args.input_points_to_use+2, dropout=0.2, step=step)
