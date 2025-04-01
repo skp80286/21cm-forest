@@ -56,25 +56,29 @@ def load_dataset(datafiles, psbatchsize, max_workers=8):
     logger.info(f"Combined parameters shape: {params.shape}")
             
     return (ks, ps, k_bispec, bispec, params, keys, freq_axis)
-
 def dump_ps(datafile, dir, psbatchsize, save_ks):
     file_name = os.path.basename(datafile)  # Extract the filename from the path
     file_name_no_ext = os.path.splitext(file_name)[0]  # Remove the extension
 
     ks, ps, k_bispec, bispec, params, keys, freq_axis = load_dataset([datafile], max_workers=1, psbatchsize=1)
+
     if psbatchsize > 1:
+        
         # need to aggregate. use the specified aggregation
         n_batches = len(ps) // psbatchsize
-    
-        if args.aggtype.lower() == 'mean':
-            ps = np.nanmean(ps[:n_batches * psbatchsize].reshape(-1, psbatchsize), axis=1)
-            bispec = np.nanmean(bispec[:n_batches * psbatchsize].reshape(-1, psbatchsize), axis=1)
-        elif args.aggtype.lower() == 'median':
-            ps = np.nanmedian(ps[:n_batches * psbatchsize].reshape(-1, psbatchsize), axis=1)
-            bispec = np.nanmedian(bispec[:n_batches * psbatchsize].reshape(-1, psbatchsize), axis=1)
-        else:
-            raise ValueError(f"Invalid aggregation type: {args.aggtype}. Use 'mean' or 'median'")
-    
+        ps_batched = np.zeros((n_batches, ps.shape[1]))
+        bispec_batched = np.zeros((n_batches, bispec.shape[1]))
+        for i in range(n_batches):
+            if args.aggtype.lower() == 'mean':
+                ps_batched[i,:] = np.nanmean(ps[i*psbatchsize:(i+1)*psbatchsize], axis=0)
+                bispec_batched[i,:] = np.nanmean(bispec[i*psbatchsize:(i+1)*psbatchsize], axis=0)
+            elif args.aggtype.lower() == 'median':
+                ps_batched[i,:] = np.nanmedian(ps[i*psbatchsize:(i+1)*psbatchsize], axis=0)
+                bispec_batched[i,:] = np.nanmedian(bispec[i*psbatchsize:(i+1)*psbatchsize], axis=0)
+            else:
+                raise ValueError(f"Invalid aggregation type: {args.aggtype}. Use 'mean' or 'median'")
+    ps = ps_batched
+    bispec = bispec_batched
     if save_ks:
         logger.info(f'Saving PS, bispec data. PS shape:{ps.shape}, ks shape:{ks.shape}, bispec shape: {bispec.shape}, k_bispec shape: {k_bispec.shape}')
         np.savetxt(f'{dir}/ks_bin.csv', np.hstack((ks, k_bispec))[0])
@@ -127,7 +131,7 @@ if args.dataset == "full":
     logger.info(f'Dumping PS for training')
     for i,datafile in enumerate(train_files):
         logger.info(f"Loading file {i+1}/{len(train_files)}: {datafile}")
-        dump_ps(datafile, dir=ps_dir, psbatchsize=10, save_ks=(i==0))
+        dump_ps(datafile, dir=ps_dir, psbatchsize=args.psbatchsize, save_ks=(i==0))
 
 logger.info(f'Dumping PS for testing')
 for i,datafile in enumerate(test_files):
