@@ -61,7 +61,6 @@ def dump_ps(datafile, dir, psbatchsize, save_ks):
     file_name_no_ext = os.path.splitext(file_name)[0]  # Remove the extension
 
     ks, ps, k_bispec, bispec, params, keys, freq_axis = load_dataset([datafile], max_workers=1, psbatchsize=1)
-
     if psbatchsize > 1:
         
         # need to aggregate. use the specified aggregation
@@ -77,8 +76,8 @@ def dump_ps(datafile, dir, psbatchsize, save_ks):
                 bispec_batched[i,:] = np.nanmedian(bispec[i*psbatchsize:(i+1)*psbatchsize], axis=0)
             else:
                 raise ValueError(f"Invalid aggregation type: {args.aggtype}. Use 'mean' or 'median'")
-    ps = ps_batched
-    bispec = bispec_batched
+        ps = ps_batched
+        bispec = bispec_batched
     if save_ks:
         logger.info(f'Saving PS, bispec data. PS shape:{ps.shape}, ks shape:{ks.shape}, bispec shape: {bispec.shape}, k_bispec shape: {k_bispec.shape}')
         np.savetxt(f'{dir}/ks_bin.csv', np.hstack((ks, k_bispec))[0])
