@@ -4,6 +4,7 @@ from xgboost import XGBRegressor
 from sklearn.metrics import r2_score, mean_squared_error
 import matplotlib.pyplot as plt
 import f21_predict_base as base
+import plot_results as pltr
 import Scaling
 
 class Args:
@@ -88,6 +89,6 @@ predictions = Scaling.Scaler(args).unscale_y(predictions)
 y_test = Scaling.Scaler(args).unscale_y(y_test)
 tse_means, rmse_means = base.calc_squared_error(predictions, y_test)
 
-base.summarize_test_1000(predictions, y_test, output_dir=output_dir, showplots=True, saveplots=True, label="")
+pltr.summarize_test_1000(predictions, y_test, output_dir=output_dir, showplots=True, saveplots=True, label="")
 """
 """

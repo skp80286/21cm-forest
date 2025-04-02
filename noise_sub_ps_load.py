@@ -2,6 +2,7 @@
 
 import F21DataLoader as dl
 import f21_predict_base as base
+import plot_results as pltr
 import Scaling
 import PS1D
 import F21Stats as f21stats

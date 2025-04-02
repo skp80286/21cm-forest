@@ -31,6 +31,7 @@ import sys
 
 import logging
 import f21_predict_base as base
+import plot_results as pltr
 import Scaling
 #from f21_predict_by_stats import calculate_stats_torch
 
@@ -276,11 +277,11 @@ def run(ks, X_train, stats_train, X_test, stats_test, X_noise, stats_noise, y_tr
     tester = ModelTester(reg, X_noise, ks, ps_bins_to_make, perc_ps_bins_to_use)
     if args.test_multiple:
         all_y_pred, all_y_test = base.test_multiple(tester, test_files, reps=args.test_reps, skip_stats=(not args.includestats), use_bispectrum=args.use_bispectrum)
-        r2 = base.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
+        r2 = pltr.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
         base.save_test_results(all_y_pred, all_y_test, output_dir)
     else:
         X_test, stats_test, y_test, y_pred, r2 = tester.test(None, X_test, stats_test, y_test)
-        base.summarize_test_1000(y_pred, y_test, output_dir=output_dir, showplots=showplots, saveplots=saveplots)
+        pltr.summarize_test_1000(y_pred, y_test, output_dir=output_dir, showplots=showplots, saveplots=saveplots)
         base.save_test_results(y_pred, y_test, output_dir)
 
     

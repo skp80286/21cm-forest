@@ -18,6 +18,7 @@ from datetime import datetime
 
 import F21DataLoader as dl
 import f21_predict_base as base
+import plot_results as pltr
 import numpy as np
 import os
 import sys
@@ -356,7 +357,7 @@ def run(X_train, train_samples, X_noise, X_test, test_samples, y_train, y_test, 
     rms_scores_percent = np.sqrt(rms_scores) * 100 / np.mean(y_test, axis=0)
     logger.info("RMS Error: " + str(rms_scores_percent))    
     
-    base.summarize_test_1000(y_pred, y_test, output_dir=output_dir, showplots=showplots, saveplots=saveplots)
+    pltr.summarize_test_1000(y_pred, y_test, output_dir=output_dir, showplots=showplots, saveplots=saveplots)
     if args.scale_y1: combined_r2 = r2[2]
     elif args.scale_y2: combined_r2 = r2
     elif args.xhi_only: combined_r2 = r2

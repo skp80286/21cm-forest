@@ -16,6 +16,7 @@ from datetime import datetime
 
 import F21DataLoader as dl
 import f21_predict_base as base
+import plot_results as pltr
 import Scaling
 import PS1D
 import F21Stats as f21stats
@@ -65,7 +66,7 @@ def test_multiple(datafiles, model, reps=10000, size=10, input_points_to_use=Non
     
     base.calc_squared_error(all_y_pred, all_y_test)
 
-    r2_means = base.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
+    r2_means = pltr.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
 
     r2 = np.mean(r2_means)
     base.save_test_results(all_y_pred, all_y_test, output_dir)

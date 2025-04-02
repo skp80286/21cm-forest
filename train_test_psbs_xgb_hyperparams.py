@@ -4,6 +4,7 @@ from xgboost import XGBRegressor
 from sklearn.metrics import r2_score, mean_squared_error
 import matplotlib.pyplot as plt
 import f21_predict_base as base
+import plot_results as pltr
 import F21Stats
 import Scaling
 import optuna
@@ -137,7 +138,7 @@ for imp_type in ['weight','gain', 'cover', 'total_gain', 'total_cover']:
 
 # Evaluate the final model
 y_pred = base_model.predict(X_test)
-r2_means = base.summarize_test_1000(y_pred, y_test, output_dir)
+r2_means = pltr.summarize_test_1000(y_pred, y_test, output_dir)
 tse_means, rmse_means = base.calc_squared_error(y_pred, y_test)
 logger.info(f"Base model: Final R2 score with means: {r2_means}, RMSE (means): {rmse_means}")
 # Create an Optuna study
@@ -167,7 +168,7 @@ for imp_type in ['weight','gain', 'cover', 'total_gain', 'total_cover']:
 
 # Evaluate the final model
 y_pred = final_model.predict(X_test)
-r2_means = base.summarize_test_1000(y_pred, y_test, output_dir)
+r2_means = pltr.summarize_test_1000(y_pred, y_test, output_dir)
 mse = base.mean_squared_error(y_pred, y_test)
 rmse_all = base.rmse_all(y_pred, y_test)
 logger.info(f"Optimization complete. Final R2 score with means: {r2_means}, mse: {mse} rmse_all: {rmse_all}")

@@ -12,6 +12,7 @@ from sklearn.metrics import mean_squared_error, r2_score
 
 
 import f21_predict_base as base
+import plot_results as pltr
 import numpy as np
 import sys
 import pickle
@@ -342,7 +343,7 @@ def run(X_train, train_samples, X_noise, X_test, test_samples,y_train, y_test, n
         X_test, y_test = unscaleXy(X_test, y_test)
         logger.info(f"unscaled test result {X_test.shape} {y_test.shape} {y_pred.shape}")
     
-    base.summarize_test_1000(y_pred, y_test, output_dir=output_dir, showplots=showplots, saveplots=saveplots)
+    pltr.summarize_test_1000(y_pred, y_test, output_dir=output_dir, showplots=showplots, saveplots=saveplots)
     if args.scale_y1: combined_r2 = r2[2]
     elif args.scale_y2: combined_r2 = r2
     elif args.xhi_only: combined_r2 = r2

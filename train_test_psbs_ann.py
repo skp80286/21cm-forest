@@ -4,6 +4,7 @@ from xgboost import XGBRegressor
 from sklearn.metrics import r2_score, mean_squared_error
 import matplotlib.pyplot as plt
 import f21_predict_base as base
+import plot_results as pltr
 import F21Stats
 import Scaling
 import optuna
@@ -189,6 +190,6 @@ save_model(model)
 model.eval()
 with torch.no_grad():
     y_pred = model(torch.FloatTensor(X_test)).numpy()  # Predictions
-r2_means = base.summarize_test_1000(y_pred, y_test, output_dir)
+r2_means = pltr.summarize_test_1000(y_pred, y_test, output_dir)
 tse_means, rmse_means = base.calc_squared_error(y_pred, y_test)
 logger.info(f"Neural Network model: Final R2 score with means: {r2_means}, RMSE (means): {rmse_means}")

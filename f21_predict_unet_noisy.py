@@ -16,6 +16,7 @@ from datetime import datetime
 
 import F21DataLoader as dl
 import f21_predict_base as base
+import plot_results as pltr
 import Scaling
 import PS1D
 
@@ -428,7 +429,7 @@ def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, X_noise, num_ep
         #logger.info(f"unscaled test result {X_test.shape} {y_test.shape} {y_pred.shape}")
     
     """
-    base.summarize_test_1000(y_pred[:,:2], y_test[:,:2], output_dir=output_dir, showplots=showplots, saveplots=saveplots)
+    pltr.summarize_test_1000(y_pred[:,:2], y_test[:,:2], output_dir=output_dir, showplots=showplots, saveplots=saveplots)
     if args.scale_y1: combined_r2 = r2[2]
     elif args.scale_y2: combined_r2 = r2
     elif args.xhi_only: combined_r2 = r2
@@ -446,11 +447,11 @@ def test(X_test, y_test, y_test_so, X_noise, model, criterion, input_points_to_u
     tester = ModelTester(model, criterion, input_points_to_use, X_noise)
     if args.test_multiple:
         all_y_pred, all_y_test = base.test_multiple(tester, test_files, reps=args.test_reps, skip_stats=True, use_bispectrum=False, skip_ps=True, so_datafiles=sotest_files)
-        r2 = base.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
+        r2 = pltr.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
         base.save_test_results(all_y_pred, all_y_test, output_dir)
     else:
         X_test, y_test, y_pred, r2 = tester.test(X_test, None, None, None, y_test, los_so=y_test_so, silent=False)
-        r2 = base.summarize_test_1000(y_pred, y_test, output_dir=output_dir, showplots=args.interactive, saveplots=True)
+        r2 = pltr.summarize_test_1000(y_pred, y_test, output_dir=output_dir, showplots=args.interactive, saveplots=True)
         base.save_test_results(y_pred, y_test, output_dir)
 
     

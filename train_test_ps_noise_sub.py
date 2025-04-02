@@ -4,6 +4,7 @@ from xgboost import XGBRegressor
 from sklearn.metrics import r2_score, mean_squared_error
 import matplotlib.pyplot as plt
 import f21_predict_base as base
+import plot_results as pltr
 import Scaling
 
 
@@ -40,7 +41,7 @@ def test_multiple(grouped_test_data, regression_model, reps=10000, size=10):
 
     logger.info(f"### Test_multiple completed. actual shape {all_y_test.shape} predicted shape {all_y_pred.shape}, squared_error={squared_error} ")
     
-    r2_means = base.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
+    r2_means = pltr.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
     r2 = np.mean(r2_means)
     base.save_test_results(all_y_pred, all_y_test, output_dir)
 
@@ -139,4 +140,4 @@ test_multiple(grouped_test_data, model, size=args.psbatchsize)
 #test_results = np.column_stack((y_test, predictions))
 #np.savetxt(f"{output_dir}/test_results.csv", test_results, delimiter=",", header="y_test_0,y_test_1,pred_0,pred_1", comments='')
 
-#base.summarize_test_1000(predictions, y_test, output_dir=output_dir, showplots=False, saveplots=True)
+#pltr.summarize_test_1000(predictions, y_test, output_dir=output_dir, showplots=False, saveplots=True)
