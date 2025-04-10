@@ -57,13 +57,13 @@ def load_dataset(datafiles, psbatchsize, max_workers=8):
     logger.info(f"Combined parameters shape: {params.shape}")
             
     return (ks, ps, k_bispec, bispec, params, keys, freq_axis)
+
 def dump_ps(datafile, dir, psbatchsize, save_ks):
     file_name = os.path.basename(datafile)  # Extract the filename from the path
     file_name_no_ext = os.path.splitext(file_name)[0]  # Remove the extension
 
     ks, ps, k_bispec, bispec, params, keys, freq_axis = load_dataset([datafile], max_workers=1, psbatchsize=1)
-    if psbatchsize > 1:
-        
+    if psbatchsize is not None and psbatchsize > 1:
         # need to aggregate. use the specified aggregation
         n_batches = len(ps) // psbatchsize
         ps_batched = np.zeros((n_batches, ps.shape[1]))

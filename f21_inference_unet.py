@@ -67,7 +67,7 @@ def test_multiple(datafiles, regression_model, latent_model, reps=10000, size=10
 
     logger.info(f"Test_multiple completed. actual shape {all_y_test.shape} predicted shape {all_y_pred.shape}")
     
-    base.calc_squared_error(all_y_pred, all_y_test)
+    pltr.calc_squared_error(all_y_pred, all_y_test)
 
     r2_means = pltr.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
 

@@ -99,5 +99,5 @@ for imp_type in ['weight','gain', 'cover', 'total_gain', 'total_cover']:
 # Evaluate the final model
 y_pred = base_model.predict(X_test)
 r2_means = pltr.summarize_test_1000(y_pred, y_test, output_dir)
-rmse_all = base.rmse_all(y_pred, y_test)
+rmse_all = pltr.rmse_all(y_pred, y_test)
 logger.info(f"Base model: Final R2 score with means: {r2_means}")

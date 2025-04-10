@@ -87,7 +87,7 @@ np.savetxt(f"{output_dir}/test_results.csv", test_results, delimiter=",", header
 
 predictions = Scaling.Scaler(args).unscale_y(predictions)
 y_test = Scaling.Scaler(args).unscale_y(y_test)
-tse_means, rmse_means = base.calc_squared_error(predictions, y_test)
+tse_means, rmse_means = pltr.calc_squared_error(predictions, y_test)
 
 pltr.summarize_test_1000(predictions, y_test, output_dir=output_dir, showplots=True, saveplots=True, label="")
 """

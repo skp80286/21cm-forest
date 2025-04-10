@@ -86,8 +86,8 @@ class ModelTester:
                     if label in processed_labels:  # Skip if label has already been processed
                         continue
                     processed_labels.add(label)  # Add label to the set
-                    plot_predictions(los_test[i:i+1], los_so[i:i+1], y_pred_so[i:i+1], label=label)
-                    analyse_predictions(los_test[i:i+1], los_so[i:i+1], y_pred_so[i:i+1], label=label)
+                    pltr.plot_denoised_los(los_test[i:i+1], los_so[i:i+1], y_pred_so[i:i+1], label=label, output_dir=output_dir)
+                    pltr.plot_denoised_ps(los_test[i:i+1], los_so[i:i+1], y_pred_so[i:i+1], label=label, output_dir=output_dir)
     
             
             #if not silent: logger.info("R2 Score: " + str(r2))
@@ -188,70 +188,7 @@ class ChiSquareLoss(nn.Module):
         if var < 1e-8: var = 1.0
 
         return mse/var
-
-markers=['o', 'x', '*']
-def plot_power_spectra(ps_set, ks, title, labels, xscale='log', yscale='log', showplots=False, saveplots=True):
-    #print(f"plot_power_spectra: shapes: {ps_set.shape},{ks.shape}")
-
-    base.initplt()
-    plt.title(f'{title}')
-    if len(ps_set.shape) > 1:
-        for i, ps in enumerate(ps_set):
-
-            if labels is not None: label = labels[i]
-            row_ks = None
-            if ks is not None:
-                if len(ks.shape) > 1: row_ks = ks[i]
-                else: row_ks = ks
-            plt.plot(row_ks*1e6, ps, label=label, marker=markers[i% len(markers)], alpha=0.5)
-    else:
-        row_ks = None
-        if ks is not None:
-                if len(ks.shape) > 1: row_ks = ks[0]
-                else: row_ks = ks
-        plt.plot(ks*1e6, ps, label=label, marker='o')
-        #plt.scatter(ks[1:]*1e6, ps[1:], label=label)
-    plt.xscale(xscale)
-    plt.yscale(yscale)
-    plt.xlabel(r'k (Hz$^{-1}$)')
-    plt.ylabel(r'$kP_{21}$')
-    plt.legend()
-    if showplots: plt.show()
-    if saveplots: plt.savefig(f"{output_dir}/reconstructed_ps_{title}.png")
-    plt.close()
-
-def analyse_predictions(los_test, y_test_so, y_pred_so, samples=1, showplots=False, saveplots=True, label='', signal_bandwidth=22089344.0):
-    ks_noisy, ps_noisy = PS1D.get_P_set(los_test, signal_bandwidth, scaled=True)
-    #logger.info(f'get_P_set: {ks_noisy.shape}, {ps_noisy.shape},')
-    ks_noisy, ps_noisy = f21stats.logbin_power_spectrum_by_k(ks_noisy, ps_noisy)
-    #logger.info(f'get_P_set: {ks_noisy.shape}, {ps_noisy.shape},')
-    ps_noisy_mean = np.mean(ps_noisy, axis=0)
-    ks_so, ps_so = PS1D.get_P_set(y_test_so, signal_bandwidth, scaled=True)
-    ks_so, ps_so = f21stats.logbin_power_spectrum_by_k(ks_so, ps_so)
-    ps_so_mean = np.mean(ps_so, axis=0)
-    ks_pred, ps_pred = PS1D.get_P_set(y_pred_so, signal_bandwidth, scaled=True)
-    ks_pred, ps_pred = f21stats.logbin_power_spectrum_by_k(ks_pred, ps_pred)
-    ps_pred_mean = np.mean(ps_pred, axis=0)
-
-    plot_power_spectra(np.vstack((ps_so_mean,ps_noisy_mean,ps_pred_mean)), ks_noisy[0,:], title=label, labels=["signal-only", "noisy-signal", "reconstructed"])
-
-def plot_predictions(los_test, y_test_so, y_pred_so, samples=1, showplots=False, saveplots=True, label=''):
-    for i, (noisy, test, pred) in enumerate(zip(los_test[:samples], y_test_so[:samples], y_pred_so[:samples])):
-        plt.figure()
-        plt.rcParams['figure.figsize'] = [15, 9]
-        plt.title(f'Reconstructed LoS vs Actual Noiseless LoS {label}')
-        plt.plot(noisy-0.01, label='Signal with Noise')
-        plt.plot(test, label='Actual signal')
-        plt.plot(pred+0.01, label='Reconstructed')
-        plt.plot(test-pred+0.98, label='Reconstructed - Signal')
-        plt.xlabel('frequency'), 
-        plt.ylabel('flux/S147')
-        plt.legend()
-        if showplots: plt.show()
-        if saveplots: plt.savefig(f"{output_dir}/reconstructed_los_{label}.png")
-        if i> 5: break
-        plt.close()
-
+    
 def load_noise():
     X_noise = None
     if args.use_noise_channel:

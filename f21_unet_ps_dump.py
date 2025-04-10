@@ -20,7 +20,7 @@ import plot_results as pltr
 import Scaling
 import PS1D
 import F21Stats as f21stats
-from UnetModelNoInputSkipConn import UnetModel
+from UnetModelWithDenseNoSkip import UnetModel
 
 import numpy as np
 import sys

@@ -8,6 +8,9 @@ from sklearn.metrics import r2_score
 import argparse
 import logging
 from datetime import datetime
+import f21_predict_base as base
+import PS1D
+import F21Stats as f21stats
 
 logger = logging.Logger("main")
 
@@ -155,7 +158,7 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
         plt.title('Mean Predictions with  ±1σ and ±2σ Contours', fontsize=18)
 
         # Overlay RMSE, R2 means, and R2 total on the graph
-        textstr = f'RMSE (Means): {rmse_means:.4f}\nRMSE (Total): {rmse_total:.4f}\nR² (Means): {r2_means_combined:.4f}\nR² (Total): {r2_total:.4f}'
+        textstr = f'RMSE: {rmse_means:.4f}\nR²: {r2_means_combined:.4f}'
         props = dict(facecolor='white', alpha=0.5)
         ax.text(0.05, 0.95, textstr, transform=ax.transAxes, fontsize=18,
                 verticalalignment='top', bbox=props)
@@ -206,6 +209,69 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
     logger.info(f"Mean logfX std: {np.mean(std_predictions[:, 1]):.4f}")
     
     return r2_means_combined
+
+markers=['o', 'x', '*']
+def plot_power_spectra(ps_set, ks, title, labels, xscale='log', yscale='log', showplots=False, saveplots=True, output_dir='tmp_output'):
+    #print(f"plot_power_spectra: shapes: {ps_set.shape},{ks.shape}")
+
+    base.initplt()
+    plt.title(f'{title}')
+    if len(ps_set.shape) > 1:
+        for i, ps in enumerate(ps_set):
+
+            if labels is not None: label = labels[i]
+            row_ks = None
+            if ks is not None:
+                if len(ks.shape) > 1: row_ks = ks[i]
+                else: row_ks = ks
+            plt.plot(row_ks*1e6, ps, label=label, marker=markers[i% len(markers)], alpha=0.5)
+    else:
+        row_ks = None
+        if ks is not None:
+                if len(ks.shape) > 1: row_ks = ks[0]
+                else: row_ks = ks
+        plt.plot(ks*1e6, ps, label=label, marker='o')
+        #plt.scatter(ks[1:]*1e6, ps[1:], label=label)
+    plt.xscale(xscale)
+    plt.yscale(yscale)
+    plt.xlabel(r'k (Hz$^{-1}$)')
+    plt.ylabel(r'$kP_{21}$')
+    plt.legend()
+    if showplots: plt.show()
+    if saveplots: plt.savefig(f"{output_dir}/reconstructed_ps_{title}.png")
+    plt.close()
+
+def plot_denoised_ps(los_test, y_test_so, y_pred_so, samples=1, showplots=False, saveplots=True, label='', signal_bandwidth=20473830.8, output_dir='tmp_output'):
+    ks_noisy, ps_noisy = PS1D.get_P_set(los_test, signal_bandwidth, scaled=True)
+    #logger.info(f'get_P_set: {ks_noisy.shape}, {ps_noisy.shape},')
+    ks_noisy, ps_noisy = f21stats.logbin_power_spectrum_by_k(ks_noisy, ps_noisy)
+    #logger.info(f'get_P_set: {ks_noisy.shape}, {ps_noisy.shape},')
+    ps_noisy_mean = np.mean(ps_noisy, axis=0)
+    ks_so, ps_so = PS1D.get_P_set(y_test_so, signal_bandwidth, scaled=True)
+    ks_so, ps_so = f21stats.logbin_power_spectrum_by_k(ks_so, ps_so)
+    ps_so_mean = np.mean(ps_so, axis=0)
+    ks_pred, ps_pred = PS1D.get_P_set(y_pred_so, signal_bandwidth, scaled=True)
+    ks_pred, ps_pred = f21stats.logbin_power_spectrum_by_k(ks_pred, ps_pred)
+    ps_pred_mean = np.mean(ps_pred, axis=0)
+
+    plot_power_spectra(np.vstack((ps_so_mean,ps_noisy_mean,ps_pred_mean)), ks_noisy[0,:], title=label, labels=["signal-only", "noisy-signal", "reconstructed"])
+
+def plot_denoised_los(los_test, y_test_so, y_pred_so, samples=1, showplots=False, saveplots=True, label='', output_dir='tmp_output'):
+    for i, (noisy, test, pred) in enumerate(zip(los_test[:samples], y_test_so[:samples], y_pred_so[:samples])):
+        plt.figure()
+        plt.rcParams['figure.figsize'] = [15, 9]
+        plt.title(f'Reconstructed LoS vs Actual Noiseless LoS {label}')
+        plt.plot(noisy-0.01, label='Signal with Noise')
+        plt.plot(test, label='Actual signal')
+        plt.plot(pred+0.01, label='Reconstructed')
+        plt.plot(test-pred+0.98, label='Reconstructed - Signal')
+        plt.xlabel('frequency'), 
+        plt.ylabel('flux/S147')
+        plt.legend()
+        if showplots: plt.show()
+        if saveplots: plt.savefig(f"{output_dir}/reconstructed_los_{label}.png")
+        if i> 5: break
+        plt.close()
 
 """Sample plotting code"""
 if __name__ == "__main__":

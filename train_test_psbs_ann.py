@@ -191,5 +191,5 @@ model.eval()
 with torch.no_grad():
     y_pred = model(torch.FloatTensor(X_test)).numpy()  # Predictions
 r2_means = pltr.summarize_test_1000(y_pred, y_test, output_dir)
-tse_means, rmse_means = base.calc_squared_error(y_pred, y_test)
+tse_means, rmse_means = pltr.calc_squared_error(y_pred, y_test)
 logger.info(f"Neural Network model: Final R2 score with means: {r2_means}, RMSE (means): {rmse_means}")
