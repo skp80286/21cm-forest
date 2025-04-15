@@ -101,7 +101,7 @@ plt.ylabel("kP(k)")
 plt.title(f"Original Signal PS without Noise\n(z={args.redshift}, xHI_mean={args.xHI}, logfX={args.log_fx})")
 plt.legend()
 plt.grid(True)
-plt.savefig(f"{output_dir}/sig_only_ps.png")
+plt.savefig(f"{output_dir}/sig_only_ps.pdf", format = "pdf")
 plt.show()
 
 min_mse = 6e23
@@ -144,7 +144,7 @@ plt.ylabel("kP(k)")
 plt.title(f"Comparison of Original and  Reconstructed PS\n(z={args.redshift}, xHI_mean={args.xHI}, logfX={args.log_fx})")
 plt.legend()
 plt.grid(True)
-plt.savefig(f"{output_dir}/orig_vs_reconstr.png")
+plt.savefig(f"{output_dir}/orig_vs_reconstr.pdf", format = "pdf")
 plt.show()
 
 # # Plot explained variance

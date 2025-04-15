@@ -120,7 +120,7 @@ else:
 plt.title(f"Original Signal PS with and without Noise\n(z={args.redshift}, xHI_mean={args.xHI}, logfX={args.log_fx})")
 plt.legend()
 plt.grid(True)
-plt.savefig(f"{output_dir}/sig_only_ps.png")
+plt.savefig(f"{output_dir}/sig_only_ps.pdf", format = "pdf")
 plt.show()
 
 min_mse = 6e23
@@ -176,7 +176,7 @@ plt.grid(True)
 plt.ylabel("PCA mode value")
 if not args.use_log_ps: plt.ylim((-0.0002,0.0002))
 else: plt.ylim((-10,10))
-plt.savefig(f"{output_dir}/transformed.png")
+plt.savefig(f"{output_dir}/transformed.pdf", format="pdf")
 plt.show()
 
 base.initplt()
@@ -187,7 +187,7 @@ plt.title(f"Visualizing PCA transformed pure signal\n(z={args.redshift}, xHI_mea
 #plt.legend()
 plt.grid(True)
 plt.ylabel("PCA mode value")
-plt.savefig(f"{output_dir}/transformed_so.png")
+plt.savefig(f"{output_dir}/transformed_so.pdf", format = "pdf")
 plt.show()
 #print(f"Explained variances: {model.explained_variance_}")
 all_components = []
@@ -238,7 +238,7 @@ if not args.use_log_ps:
     plt.ylabel("kP(k)")
 else:
     plt.ylabel("log10[kP(k)]")
-plt.savefig(f"{output_dir}/orig_vs_best_reconstr.png")
+plt.savefig(f"{output_dir}/orig_vs_best_reconstr.pdf", format = "pdf")
 plt.show()
 
 # # Plot explained variance

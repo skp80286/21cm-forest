@@ -1,5 +1,5 @@
-
 import numpy as np
+import torch
 
 import matplotlib.pyplot as plt
 import matplotlib.colors as clr
@@ -155,7 +155,7 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
         plt.ylabel(r'$log_{10}(f_X)$', fontsize=18)
         plt.yticks(fontsize=18)
         plt.xticks(fontsize=18)
-        plt.title('Mean Predictions with  ±1σ and ±2σ Contours', fontsize=18)
+        plt.title(f'Mean Predictions with  ±1σ and ±2σ Contours {label}', fontsize=18)
 
         # Overlay RMSE, R2 means, and R2 total on the graph
         textstr = f'RMSE: {rmse_means:.4f}\nR²: {r2_means_combined:.4f}'
@@ -163,9 +163,9 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
         ax.text(0.05, 0.95, textstr, transform=ax.transAxes, fontsize=18,
                 verticalalignment='top', bbox=props)
 
-        plt.legend()
+        plt.legend(loc='upper right')
         
-        if saveplots: plt.savefig(f'{output_dir}/f21_prediction_means{label}.png')
+        if saveplots: plt.savefig(f'{output_dir}/f21_prediction_means_contours.pdf', format='pdf')
         if showplots: plt.show()
         plt.close()
 
@@ -195,12 +195,12 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
         plt.ylabel(r'$log_{10}(f_X)$', fontsize=18)
         plt.yticks(fontsize=18)
         plt.xticks(fontsize=18)
-        plt.title('Parameter Predictions', fontsize=18)
+        plt.title(f'Parameter Inference {label}', fontsize=18)
         ax.text(0.05, 0.95, textstr, transform=ax.transAxes, fontsize=18,
                 verticalalignment='top', bbox=props)
-        plt.legend()
+        plt.legend(loc='upper right')
 
-        if saveplots: plt.savefig(f'{output_dir}/f21_prediction_means_scatter_{label}.png')
+        if saveplots: plt.savefig(f'{output_dir}/f21_prediction_means_scatter.pdf', format='pdf')
         if showplots: plt.show()
         plt.close()
     # Log statistics
@@ -211,7 +211,7 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
     return r2_means_combined
 
 markers=['o', 'x', '*']
-def plot_power_spectra(ps_set, ks, title, labels, xscale='log', yscale='log', showplots=False, saveplots=True, output_dir='tmp_output'):
+def plot_power_spectra(ps_set, ks, title, labels, xscale='log', yscale='log', showplots=False, saveplots=True, output_dir='tmp_out'):
     #print(f"plot_power_spectra: shapes: {ps_set.shape},{ks.shape}")
 
     base.initplt()
@@ -237,11 +237,11 @@ def plot_power_spectra(ps_set, ks, title, labels, xscale='log', yscale='log', sh
     plt.xlabel(r'k (Hz$^{-1}$)')
     plt.ylabel(r'$kP_{21}$')
     plt.legend()
+    if saveplots: plt.savefig(f"{output_dir}/reconstructed_ps_{title}.pdf", format="pdf")
     if showplots: plt.show()
-    if saveplots: plt.savefig(f"{output_dir}/reconstructed_ps_{title}.png")
     plt.close()
 
-def plot_denoised_ps(los_test, y_test_so, y_pred_so, samples=1, showplots=False, saveplots=True, label='', signal_bandwidth=20473830.8, output_dir='tmp_output'):
+def plot_denoised_ps(los_test, y_test_so, y_pred_so, samples=1, showplots=False, saveplots=True, label='', signal_bandwidth=20473830.8, output_dir='tmp_out'):
     ks_noisy, ps_noisy = PS1D.get_P_set(los_test, signal_bandwidth, scaled=True)
     #logger.info(f'get_P_set: {ks_noisy.shape}, {ps_noisy.shape},')
     ks_noisy, ps_noisy = f21stats.logbin_power_spectrum_by_k(ks_noisy, ps_noisy)
@@ -254,24 +254,74 @@ def plot_denoised_ps(los_test, y_test_so, y_pred_so, samples=1, showplots=False,
     ks_pred, ps_pred = f21stats.logbin_power_spectrum_by_k(ks_pred, ps_pred)
     ps_pred_mean = np.mean(ps_pred, axis=0)
 
-    plot_power_spectra(np.vstack((ps_so_mean,ps_noisy_mean,ps_pred_mean)), ks_noisy[0,:], title=label, labels=["signal-only", "noisy-signal", "reconstructed"])
+    plot_power_spectra(np.vstack((ps_so_mean,ps_noisy_mean,ps_pred_mean)), ks_noisy[0,:], title=label, labels=["signal-only", "noisy-signal", "reconstructed"], output_dir=output_dir)
 
-def plot_denoised_los(los_test, y_test_so, y_pred_so, samples=1, showplots=False, saveplots=True, label='', output_dir='tmp_output'):
+def plot_denoised_los(los_test, y_test_so, y_pred_so, samples=1, showplots=False, saveplots=True, label='', output_dir='tmp_out', freq_axis=None):
+    
     for i, (noisy, test, pred) in enumerate(zip(los_test[:samples], y_test_so[:samples], y_pred_so[:samples])):
-        plt.figure()
+        if freq_axis is None: freq_axis=range(len(noisy))
+        base.initplt()
         plt.rcParams['figure.figsize'] = [15, 9]
-        plt.title(f'Reconstructed LoS vs Actual Noiseless LoS {label}')
-        plt.plot(noisy-0.01, label='Signal with Noise')
-        plt.plot(test, label='Actual signal')
-        plt.plot(pred+0.01, label='Reconstructed')
-        plt.plot(test-pred+0.98, label='Reconstructed - Signal')
-        plt.xlabel('frequency'), 
-        plt.ylabel('flux/S147')
-        plt.legend()
-        if showplots: plt.show()
-        if saveplots: plt.savefig(f"{output_dir}/reconstructed_los_{label}.png")
+        plt.title(f'Denoising by U-Net: {label}')
+        chisq_noisy = np.sum((noisy - test)**2 / test)
+        plt.plot(freq_axis, noisy, label=f'Signal+Noise: χ²={chisq_noisy:.4f}')
+        plt.plot(freq_axis, test+0.1, label='Signal+0.1')
+        chisq_denoised = np.sum((pred - test)**2 / test)
+        plt.plot(freq_axis, pred+0.06, label=f'Denoised+0.06: χ²={chisq_denoised:.4f}')
+        plt.xlabel(r'$\nu_{obs}$[MHz]'), 
+        plt.ylabel(r'$F_{21}=e^{-\tau_{21}}$')
+        plt.legend(loc='lower right')
+        if saveplots: 
+            plt.savefig(f"{output_dir}/reconstructed_los_{label}.pdf", format="pdf")
+            logger.info(f"Saved denoised los plot to {output_dir}/reconstructed_los_{label}.png")
         if i> 5: break
+        if showplots: plt.show()
         plt.close()
+
+def calculate_chisq_tensor(predictions, targets, epsilon=1e-10):
+    """
+    Calculate chi-squared between predictions and targets for PyTorch tensors.
+    
+    Parameters:
+    predictions (torch.Tensor): Predicted values
+    targets (torch.Tensor): Target/true values
+    epsilon (float): Small value to prevent divide by zero
+    
+    Returns:
+    torch.Tensor: Chi-squared value
+    """
+    # Ensure inputs are tensors
+    if not isinstance(predictions, torch.Tensor):
+        predictions = torch.tensor(predictions)
+    if not isinstance(targets, torch.Tensor):
+        targets = torch.tensor(targets)
+    
+    # Calculate chi-squared with divide by zero handling
+    chisq = torch.sum((predictions - targets)**2 / (targets + epsilon))
+    return chisq
+
+def log_cosh_loss(predictions, targets):
+    """
+    Calculate log cosh loss between predictions and targets.
+    This is a smooth approximation of the Huber loss.
+    
+    Parameters:
+    predictions (torch.Tensor): Predicted values
+    targets (torch.Tensor): Target/true values
+    
+    Returns:
+    torch.Tensor: Log cosh loss value
+    """
+    # Ensure inputs are tensors
+    if not isinstance(predictions, torch.Tensor):
+        predictions = torch.tensor(predictions)
+    if not isinstance(targets, torch.Tensor):
+        targets = torch.tensor(targets)
+    
+    # Calculate log cosh loss
+    error = predictions - targets
+    loss = torch.log(torch.cosh(error))
+    return torch.mean(loss)
 
 """Sample plotting code"""
 if __name__ == "__main__":

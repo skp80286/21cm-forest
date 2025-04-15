@@ -23,18 +23,19 @@ from UnetModelWithDenseNoSkip import UnetModel
 
 import numpy as np
 import sys
-
+import os
 import matplotlib.pyplot as plt
 
 import optuna
 
 class ModelTester:
-    def __init__(self, model, criterion, input_points_to_use, noise):
+    def __init__(self, model, criterion, input_points_to_use, noise, test_output_dir):
         self.model = model
         self.criterion = criterion
         self.input_points_to_use = input_points_to_use
         if noise is not None: self.noise = noise[:, :self.input_points_to_use]
         else: self.noise = None
+        self.test_output_dir = test_output_dir
     
     def test(self, los_test, p_test, stats_test, bispectrum_set, y_test, los_so, silent=True):
         if self.input_points_to_use is not None: 
@@ -72,10 +73,10 @@ class ModelTester:
             if not silent: logger.info("RMS Error: " + str(rms_score))
             if not silent:
                     # Write each array to separate CSV files
-                    np.savetxt(f"{output_dir}/los_test.csv", X_test, delimiter=",")
-                    np.savetxt(f"{output_dir}/los_so.csv", y_test_so, delimiter=",")
-                    np.savetxt(f"{output_dir}/y_pred_so.csv", y_pred_so, delimiter=",")
-                    np.savetxt(f"{output_dir}/y_test.csv", y_test, delimiter=",")
+                    np.savetxt(f"{self.test_output_dir}/los_test.csv", X_test, delimiter=",")
+                    np.savetxt(f"{self.test_output_dir}/los_so.csv", y_test_so, delimiter=",")
+                    np.savetxt(f"{self.test_output_dir}/y_pred_so.csv", y_pred_so, delimiter=",")
+                    np.savetxt(f"{self.test_output_dir}/y_test.csv", y_test, delimiter=",")
 
             if not silent:
                 # for i in range(0, len(los_test)):
@@ -86,8 +87,8 @@ class ModelTester:
                     if label in processed_labels:  # Skip if label has already been processed
                         continue
                     processed_labels.add(label)  # Add label to the set
-                    pltr.plot_denoised_los(los_test[i:i+1], los_so[i:i+1], y_pred_so[i:i+1], label=label, output_dir=output_dir)
-                    pltr.plot_denoised_ps(los_test[i:i+1], los_so[i:i+1], y_pred_so[i:i+1], label=label, output_dir=output_dir)
+                    pltr.plot_denoised_los(los_test[i:i+1], los_so[i:i+1], y_pred_so[i:i+1], label=label, output_dir=self.test_output_dir)
+                    pltr.plot_denoised_ps(los_test[i:i+1], los_so[i:i+1], y_pred_so[i:i+1], label=label, output_dir=self.test_output_dir)
     
             
             #if not silent: logger.info("R2 Score: " + str(r2))
@@ -178,16 +179,31 @@ class CustomLoss(nn.Module):
 class ChiSquareLoss(nn.Module):
     def __init__(self):
         super(ChiSquareLoss, self).__init__()
+    
+    def forward(self, predictions, targets):
+        return torch.sum((predictions - targets)**2 / (targets))
+    
+class MseNormLoss(nn.Module):
+    def __init__(self):
+        super(ChiSquareLoss, self).__init__()
         self.mse = nn.MSELoss()
     
     def forward(self, predictions, targets):
         # First component: MSE between predictions and targets
-        #mse_loss_xHI = self.mse(predictions[:,0], targets[:,0])
         mse = self.mse(predictions, targets)
         var = targets.var()
         if var < 1e-8: var = 1.0
-
         return mse/var
+    
+class LogCoshLoss(nn.Module):
+    def __init__(self):
+        super(LogCoshLoss, self).__init__()
+    
+    def forward(self, predictions, targets):
+        error = predictions - targets
+        loss = torch.log(torch.cosh(error))
+        return torch.mean(loss)
+
 
 def load_noise():
     X_noise = None
@@ -217,7 +233,7 @@ def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, X_noise, num_ep
 
     logger.info(f"Shape of inputs, outputs: {inputs.shape}, {outputs.shape}")
     # Create DataLoader for batching
-    train_dataset = TensorDataset(inputs, inputs)
+    train_dataset = TensorDataset(inputs, outputs)
     dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
     num_channels = 1
@@ -256,12 +272,14 @@ def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, X_noise, num_ep
         # Print loss for every epoch
         logger.info(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {running_loss / len(dataloader):.8f}')
 
-        if (epoch + 1) % 20 == 0:
+        if (epoch + 1) % 5 == 0:
             model.eval()
             model.save_model(f"{output_dir}/unet_model_{epoch + 1}.pth")  
             logger.info(f'{model.get_timing_info()}')
             try:
-                test(X_test, y_test, y_test_so, X_noise, model, criterion, input_points_to_use, run_description)
+                test_output_dir=f"{output_dir}/ep{epoch+1}"
+                os.mkdir(test_output_dir)
+                test(X_test, y_test, y_test_so, X_noise, model, criterion, input_points_to_use, run_description, test_output_dir=test_output_dir)
             except Exception as e:
                 logger.error(f"An error occurred: {str(e)}")
 
@@ -281,23 +299,23 @@ def run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, X_noise, num_ep
     elif args.logfx_only: combined_r2 = r2
     else: combined_r2 = 0.5*(r2[0]+r2[1])
     """
-    return test(X_test, y_test, y_test_so, X_noise, model, criterion, input_points_to_use, run_description)
+    return test(X_test, y_test, y_test_so, X_noise, model, criterion, input_points_to_use, run_description, output_dir)
 
-def test(X_test, y_test, y_test_so, X_noise, model, criterion, input_points_to_use, run_description):
+def test(X_test, y_test, y_test_so, X_noise, model, criterion, input_points_to_use, run_description, test_output_dir):
     if input_points_to_use is not None:
         X_test = X_test[:, :input_points_to_use]  
         y_test_so = y_test_so[:, :input_points_to_use]  
     logger.info(f"Starting testing. {X_test.shape},{y_test.shape},{y_test_so.shape}")
 
-    tester = ModelTester(model, criterion, input_points_to_use, X_noise)
+    tester = ModelTester(model, criterion, input_points_to_use, X_noise, test_output_dir)
     if args.test_multiple:
         all_y_pred, all_y_test = base.test_multiple(tester, test_files, reps=args.test_reps, skip_stats=True, use_bispectrum=False, skip_ps=True, so_datafiles=sotest_files)
-        r2 = pltr.summarize_test_1000(all_y_pred, all_y_test, output_dir, showplots=args.interactive, saveplots=True, label="_1000")
-        base.save_test_results(all_y_pred, all_y_test, output_dir)
+        r2 = pltr.summarize_test_1000(all_y_pred, all_y_test, test_output_dir, showplots=args.interactive, saveplots=True, label="_1000")
+        base.save_test_results(all_y_pred, all_y_test, test_output_dir)
     else:
         X_test, y_test, y_pred, r2 = tester.test(X_test, None, None, None, y_test, los_so=y_test_so, silent=False)
-        r2 = pltr.summarize_test_1000(y_pred, y_test, output_dir=output_dir, showplots=args.interactive, saveplots=True)
-        base.save_test_results(y_pred, y_test, output_dir)
+        r2 = pltr.summarize_test_1000(y_pred, y_test, output_dir=test_output_dir, showplots=args.interactive, saveplots=True)
+        base.save_test_results(y_pred, y_test, test_output_dir)
 
     
     if args.scale_y1: combined_r2 = r2[2]
@@ -343,6 +361,7 @@ def objective(trial):
 
 def reorder_so(y_so, keys_so, keys):
     logger.info(f"Reordering.. {len(y_so)}, {len(keys_so)}, {len(keys)}")
+    logger.info(f"Reordering sample keys.. {keys_so[:10]}, {keys[:10]}")
     key_to_index = {key: index for index, key in enumerate(keys_so)}
     y_so_reordered = np.zeros_like(y_so)
 
@@ -359,6 +378,7 @@ def reorder_so(y_so, keys_so, keys):
 parser = base.setup_args_parser()
 parser.add_argument('--test_multiple', action='store_true', help='Test 1000 sets of 10 LoS for each test point and plot it')
 parser.add_argument('--test_reps', type=int, default=10000, help='Test repetitions for each parameter combination')
+parser.add_argument('--loss', type=str, default='chisq', help='chisq/mse/msenorm/logcosh')
 args = parser.parse_args()
 #if args.input_points_to_use not in [2048, 128]: raise ValueError(f"Invalid input_points_to_use {args.input_points_to_use}")
 if args.input_points_to_use >= 2048: 
@@ -413,8 +433,12 @@ if args.runmode in ("train_test", "test_only", "optimize"):
     # Loss function and optimizer
     # criterion = CustomLoss(alpha=0.5)  # You can adjust alpha as needed
     #criterion = nn.MSELoss()
-    criterion = ChiSquareLoss()  
-    
+    #criterion = ChiSquareLoss()  
+    if args.loss == 'chisq': criterion = ChiSquareLoss() 
+    elif args.loss == 'mse': criterion = nn.MSELoss()
+    elif args.loss == 'logcosh': criterion = LogCoshLoss()
+    else: criterion = MseNormLoss() 
+ 
     if args.runmode in ("train_test", "optimize") :
         logger.info(f"Loading train dataset {len(train_files)}")
         X_train, y_train, _, keys, freq_axis = base.load_dataset(train_files, psbatchsize=1, limitsamplesize=args.limitsamplesize, save=False)
@@ -427,6 +451,7 @@ if args.runmode in ("train_test", "test_only", "optimize"):
     y_test_so = reorder_so(y_test_so, keys_so, keys)
 
     logger.info(f"Loaded dataset X_test:{X_test.shape} y_test:{y_test.shape} y_test_so:{y_test_so.shape}")
+
     X_noise = load_noise()
     if args.runmode == "train_test":
         run(X_train, X_test, y_train, y_train_so, y_test, y_test_so, X_noise, args.epochs, args.trainingbatchsize, lr=0.0001, kernel1=kernel1, kernel2=kernel1, dropout=0.2, step=step, input_points_to_use=args.input_points_to_use, showplots=args.interactive, criterion=criterion)

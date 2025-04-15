@@ -155,7 +155,7 @@ def run(X_train, X_test, y_train, y_test):
     base.summarize_test(y_pred, y_test, output_dir=output_dir, showplots=args.interactive)
     logger.info('Plotting Decision Tree')
     plot_tree(model)
-    plt.savefig(f"{output_dir}/xgb_los_tree.png", dpi=600) 
+    plt.savefig(f"{output_dir}/xgb_los_tree.pdf", format = "pdf", dpi=600) 
     save_model(model)
 
 # main code start here

@@ -20,7 +20,7 @@ import plot_results as pltr
 import Scaling
 import PS1D
 import F21Stats as f21stats
-from UnetModelWithDenseNoSkip import UnetModel
+from UnetModelWithDense import UnetModel
 
 import numpy as np
 import sys
@@ -53,11 +53,12 @@ logger = base.setup_logging(output_dir)
 datafiles = base.get_datafile_list(type='noisy', args=args)
 if args.maxfiles is not None: datafiles = datafiles[:args.maxfiles]
 
-#test_points = [[-3.00,0.11],[-2.00,0.11],[-1.00,0.11],[-3.00,0.25],[-2.00,0.25],[-1.00,0.25],[-3.00,0.52],[-2.00,0.52],[-1.00,0.52], [-3.00,0.80],[-2.00,0.80],[-1.00,0.80]]#,[0.00,0.80]]
+small_dataset_points = [[-3.00,0.11],[-2.00,0.11],[-1.00,0.11],[-3.00,0.25],[-2.00,0.25],[-1.00,0.25],[-3.00,0.52],[-2.00,0.52],[-1.00,0.52], [-3.00,0.80],[-2.00,0.80],[-1.00,0.80]]#,[0.00,0.80]]
 test_points = [[-3,0.11], [-3,0.80], [-1,0.11], [-1,0.80], [-2,0.52]]
 
 train_files = []
 test_files = []
+small_dataset_files = []
 for nof in datafiles:
     is_test_file = False
     for p in test_points:
@@ -67,6 +68,10 @@ for nof in datafiles:
             break
     if not is_test_file:
         train_files.append(nof)
+    for p in small_dataset_points:
+        if nof.find(f"fX{p[0]:.2f}_xHI{p[1]:.2f}") >= 0:
+            small_dataset_files.append(nof)
+            break
 
 # Initialize the network
 device = (
@@ -96,6 +101,7 @@ os.mkdir(denoised_ps_dir)
 fileset = None
 if args.dataset == "full": fileset = train_files + test_files
 elif args.dataset == "test_only": fileset = test_files
+elif args.dataset == "small_dataset": fileset = small_dataset_files
  
 for i,datafile in enumerate(fileset):
     logger.info(f"Loading file {i+1}/{len(datafiles)}: {datafile}")

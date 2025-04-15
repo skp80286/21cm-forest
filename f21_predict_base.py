@@ -30,7 +30,7 @@ def plot_single_power_spectrum(ps, ks, output_dir=".", showplots=False, saveplot
     plt.xlabel(r'k (MHz$^{-1}$)')
     plt.ylabel(r'P$_{21}$(k)')
     if showplots: plt.show()
-    if saveplots: plt.savefig(f"{output_dir}/power_spectra.png")
+    if saveplots: plt.savefig(f"{output_dir}/power_spectra.pdf", format = "pdf")
     plt.close()
 
 def decide_alpha(num_ps):
@@ -90,7 +90,7 @@ def plot_power_spectra(ps, ks, params, psn=None, colorind=1, output_dir=".", sho
     plt.yticks(fontsize=18)
     
     if showplots: plt.show()
-    if saveplots: plt.savefig(f"{output_dir}/power_spectra.png")
+    if saveplots: plt.savefig(f"{output_dir}/power_spectra.pdf", format = "pdf")
     plt.close()
 
 def plot_pca(ps, params, colorind=1, output_dir=".", showplots=False, saveplots=True, label=""):
@@ -120,7 +120,7 @@ def plot_pca(ps, params, colorind=1, output_dir=".", showplots=False, saveplots=
     #plt.ylim((-0.00025, None))
     
     if showplots: plt.show()
-    if saveplots: plt.savefig(f"{output_dir}/pca.png")
+    if saveplots: plt.savefig(f"{output_dir}/pca.pdf", format = "pdf")
     plt.close()
 
 #statlabels=[]
@@ -161,7 +161,7 @@ def plot_stats(stats, params, colorind=1, statind=0, output_dir=".", showplots=F
     #plt.legend(loc=legendpos[colorind], fontsize=12)  
     plt.legend(loc=legendpos[colorind], ncol=len(statlabels[statind])//2, fontsize=12)
     if showplots: plt.show()
-    if saveplots: plt.savefig(f"{output_dir}/statistics.png")
+    if saveplots: plt.savefig(f"{output_dir}/statistics.pdf", format = "pdf")
     plt.close()
 
 def plot_single_los(los, freq_axis, output_dir=".", showplots=False, saveplots=True, label=""):
@@ -170,7 +170,7 @@ def plot_single_los(los, freq_axis, output_dir=".", showplots=False, saveplots=T
     plt.plot(freq_axis/1e6, los)
     plt.xlabel('frequency[MHz]'), plt.ylabel('flux/S147')
     if showplots: plt.show()
-    if saveplots: plt.savefig(f"{output_dir}/los_{label}.png")
+    if saveplots: plt.savefig(f"{output_dir}/los_{label}.pdf", format = "pdf")
     plt.close()
 
 def plot_los(los, freq_axis, output_dir=".", showplots=False, saveplots=True, label=""):
@@ -181,7 +181,7 @@ def plot_los(los, freq_axis, output_dir=".", showplots=False, saveplots=True, la
         if i> 10: break
     plt.xlabel('frequency[MHz]'), plt.ylabel('flux/S147')
     if showplots: plt.show()
-    if saveplots: plt.savefig(f"{output_dir}/los.png")
+    if saveplots: plt.savefig(f"{output_dir}/los.pdf", format = "pdf")
     plt.close()
 
 def plot_predictions(df_y, colors):
@@ -336,7 +336,7 @@ def summarize_test(y_pred, y_test, output_dir=".", showplots=False, saveplots=Tr
         plt.legend()
         plt.colorbar(label=f'RMS Error ({rmse_min:.2f} to {rmse_max:.2f})')
         if showplots: plt.show()
-        if saveplots: plt.savefig(f'{output_dir}/f21_prediction{label}.png')
+        if saveplots: plt.savefig(f'{output_dir}/f21_prediction{label}.pdf", format = "pdf')
         plt.close()
     return mean_r2_score
     
@@ -393,7 +393,7 @@ def summarize_test(y_pred, y_test, output_dir=".", showplots=False):
     plt.legend()
     plt.colorbar(label=f'RMS Error ({rmse_min:.2f} to {rmse_max:.2f})')
     if showplots: plt.show()
-    plt.savefig(f'{output_dir}/f21_prediction.png')
+    plt.savefig(f'{output_dir}/f21_prediction.pdf", format="pdf')
     plt.clf()
 """
 
