@@ -434,7 +434,7 @@ def setup_args_parser():
     parser.add_argument('-b', '--numsamplebatches', type=int, default=1, help='Number of batches of sample data to use for plotting learning curve by sample size.')
     parser.add_argument('--maxfiles', type=int, default=None, help='Max num files to read')
     parser.add_argument('--modelfile', type=str, default="output/cnn-torch-21cmforest-model.pth", help='model file')
-    parser.add_argument('--limitsamplesize', type=int, default=20, help='limit samples from one file to this number.')
+    parser.add_argument('--limitsamplesize', type=int, default=1000, help='limit samples from one file to this number.')
     parser.add_argument('--interactive', action='store_true', help='run in interactive mode. show plots as modals.')
     parser.add_argument('--use_saved_los_data', action='store_true', help='load LoS data from pkl file.')
     parser.add_argument('--epochs', type=int, default=15, help='Number of epoch of training.')

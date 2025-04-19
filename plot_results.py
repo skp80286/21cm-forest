@@ -74,8 +74,10 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
 
     # Create unique identifier for each test point
     unique_test_points = np.unique(y_test[:,:2], axis=0)
-    logger.info(f"Number of unique test points: {len(unique_test_points)}")
-    logger.info(f"Unique test points: {unique_test_points}")
+    sorted_indices_lex = np.lexsort((unique_test_points[:, 0], unique_test_points[:, 1]))
+    unique_test_points = unique_test_points[sorted_indices_lex]    
+    print(f"Number of unique test points: {len(unique_test_points)}")
+    print(f"Unique test points: {unique_test_points}")
     
     # Calculate mean predictions for each unique test point
     mean_predictions = []
@@ -195,7 +197,7 @@ def summarize_test_1000(y_pred, y_test, output_dir=".", showplots=False, saveplo
         plt.ylabel(r'$log_{10}(f_X)$', fontsize=18)
         plt.yticks(fontsize=18)
         plt.xticks(fontsize=18)
-        plt.title(f'Parameter Inference {label}', fontsize=18)
+        plt.title(f'Inference {label}', fontsize=18)
         ax.text(0.05, 0.95, textstr, transform=ax.transAxes, fontsize=18,
                 verticalalignment='top', bbox=props)
         plt.legend(loc='upper right')
