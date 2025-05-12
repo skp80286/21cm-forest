@@ -87,8 +87,18 @@ def main():
     torch.backends.cudnn.benchmark=False
 
     parser = base.setup_args_parser()
-    parser.add_argument('--datapath', type=str, default="saved_output/train_test_psbs_dump/noisy_g50/f21_ps_dum_train_test_uGMRT_t50.0_20250410153928/ps/", help='model file')
-    parser.add_argument('--testdatapath', type=str, default="saved_output/train_test_psbs_dump/noisy_g50/f21_ps_dum_train_test_uGMRT_t50.0_20250410153928/test_ps/", help='model file')
+    #parser.add_argument('--datapath', type=str, default="saved_output/train_test_psbs_dump/noisy_500/f21_ps_dum_train_test_uGMRT_t500.0_20250511105815/ps/", help='')
+    #parser.add_argument('--testdatapath', type=str, default="saved_output/train_test_psbs_dump/noisy_500/f21_ps_dum_train_test_uGMRT_t500.0_20250511105815/test_ps/", help='')
+#    parser.add_argument('--datapath', type=str, default="saved_output/train_test_psbs_dump/noisy_g50/f21_ps_dum_train_test_uGMRT_t50.0_20250410153928/ps/", help='model file')
+#    parser.add_argument('--testdatapath', type=str, default="saved_output/train_test_psbs_dump/noisy_g50/f21_ps_dum_train_test_uGMRT_t50.0_20250410153928/test_ps/", help='model file')
+    #parser.add_argument('--datapath', type=str, default="saved_output/train_test_psbs_dump/noisy_ska/f21_ps_dum_train_test_SKA1-low_t50.0_20250511105922/ps/", help='')
+    #parser.add_argument('--testdatapath', type=str, default="saved_output/train_test_psbs_dump/noisy_ska/f21_ps_dum_train_test_SKA1-low_t50.0_20250511105922/test_ps/", help='')
+
+    parser.add_argument('--datapath', type=str, default="saved_output/train_test_psbs_dump/denoised_500/f21_unet_ps_dum_train_test_uGMRT_t500.0_20250511164401/ps/", help='')
+    parser.add_argument('--testdatapath', type=str, default="saved_output/train_test_psbs_dump/denoised_500/f21_unet_ps_dum_train_test_uGMRT_t500.0_20250511164401/test_ps/", help='')
+
+    #parser.add_argument('--datapath', type=str, default="saved_output/train_test_psbs_dump/denoised_ska/f21_unet_ps_dum_train_test_SKA1-low_t50.0_20250511164401/ps/", help='')
+    #parser.add_argument('--testdatapath', type=str, default="saved_output/train_test_psbs_dump/denoised_ska/f21_unet_ps_dum_train_test_SKA1-low_t50.0_20250511164401/test_ps/", help='')
 
     #../data/denoised_gmrt50h/f21_unet_ps_dum_train_test_uGMRT_t50.0_20250417191012/denoised_ps
     

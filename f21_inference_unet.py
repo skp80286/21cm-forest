@@ -85,6 +85,7 @@ torch.backends.cudnn.benchmark=False
 parser = base.setup_args_parser()
 parser.add_argument('--test_multiple', action='store_true', help='Test 1000 sets of 10 LoS for each test point and plot it')
 parser.add_argument('--test_reps', type=int, default=10000, help='Test repetitions for each parameter combination')
+parser.add_argument('--test_sample_size', type=int, default=10, help='Number of samples of spectrum to be grouped')
 args = parser.parse_args()
 #if args.input_points_to_use not in [2048, 128]: raise ValueError(f"Invalid input_points_to_use {args.input_points_to_use}")
 if args.input_points_to_use >= 2048: 
@@ -144,7 +145,10 @@ logger.info(f"Mapping latent features for training dataset")
 X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
 train_enc3_flattened = model.get_latent_features(X_train_tensor)
 logger.info(f"Training set latent features shape={train_enc3_flattened.shape}")
-params_train, latent_train = f21stats.aggregate_f21_data(y_train, train_enc3_flattened, 10)
+if args.test_sample_size > 1:
+    params_train, latent_train = f21stats.aggregate_f21_data(y_train, train_enc3_flattened, 10)
+else:
+    params_train, latent_train = y_train, train_enc3_flattened
 # Save the enc3 output to a file
 np.savetxt(f"{output_dir}/train_latent_features.csv", latent_train)
 logger.info(f"Saved training data latent features to {output_dir}/train_latent_features.csv")
@@ -155,7 +159,7 @@ logger.info(f"Fitting regressor model {regressor}")
 regressor.fit(latent_train, params_train)  # Train on the flattened enc3 output
 
 # Predict parameters for the test dataset
-r2 = test_multiple(test_files, regression_model=regressor, latent_model=model, input_points_to_use=args.input_points_to_use)
+r2 = test_multiple(test_files, regression_model=regressor, latent_model=model, input_points_to_use=args.input_points_to_use, size=args.test_sample_size)
 
 # Calculate R2 score
 logger.info(f"R2 Score for 10k inference: {r2}")

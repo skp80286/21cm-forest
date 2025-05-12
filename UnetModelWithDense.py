@@ -79,9 +79,16 @@ class UnetModel(nn.Module):
         # Bottleneck
         self.flatten = nn.Flatten()
         self.fc1 = nn.Linear(512 * (input_size//step**4), 256) 
+        print("## NN architecture: input_size:", input_size)
+        print("## NN architecture: step size:", step)
+        print("## NN architecture: fc1 Weight shape:", self.fc1.weight.shape)
+        print("## NN architecture: fc1 Bias shape:", self.fc1.bias.shape)
 
         ## Expansion starts here
         self.fc2 = nn.Linear(256, 512 * (input_size//step**4))  # Expand back to match decoder input
+        print("## NN architecture: fc1 Weight shape:", self.fc1.weight.shape)
+        print("## NN architecture: fc1 Bias shape:", self.fc1.bias.shape)
+
         self.unflatten = nn.Unflatten(dim=1, unflattened_size=(512, (input_size//step**4)))
 
         # Decoder
