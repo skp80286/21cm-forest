@@ -40,12 +40,12 @@ def decide_alpha(num_ps):
     return 1 - (logn - 1) * 0.495
 
 def initplt():
-    plt.rcParams['figure.figsize'] = [12, 6]
-    plt.rcParams['axes.titlesize'] = 18
-    plt.rcParams['axes.labelsize'] = 18
-    plt.rcParams['xtick.labelsize'] = 18
-    plt.rcParams['ytick.labelsize'] = 18
-    plt.rcParams['legend.fontsize'] = 18
+    plt.rcParams['figure.figsize'] = [5., 5.]
+    plt.rcParams['axes.titlesize'] = 20
+    plt.rcParams['axes.labelsize'] = 20
+    plt.rcParams['xtick.labelsize'] = 20
+    plt.rcParams['ytick.labelsize'] = 20
+    plt.rcParams['legend.fontsize'] = 20
     plt.figure()
 
 colorlabels=[r'$\langle x_{HI}\rangle$', r'$log_{10}(f_X)$']

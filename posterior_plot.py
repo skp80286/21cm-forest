@@ -15,6 +15,27 @@ from matplotlib import gridspec
 import corner
 import argparse
 import plot_results as pltr
+from sklearn.metrics import r2_score
+
+import numpy as np
+
+def average_group_std(y_pred, y_true):
+    unique_classes = np.unique(y_true)
+    stds = []
+
+    for val in unique_classes:
+        group_preds = y_pred[y_true == val]
+        std = np.std(group_preds, ddof=1)  # Sample standard deviation
+        stds.append(std)
+
+    avg_std = np.mean(stds)
+    return avg_std
+
+# Example usage:
+# y_true = np.repeat(np.array([0, 1, 2, 3, 4]), 10000)
+# y_pred = np.random.normal(loc=y_true, scale=1.0, size=50000)
+# print(average_group_std(y_true, y_pred))
+
 
 parser = argparse.ArgumentParser(description='Predict reionization parameters from 21cm forest')
 parser.add_argument('-p', '--filepath', type=str, default='unet', help='filepath for the test results')
@@ -84,11 +105,23 @@ print(xHI_infer)
 print(logfX_infer)
 
 #Compute the goodness metric
-score = np.sqrt(np.mean((xHI_infer-xHI_mean)**2+(logfX_infer-logfX)**2))
-print('Score=%.6f' % score)
+g_score = np.sqrt(np.mean((xHI_infer-xHI_mean)**2+(logfX_infer-logfX)**2))
+print('G-Score=%.6f' % g_score)
+
+r2score_xHI = r2_score(all_results[:,:1], all_results[:,2:3])
+r2score_fX = r2_score(all_results[:,1:2], all_results[:,3:4])
+r2score = 0.5*(r2score_xHI+r2score_fX)
+print('r2_score=%.6f | %.6f | %.6f' % (r2score_xHI,r2score_fX,r2score))
+
 
 g_all_score = pltr.rmse_all(all_results[:,:2], all_results[:,2:4])
 print('G-all Score=%.6f' % g_all_score)
+
+sigma_xHI = average_group_std(all_results[:,:1], all_results[:,2:3])
+sigma_fX = average_group_std(all_results[:,1:2], all_results[:,3:4])
+sigma = 0.5*(sigma_xHI+sigma_fX)
+print('sigma=%.6f | %.6f | %.6f' % (sigma_xHI,sigma_fX,sigma))
+
 #Make the plot look nice
 ax0.set_xticks(np.arange(0.,1.1,0.2))
 ax0.set_yticks(np.arange(-4.,0.1,1.))
@@ -226,9 +259,9 @@ ax0.plot(xHI_lim_68,logfX_lim_68,linestyle='-',color='black',linewidth=1.5)
 '''
 
 #Complete plotting and save
-plt.title(r'%s, %d hr, $G=%.2f$' % (telescope,tint,score), fontsize=fsize)
+plt.title(r'%s, %d hr, $G=%.2f$' % (telescope,tint,g_score), fontsize=fsize)
 
 plt.tight_layout()
-#plt.savefig('%s/multiparam_infer_unet_%s_%s_%dhr_%dsteps.pdf' % (path, tag, telescope,tint,Nsteps), format='pdf')
+#plt.savefig('%s/multiparam_infer_unet_%s_%dhr_%dsteps.pdf' % ("./tmp_out", telescope,tint,Nsteps), format='pdf')
 
-plt.show()
+#plt.show()

@@ -173,7 +173,7 @@ save_model(regressor)
 np.savetxt(f"{output_dir}/feature_importance.csv", feature_importance, delimiter=',')
 logger.info(f"Feature importance: {feature_importance}")
 for imp_type in ['weight','gain', 'cover', 'total_gain', 'total_cover']:
-    logger.info(f"Importance type {imp_type}: {reg.get_booster().get_score(importance_type=imp_type)}")
+    logger.info(f"Importance type {imp_type}: {regressor.get_booster().get_score(importance_type=imp_type)}")
 
 # Predict parameters for the test dataset
 r2 = test_multiple(test_files, regression_model=regressor, latent_model=model, input_points_to_use=args.input_points_to_use)

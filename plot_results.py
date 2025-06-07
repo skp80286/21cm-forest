@@ -263,21 +263,21 @@ def plot_denoised_los(los_test, y_test_so, y_pred_so, samples=1, showplots=False
     for i, (noisy, test, pred) in enumerate(zip(los_test[:samples], y_test_so[:samples], y_pred_so[:samples])):
         if freq_axis is None: freq_axis=range(len(noisy))
         base.initplt()
-        plt.rcParams['figure.figsize'] = [15, 9]
-        plt.title(f'Denoising by U-Net: {label}')
+        plt.title(f'{label}')
         chisq_noisy = np.sum((noisy - test)**2 / test)
-        plt.plot(freq_axis, noisy, label=f'Signal+Noise: χ²={chisq_noisy:.4f}')
-        plt.plot(freq_axis, test+0.1, label='Signal+0.1')
+        plt.plot(freq_axis, noisy, label=f'Signal+Noise: χ²={chisq_noisy:.2f}', c='black', linewidth=0.5)
+        plt.plot(freq_axis, test, label='Signal', c='orange')
         chisq_denoised = np.sum((pred - test)**2 / test)
-        plt.plot(freq_axis, pred+0.06, label=f'Denoised+0.06: χ²={chisq_denoised:.4f}')
+        plt.plot(freq_axis, pred+0.1, label=f'Denoised+0.1: χ²={chisq_denoised:.2f}')
         plt.xlabel(r'$\nu_{obs}$[MHz]'), 
         plt.ylabel(r'$F_{21}=e^{-\tau_{21}}$')
-        plt.legend(loc='lower right')
+        #plt.legend(loc='best')#lower right')
         if saveplots: 
-            plt.savefig(f"{output_dir}/reconstructed_los_{label}.pdf", format="pdf")
+            plt.savefig(f"{output_dir}/reconstructed_los_{label}.pdf", format="pdf", bbox_inches='tight')
             logger.info(f"Saved denoised los plot to {output_dir}/reconstructed_los_{label}.png")
         if i> 5: break
         if showplots: plt.show()
+        print(f'denoising {label}: χ²={chisq_noisy:.2f} χ²={chisq_denoised:.2f}')
         plt.close()
 
 def calculate_chisq_tensor(predictions, targets, epsilon=1e-10):
