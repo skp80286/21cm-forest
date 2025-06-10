@@ -268,6 +268,6 @@ ax0.plot(xHI_lim_68,logfX_lim_68,linestyle='-',color='black',linewidth=1.5)
 plt.title(r'%s, %d hr' % (telescope,tint), fontsize=fsize)
 plt.legend(labelspacing = 1)
 plt.tight_layout()
-plt.savefig('%s/multiparam_infer_unet_%s_%dhr_%dsteps.pdf' % ("./tmp_out", telescope,tint,Nsteps), format='pdf')
+plt.savefig('%s/multimethod_infer_unet_%s_%dhr_%dsteps.pdf' % ("./tmp_out", telescope,tint,Nsteps), format='pdf')
 
 plt.show()
