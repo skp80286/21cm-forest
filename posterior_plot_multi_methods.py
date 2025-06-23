@@ -52,6 +52,7 @@ spec_res = 8
 S147 = 64.2
 alphaR = -0.44
 Nsteps = 10000
+autocorr_cut = 1000
 
 telescope = args.telescope
 tint = args.t_int
@@ -61,8 +62,9 @@ tint = args.t_int
 print(f"loading result file using pattern {args.filepath}")
 
 
-methods = ['noisy','latent'] # 'denoised', 
-method_labels = ['XGB: Power spectrum', 'XGB: Latent features'] #'Denoised PS', 
+methods = ['basic','nsub','MLdenoised','noisy','denoised','latent'] #  
+method_types = ['bayes','bayes','bayes','xgb','xgb','xgb'] # 
+method_labels = ['MCMC: Noisy PS', 'MCMC: Noise subtracted', 'MCMC: ML denoised', 'XGB: Noisy PS', 'XGB: ML denoised', 'XGB: Latent features'] #
 
 
 #Start plotting
@@ -76,38 +78,48 @@ xHI_mean = 0.11
 logfX    = -3.0
 
 for i, method in enumerate(methods):
-   results_file = glob.glob(f"{args.filepath}/{method}*/test_results.csv")
-   print(f"loading result file using pattern {results_file}")
-   all_results = np.loadtxt(results_file[0], delimiter=",", skiprows=1)
-   print(f'Total rows in file: {len(all_results)}')
-   # Round columns 3 and 4 to two decimal places before comparison
-   rounded_xHI = np.round(all_results[:, 2], 2)
-   rounded_logfX = np.round(all_results[:, 3], 2)
-   all_results = all_results[(rounded_xHI == xHI_mean) & (rounded_logfX == logfX)]
-   print(f'Filtered rows in file: {len(all_results)}')
-   
-   xHI_mean_post = np.reshape(all_results[:,0],(-1,Nsteps))
-   logfX_post = np.reshape(all_results[:,1],(-1,Nsteps))
+   if method_types[i] == 'xgb':
+      results_file = glob.glob(f"{args.filepath}/{method}*/test_results.csv")
+      print(f"loading result file using pattern {results_file}")
+      all_results = np.loadtxt(results_file[0], delimiter=",", skiprows=1)
+      print(f'Total rows in file: {len(all_results)}')
+      # Round columns 3 and 4 to two decimal places before comparison
+      rounded_xHI = np.round(all_results[:, 2], 2)
+      rounded_logfX = np.round(all_results[:, 3], 2)
+      all_results = all_results[(rounded_xHI == xHI_mean) & (rounded_logfX == logfX)]
+      print(f'Filtered rows in file: {len(all_results)}')
+      xHI_mean_post = np.reshape(all_results[:,0],(-1,Nsteps))
+      logfX_post = np.reshape(all_results[:,1],(-1,Nsteps))
 
-   print(xHI_mean_post)
-   print(logfX_post)
+      print(xHI_mean_post)
+      print(logfX_post)
+      #Read the best fit values from the MCMC
+      logfX_infer = np.mean(logfX_post)
+      xHI_infer = np.mean(xHI_mean_post)
+
+   elif method_types[i] == 'bayes':
+      results_file = f"{args.filepath}/flatsamp*{method}*.npy"
+      print(f"loading result file using pattern {results_file}")
+
+      data = np.load(glob.glob(results_file)[0])
+      xHI_mean_post = data[autocorr_cut:,0]
+      logfX_post = data[autocorr_cut:,1]
+
+      all_results = data[autocorr_cut:, 0:2]
+      truevalues = np.zeros((all_results.shape[0], 2))
+      truevalues[:,0] = xHI_mean
+      truevalues[:,1] = logfX
+      all_results = np.hstack((all_results, truevalues))
+      print(f'{all_results[:10]}')
+      #corner.hist2d(data[:,0],data[:,1],levels=[1-np.exp(-0.5),1-np.exp(-2.)],smooth=True,plot_datapoints=True,plot_density=True,color=colours[i])
+
+      logfX_infer = data[0,1]
+      xHI_infer = data[0,0]
+
 
    #Plot the posterior distributions from the MCMC using corner package (Foreman-Mackey 2016, The Journal of Open Source Software, 1, 24)
    corner.hist2d(xHI_mean_post,logfX_post,levels=[1-np.exp(-0.5),1-np.exp(-2.)],plot_datapoints=False,plot_density=False,fill_contours=True,color=colours[i])#,contourf_kwargs=contkwarg)
 
-   #Read the best fit values from the MCMC
-   logfX_infer = np.mean(logfX_post)
-   xHI_infer = np.mean(xHI_mean_post)
-
-   #Plot the best fit and true values
-   ax0.scatter(xHI_infer, logfX_infer, marker='o', s=200, linewidths=1., color=colours[i], edgecolors='black', alpha=1, label=method_labels[i], zorder=10)
-
-   print('Mock xHI and fX values')
-   print(xHI_mean)
-   print(logfX)
-   print('Inferred xHI and fX values')
-   print(xHI_infer)
-   print(logfX_infer)
 
    #Compute the goodness metric
    g_score = np.sqrt(np.mean((xHI_infer-xHI_mean)**2+(logfX_infer-logfX)**2))
@@ -126,7 +138,17 @@ for i, method in enumerate(methods):
    sigma_fX = average_group_std(all_results[:,1:2], all_results[:,3:4])
    sigma = 0.5*(sigma_xHI+sigma_fX)
    print('sigma=%.6f | %.6f | %.6f' % (sigma_xHI,sigma_fX,sigma))
+   #Plot the best fit and true values
+   ax0.scatter(xHI_infer, logfX_infer, marker='o', s=200, linewidths=1., color=colours[i], edgecolors='black', alpha=1, label=f'{method_labels[i]}, G={g_score:.2f}', zorder=10)
 
+   print('Mock xHI and fX values')
+   print(xHI_mean)
+   print(logfX)
+   print('Inferred xHI and fX values')
+   print(xHI_infer)
+   print(logfX_infer)
+
+   
 ax0.scatter(xHI_mean, logfX, marker='*', s=200, linewidths=1., color='black', edgecolors='black', alpha=1, zorder=100)
 #Make the plot look nice
 ax0.set_xticks(np.arange(0.,1.1,0.2))
