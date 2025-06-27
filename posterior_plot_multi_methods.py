@@ -19,6 +19,7 @@ from sklearn.metrics import r2_score
 import numpy as np
 import matplotlib.colors as mc
 import colorsys
+from matplotlib.lines import Line2D
 
 def lighten_color(color, amount):
     try:
@@ -107,6 +108,7 @@ ax0.text(0.005,-1.8,'Greig+24',color=colours_lit[2],rotation=rot,fontsize=fsize_
 ax0.axvspan(0,0.21+0.17,alpha=0.2,color=colours_lit[0])
 ax0.text(0.005,-1.8,r'Limit from Ly-$\alpha$ data',color=colours_lit[2],rotation=rot,fontsize=fsize_meas)       #Greig et al. 2024, MNRAS, 530, 3208
 
+legends = []
 for i, method in enumerate(methods):
    if method_types[i] == 'xgb':
       results_file = glob.glob(f"{args.filepath}/{method}*/test_results.csv")
@@ -151,8 +153,10 @@ for i, method in enumerate(methods):
    zorder = 1000
    if i == 0: zorder = 1
    print(f'zorder={zorder}')
+
    corner.hist2d(xHI_mean_post, logfX_post, levels=[1-np.exp(-2.)], smooth=True, plot_datapoints=False, 
                  plot_density=False, fill_contours=True, color=colours[i], **{'zorder': zorder})
+
    #,contourf_kwargs=contkwarg)
    # 1-np.exp(-1.), 
 
@@ -175,7 +179,20 @@ for i, method in enumerate(methods):
    print('sigma=%.6f | %.6f | %.6f' % (sigma_xHI,sigma_fX,sigma))
    #Plot the best fit and true values
    #ax0.scatter(xHI_infer, logfX_infer, marker='o', s=200, linewidths=1., color=colours[i], edgecolors='black', alpha=1, label=f'{method_labels[i]}, G={g_score:.2f}', zorder=10)
-   ax0.scatter(xHI_infer, logfX_infer, marker='o', s=200, linewidths=1., color=colours[i], edgecolors='black', alpha=1, label=f'{method_labels[i]}, G={g_score:.2f}', zorder=10)
+   #marker_elem = ax0.scatter(xHI_infer, logfX_infer, marker='o', s=200, linewidths=1., color=colours[i], edgecolors='black', alpha=1, label=f'{method_labels[i]}, G={g_score:.2f}', zorder=10)
+   #marker_elem.set_visible(False)
+   
+   # Create an invisible circle marker for legend only
+   circle_legend = Line2D(
+      [], [],                      # empty data, so nothing plotted
+      marker='o',  
+      color=colours[i],                # circle marker
+      #edgecolor='black',              
+      linestyle='None',            # no line
+      markersize=20,                # size of marker
+      label=f'{method_labels[i]}, G={g_score:.2f}'
+   )
+   legends.append(circle_legend)
    print('Mock xHI and fX values')
    print(xHI_mean)
    print(logfX)
@@ -310,7 +327,7 @@ ax0.plot(xHI_lim_68,logfX_lim_68,linestyle='-',color='black',linewidth=1.5)
 
 #Complete plotting and save
 plt.title(r'%s, %d hr' % (telescope,tint), fontsize=fsize)
-plt.legend(labelspacing = 1, loc='lower right', fontsize=fsize_legend, frameon=False, title=r'z=6', title_fontsize=fsize)
+plt.legend(handles=legends, labelspacing = 1, loc='lower right', fontsize=fsize_legend, frameon=False, title=r'z=6', title_fontsize=fsize)
 plt.tight_layout()
 plt.savefig('%s/multimethod_infer_unet_%s_%dhr_%dsteps.pdf' % ("./tmp_out", telescope,tint,Nsteps), format='pdf')
 
