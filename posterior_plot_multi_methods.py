@@ -16,8 +16,17 @@ import corner
 import argparse
 import plot_results as pltr
 from sklearn.metrics import r2_score
-
 import numpy as np
+import matplotlib.colors as mc
+import colorsys
+
+def lighten_color(color, amount):
+    try:
+        c = mc.cnames[color]
+    except:
+        c = color
+    c = colorsys.rgb_to_hls(*mc.to_rgb(c))
+    return colorsys.hls_to_rgb(c[0], max(0, min(1, amount * c[1])), c[2])
 
 def average_group_std(y_pred, y_true):
     unique_classes = np.unique(y_true)
@@ -62,20 +71,41 @@ tint = args.t_int
 print(f"loading result file using pattern {args.filepath}")
 
 
-methods = ['basic','nsub','MLdenoised','noisy','denoised','latent'] #  
-method_types = ['bayes','bayes','bayes','xgb','xgb','xgb'] # 
-method_labels = ['MCMC: Noisy PS', 'MCMC: Noise subtracted', 'MCMC: ML denoised', 'XGB: Noisy PS', 'XGB: ML denoised', 'XGB: Latent features'] #
+methods = ['basic','nsub','noisy','denoised','latent'] #  ,'MLdenoised'
+method_types = ['bayes','bayes','xgb','xgb','xgb'] # ,'bayes'
+method_labels = ['Method A1', 'Method A2', 'Method B1', 'Method B2', 'Method B3'] # , 'MCMC: ML denoised'
 
 
 #Start plotting
 fsize = 20
-colours  = ['royalblue','fuchsia','forestgreen','darkorange','red','lightcoral','slateblue','limegreen','teal','navy']
-
+fsize_meas = 18
+fsize_legend = 14
+#colours  = ['royalblue','fuchsia','forestgreen','darkorange','limegreen','slateblue','lightcoral','red','teal','navy']
+colours  = ['royalblue','mediumseagreen','darkorange','mediumturquoise','orchid', 'burlywood','forestgreen','teal','slateblue','limegreen','lightcoral','fuchsia','red','navy']
+#plt.style.use('seaborn-v0_8-pastel')
 fig = plt.figure(figsize=(8.,8.))
 gs = gridspec.GridSpec(1,1)
 ax0 = plt.subplot(gs[0,0])
 xHI_mean = 0.11
 logfX    = -3.0
+
+
+#Plot the x_HI measurements from the Lyα forest
+colours_lit = ['grey','brown','darkviolet','navy']
+rot = 36
+
+"""
+ax0.axvspan(0.21-0.07,0.21+0.17,alpha=0.2,color=colours_lit[0])
+ax0.text(0.15,-1.8,'Ďurovčíková+24',color=colours_lit[0],rotation=rot,fontsize=fsize_meas)  #Ďurovčíková et al. 2024, ApJ, 969, 162
+
+ax0.axvspan(0.17-0.11,0.17+0.09,alpha=0.2,color=colours_lit[1])
+ax0.text(0.08,-1.8,'Gaikwad+23',color=colours_lit[1],rotation=rot,fontsize=fsize_meas)      #Gaikwad et al. 2023, MNRAS, 525, 4093
+
+ax0.axvspan(0,0.21,alpha=0.2,color=colours_lit[2])
+ax0.text(0.005,-1.8,'Greig+24',color=colours_lit[2],rotation=rot,fontsize=fsize_meas)       #Greig et al. 2024, MNRAS, 530, 3208
+"""
+ax0.axvspan(0,0.21+0.17,alpha=0.2,color=colours_lit[0])
+ax0.text(0.005,-1.8,r'Limit from Ly-$\alpha$ data',color=colours_lit[2],rotation=rot,fontsize=fsize_meas)       #Greig et al. 2024, MNRAS, 530, 3208
 
 for i, method in enumerate(methods):
    if method_types[i] == 'xgb':
@@ -118,8 +148,13 @@ for i, method in enumerate(methods):
 
 
    #Plot the posterior distributions from the MCMC using corner package (Foreman-Mackey 2016, The Journal of Open Source Software, 1, 24)
-   corner.hist2d(xHI_mean_post,logfX_post,levels=[1-np.exp(-0.5),1-np.exp(-2.)],plot_datapoints=False,plot_density=False,fill_contours=True,color=colours[i])#,contourf_kwargs=contkwarg)
-
+   zorder = 1000
+   if i == 0: zorder = 1
+   print(f'zorder={zorder}')
+   corner.hist2d(xHI_mean_post, logfX_post, levels=[1-np.exp(-2.)], smooth=True, plot_datapoints=False, 
+                 plot_density=False, fill_contours=True, color=colours[i], **{'zorder': zorder})
+   #,contourf_kwargs=contkwarg)
+   # 1-np.exp(-1.), 
 
    #Compute the goodness metric
    g_score = np.sqrt(np.mean((xHI_infer-xHI_mean)**2+(logfX_infer-logfX)**2))
@@ -139,8 +174,8 @@ for i, method in enumerate(methods):
    sigma = 0.5*(sigma_xHI+sigma_fX)
    print('sigma=%.6f | %.6f | %.6f' % (sigma_xHI,sigma_fX,sigma))
    #Plot the best fit and true values
+   #ax0.scatter(xHI_infer, logfX_infer, marker='o', s=200, linewidths=1., color=colours[i], edgecolors='black', alpha=1, label=f'{method_labels[i]}, G={g_score:.2f}', zorder=10)
    ax0.scatter(xHI_infer, logfX_infer, marker='o', s=200, linewidths=1., color=colours[i], edgecolors='black', alpha=1, label=f'{method_labels[i]}, G={g_score:.2f}', zorder=10)
-
    print('Mock xHI and fX values')
    print(xHI_mean)
    print(logfX)
@@ -154,7 +189,7 @@ ax0.scatter(xHI_mean, logfX, marker='*', s=200, linewidths=1., color='black', ed
 ax0.set_xticks(np.arange(0.,1.1,0.2))
 ax0.set_yticks(np.arange(-4.,0.1,1.))
 ax0.set_xlim(0.,1.)
-ax0.set_ylim(-4,-0.4)
+ax0.set_ylim(-4,-1)
 ax0.xaxis.set_minor_locator(AutoMinorLocator())
 ax0.yaxis.set_minor_locator(AutoMinorLocator())
 ax0.set_xlabel(r'$\langle x_{\rm HI}\rangle$', fontsize=fsize)
@@ -167,19 +202,6 @@ ax0.tick_params(axis='both',which='minor',direction='in',bottom=True,top=True,le
 		,length=5,width=1)
 
 
-
-#Plot the x_HI measurements from the Lyα forest
-colours_lit = ['grey','brown','darkviolet','navy']
-rot = 60
-
-ax0.axvspan(0.21-0.07,0.21+0.17,alpha=0.2,color=colours_lit[0])
-ax0.text(0.15,-1.8,'Ďurovčíková+24',color=colours_lit[0],rotation=rot,fontsize=12)  #Ďurovčíková et al. 2024, ApJ, 969, 162
-
-ax0.axvspan(0.17-0.11,0.17+0.09,alpha=0.2,color=colours_lit[1])
-ax0.text(0.08,-1.8,'Gaikwad+23',color=colours_lit[1],rotation=rot,fontsize=12)      #Gaikwad et al. 2023, MNRAS, 525, 4093
-
-ax0.axvspan(0,0.21,alpha=0.2,color=colours_lit[2])
-ax0.text(0.005,-1.8,'Greig+24',color=colours_lit[2],rotation=rot,fontsize=12)       #Greig et al. 2024, MNRAS, 530, 3208
 
 
 
@@ -288,7 +310,7 @@ ax0.plot(xHI_lim_68,logfX_lim_68,linestyle='-',color='black',linewidth=1.5)
 
 #Complete plotting and save
 plt.title(r'%s, %d hr' % (telescope,tint), fontsize=fsize)
-plt.legend(labelspacing = 1)
+plt.legend(labelspacing = 1, loc='lower right', fontsize=fsize_legend, frameon=False, title=r'z=6', title_fontsize=fsize)
 plt.tight_layout()
 plt.savefig('%s/multimethod_infer_unet_%s_%dhr_%dsteps.pdf' % ("./tmp_out", telescope,tint,Nsteps), format='pdf')
 

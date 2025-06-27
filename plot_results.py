@@ -280,6 +280,7 @@ def plot_denoised_los(los_test, y_test_so, y_pred_so, samples=1, showplots=False
         print(f'denoising {label}: χ²={chisq_noisy:.2f} χ²={chisq_denoised:.2f}')
         plt.close()
 
+
 def calculate_chisq_tensor(predictions, targets, epsilon=1e-10):
     """
     Calculate chi-squared between predictions and targets for PyTorch tensors.
