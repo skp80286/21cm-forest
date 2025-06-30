@@ -21,6 +21,205 @@ import matplotlib.colors as mc
 import colorsys
 from matplotlib.lines import Line2D
 
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.patches import Ellipse
+from scipy.stats import chi2
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import gaussian_kde
+
+from matplotlib.colors import LinearSegmentedColormap, colorConverter
+try:
+    from scipy.ndimage import gaussian_filter
+except ImportError:
+    gaussian_filter = None
+from matplotlib.patches import Rectangle
+
+def hist2d(x, y, bins=20, range=None, weights=None, levels=None, smooth=None,
+           ax=None, color=None, plot_datapoints=True, plot_density=True,
+           plot_contours=True, no_fill_contours=False, fill_contours=False,
+           contour_kwargs=None, contourf_kwargs=None, data_kwargs=None,
+           **kwargs):
+    """
+    Plot a 2-D histogram of samples.
+
+    Parameters
+    ----------
+    x, y : array_like (nsamples,)
+       The samples.
+
+    levels : array_like
+        The contour levels to draw.
+
+    ax : matplotlib.Axes (optional)
+        A axes instance on which to add the 2-D histogram.
+
+    plot_datapoints : bool (optional)
+        Draw the individual data points.
+
+    plot_density : bool (optional)
+        Draw the density colormap.
+
+    plot_contours : bool (optional)
+        Draw the contours.
+
+    no_fill_contours : bool (optional)
+        Add no filling at all to the contours (unlike setting
+        ``fill_contours=False``, which still adds a white fill at the densest
+        points).
+
+    fill_contours : bool (optional)
+        Fill the contours.
+
+    contour_kwargs : dict (optional)
+        Any additional keyword arguments to pass to the `contour` method.
+
+    contourf_kwargs : dict (optional)
+        Any additional keyword arguments to pass to the `contourf` method.
+
+    data_kwargs : dict (optional)
+        Any additional keyword arguments to pass to the `plot` method when
+        adding the individual data points.
+    """
+    if ax is None:
+        ax = plt.gca()
+    
+    if np.all(np.isnan(x)) or np.all(np.isnan(y)):
+        return
+    
+    # Set the default range based on the data range if not provided.
+    if range is None:
+        if "extent" in kwargs:
+            logging.warn("Deprecated keyword argument 'extent'. "
+                         "Use 'range' instead.")
+            range = kwargs["extent"]
+        else:
+            range = [[x.min(), x.max()], [y.min(), y.max()]]
+
+    # Set up the default plotting arguments.
+    if color is None:
+        color = "k"
+
+    # Choose the default "sigma" contour levels.
+    if levels is None:
+        levels = 1.0 - np.exp(-0.5 * np.arange(0.5, 2.1, 0.5) ** 2)
+
+    # This is the color map for the density plot, over-plotted to indicate the
+    # density of the points near the center.
+    density_cmap = LinearSegmentedColormap.from_list(
+        "density_cmap", [color, (1, 1, 1, 0)])
+
+    # This color map is used to hide the points at the high density areas.
+    white_cmap = LinearSegmentedColormap.from_list(
+        "white_cmap", [(1, 1, 1), (1, 1, 1)], N=2)
+
+    # This "color map" is the list of colors for the contour levels if the
+    # contours are filled.
+    rgba_color = colorConverter.to_rgba(color)
+    contour_cmap = [list(rgba_color) for l in levels] + [rgba_color]
+    for i, l in enumerate(levels):
+        contour_cmap[i][-1] *= float(i) / (len(levels)+1)
+
+    # We'll make the 2D histogram to directly estimate the density.
+    try:
+        H, X, Y = np.histogram2d(x.flatten(), y.flatten(), bins=bins,
+                                 range=range, weights=weights)
+    except ValueError:
+        raise ValueError("It looks like at least one of your sample columns "
+                         "have no dynamic range. You could try using the "
+                         "'range' argument.")
+
+    if smooth is not None:
+        if gaussian_filter is None:
+            raise ImportError("Please install scipy for smoothing")
+        H = gaussian_filter(H, smooth)
+
+    # Compute the density levels.
+    Hflat = H.flatten()
+    inds = np.argsort(Hflat)[::-1]
+    Hflat = Hflat[inds]
+    sm = np.cumsum(Hflat)
+    sm /= sm[-1]
+    V = np.empty(len(levels))
+    for i, v0 in enumerate(levels):
+        try:
+            V[i] = Hflat[sm <= v0][-1]
+        except:
+            V[i] = Hflat[0]
+    V.sort()
+    m = np.diff(V) == 0
+    if np.any(m):
+        logging.warning("Too few points to create valid contours")
+    while np.any(m):
+        V[np.where(m)[0][0]] *= 1.0 - 1e-4
+        m = np.diff(V) == 0
+    V.sort()
+
+    # Compute the bin centers.
+    X1, Y1 = 0.5 * (X[1:] + X[:-1]), 0.5 * (Y[1:] + Y[:-1])
+
+    # Extend the array for the sake of the contours at the plot edges.
+    H2 = H.min() + np.zeros((H.shape[0] + 4, H.shape[1] + 4))
+    H2[2:-2, 2:-2] = H
+    H2[2:-2, 1] = H[:, 0]
+    H2[2:-2, -2] = H[:, -1]
+    H2[1, 2:-2] = H[0]
+    H2[-2, 2:-2] = H[-1]
+    H2[1, 1] = H[0, 0]
+    H2[1, -2] = H[0, -1]
+    H2[-2, 1] = H[-1, 0]
+    H2[-2, -2] = H[-1, -1]
+    X2 = np.concatenate([
+        X1[0] + np.array([-2, -1]) * np.diff(X1[:2]),
+        X1,
+        X1[-1] + np.array([1, 2]) * np.diff(X1[-2:]),
+    ])
+    Y2 = np.concatenate([
+        Y1[0] + np.array([-2, -1]) * np.diff(Y1[:2]),
+        Y1,
+        Y1[-1] + np.array([1, 2]) * np.diff(Y1[-2:]),
+    ])
+
+    if plot_datapoints:
+        if data_kwargs is None:
+            data_kwargs = dict()
+        data_kwargs["color"] = data_kwargs.get("color", color)
+        data_kwargs["ms"] = data_kwargs.get("ms", 2.0)
+        data_kwargs["mec"] = data_kwargs.get("mec", "none")
+        data_kwargs["alpha"] = data_kwargs.get("alpha", 0.1)
+        ax.plot(x, y, "o", zorder=-1, rasterized=True, **data_kwargs)
+
+    # Plot the base fill to hide the densest data points.
+    if (plot_contours or plot_density) and not no_fill_contours:
+        ax.contourf(X2, Y2, H2.T, [V.min(), H.max()],
+                    cmap=white_cmap, antialiased=False)
+
+    if fill_contours:
+        if contourf_kwargs is None:
+            contourf_kwargs = dict()
+        contourf_kwargs["colors"] = contourf_kwargs.get("colors", contour_cmap)
+        contourf_kwargs["antialiased"] = contourf_kwargs.get("antialiased",
+                                                             False)
+        ax.contourf(X2, Y2, H2.T, np.concatenate([[0], V, [H.max()*(1+1e-4)]]),
+                    **contourf_kwargs)
+
+    # Plot the density map. This can't be plotted at the same time as the
+    # contour fills.
+    elif plot_density:
+        ax.pcolor(X, Y, H.max() - H.T, cmap=density_cmap)
+
+    # Plot the contour edge colors.
+    if plot_contours:
+        if contour_kwargs is None:
+            contour_kwargs = dict()
+        contour_kwargs["colors"] = contour_kwargs.get("colors", color)
+        ax.contour(X2, Y2, H2.T, V, **contour_kwargs)
+
+    ax.set_xlim(range[0])
+    ax.set_ylim(range[1])
+
 def lighten_color(color, amount):
     try:
         c = mc.cnames[color]
@@ -79,7 +278,7 @@ method_labels = ['Method A1', 'Method A2', 'Method B1', 'Method B2', 'Method B3'
 
 #Start plotting
 fsize = 20
-fsize_meas = 18
+fsize_meas = 16
 fsize_legend = 14
 #colours  = ['royalblue','fuchsia','forestgreen','darkorange','limegreen','slateblue','lightcoral','red','teal','navy']
 colours  = ['royalblue','mediumseagreen','darkorange','mediumturquoise','orchid', 'burlywood','forestgreen','teal','slateblue','limegreen','lightcoral','fuchsia','red','navy']
@@ -106,7 +305,7 @@ ax0.axvspan(0,0.21,alpha=0.2,color=colours_lit[2])
 ax0.text(0.005,-1.8,'Greig+24',color=colours_lit[2],rotation=rot,fontsize=fsize_meas)       #Greig et al. 2024, MNRAS, 530, 3208
 """
 ax0.axvspan(0,0.21+0.17,alpha=0.2,color=colours_lit[0])
-ax0.text(0.005,-1.8,r'Limit from Ly-$\alpha$ data',color=colours_lit[2],rotation=rot,fontsize=fsize_meas)       #Greig et al. 2024, MNRAS, 530, 3208
+ax0.text(0.02, -1.15,r'Limit from Ly$\alpha$ data',color='darkgrey',fontsize=fsize_meas)       #Greig et al. 2024, MNRAS, 530, 3208
 
 legends = []
 for i, method in enumerate(methods):
@@ -150,12 +349,11 @@ for i, method in enumerate(methods):
 
 
    #Plot the posterior distributions from the MCMC using corner package (Foreman-Mackey 2016, The Journal of Open Source Software, 1, 24)
-   zorder = 1000
-   if i == 0: zorder = 1
-   print(f'zorder={zorder}')
-
-   corner.hist2d(xHI_mean_post, logfX_post, levels=[1-np.exp(-2.)], smooth=True, plot_datapoints=False, 
-                 plot_density=False, fill_contours=True, color=colours[i], **{'zorder': zorder})
+   zorder = 1
+   if i == 0: zorder = 2
+   hist2d(xHI_mean_post, logfX_post, levels=[1-np.exp(-2.)], smooth=True, plot_datapoints=False, 
+                 plot_density=False, plot_contours=False, fill_contours=True, color=colours[i], contourf_kwargs={'zorder': zorder})
+   #plt.contour(xedges[:-1], yedges[:-1], H.T, ax=ax0, levels=2, colors=colours[i]) # You can change levels and colors
 
    #,contourf_kwargs=contkwarg)
    # 1-np.exp(-1.), 
@@ -177,6 +375,7 @@ for i, method in enumerate(methods):
    sigma_fX = average_group_std(all_results[:,1:2], all_results[:,3:4])
    sigma = 0.5*(sigma_xHI+sigma_fX)
    print('sigma=%.6f | %.6f | %.6f' % (sigma_xHI,sigma_fX,sigma))
+   #plot_nongaussian_2sigma(np.vstack((xHI_mean_post, logfX_post)).T, label=f'{method_labels[i]}, G={g_score:.2f}', ax=ax0, color=colours[i])
    #Plot the best fit and true values
    #ax0.scatter(xHI_infer, logfX_infer, marker='o', s=200, linewidths=1., color=colours[i], edgecolors='black', alpha=1, label=f'{method_labels[i]}, G={g_score:.2f}', zorder=10)
    #marker_elem = ax0.scatter(xHI_infer, logfX_infer, marker='o', s=200, linewidths=1., color=colours[i], edgecolors='black', alpha=1, label=f'{method_labels[i]}, G={g_score:.2f}', zorder=10)
@@ -192,7 +391,11 @@ for i, method in enumerate(methods):
       markersize=20,                # size of marker
       label=f'{method_labels[i]}, G={g_score:.2f}'
    )
-   legends.append(circle_legend)
+
+
+   rectangle = Rectangle((0, 0), 20, 18,
+                              linewidth=1,  facecolor=colours[i], label=f'{method_labels[i]}, G={g_score:.2f}')
+   legends.append(rectangle)
    print('Mock xHI and fX values')
    print(xHI_mean)
    print(logfX)
@@ -210,13 +413,13 @@ ax0.set_ylim(-4,-1)
 ax0.xaxis.set_minor_locator(AutoMinorLocator())
 ax0.yaxis.set_minor_locator(AutoMinorLocator())
 ax0.set_xlabel(r'$\langle x_{\rm HI}\rangle$', fontsize=fsize)
-ax0.set_ylabel(r'$\log_{10}(f_{\mathrm{X}})$', fontsize=fsize)
+ax0.set_ylabel(r'$\log_{10} f_{\mathrm{X}}$', fontsize=fsize)
 ax0.tick_params(axis='x',which='major',direction='in',bottom=True,top=True,left=True,right=True
-		,length=10,width=1,labelsize=fsize)
+		,length=10,width=1,labelsize=fsize,zorder=1000, pad=9)
 ax0.tick_params(axis='y',which='major',direction='in',bottom=True,top=True,left=True,right=True
-		,length=10,width=1,labelsize=fsize)
+		,length=10,width=1,labelsize=fsize,zorder=1000)
 ax0.tick_params(axis='both',which='minor',direction='in',bottom=True,top=True,left=True,right=True
-		,length=5,width=1)
+		,length=5,width=1,zorder=1000)
 
 
 
@@ -326,8 +529,8 @@ ax0.plot(xHI_lim_68,logfX_lim_68,linestyle='-',color='black',linewidth=1.5)
 '''
 
 #Complete plotting and save
-plt.title(r'%s, %d hr' % (telescope,tint), fontsize=fsize)
-plt.legend(handles=legends, labelspacing = 1, loc='lower right', fontsize=fsize_legend, frameon=False, title=r'z=6', title_fontsize=fsize)
+plt.title(r'%s %d hr' % (telescope,tint), fontsize=fsize)
+plt.legend(handles=legends, labelspacing = 1, loc='lower right', fontsize=fsize_legend, frameon=False, title=r'$z=6$', title_fontsize=fsize)
 plt.tight_layout()
 plt.savefig('%s/multimethod_infer_unet_%s_%dhr_%dsteps.pdf' % ("./tmp_out", telescope,tint,Nsteps), format='pdf')
 
