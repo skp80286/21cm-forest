@@ -120,10 +120,6 @@ xHI_mean_post = np.reshape(all_results[:,0],(-1,Nsteps))
 logfX_post = np.reshape(all_results[:,1],(-1,Nsteps))
 print(xHI_mean_post)
 print(logfX_post)
-
-#Start plotting
-fsize = 20
-gs = gridspec.GridSpec(1,1)
 logfX_infer = np.empty(len(logfX))
 xHI_infer = np.empty(len(logfX))
 for i in range(len(logfX)):

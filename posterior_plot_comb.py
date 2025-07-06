@@ -131,14 +131,14 @@ for tele, feat in zip (teles, feats):
     if feat == 'noisy': featstrs.append('Method B1')
     elif feat == 'denoised': featstrs.append('Method B2')
     elif feat == 'latent': featstrs.append('Method B3')
-    elif feat == 'laten1': featstrs.append('Method B3')
+    elif feat == 'laten1': featstrs.append('Method B3 - Single LoS')
 
 
 for ax0,file,telestr,featstr in zip(axes, files, telestrs, featstrs):
 
    #Plot the x_HI measurements from the Lyα forest
-   ax0.axvspan(0,0.21+0.17,alpha=0.2,color='grey')
-   ax0.text(0.025, -3.82,r'Limit from Ly$\alpha$ data',color='darkgrey',fontsize=fsize_meas)       #Greig et al. 2024, MNRAS, 530, 3208
+   #ax0.axvspan(0,0.21+0.17,alpha=0.2,color='grey')
+   #ax0.text(0.025, -3.82,r'Limit from Ly$\alpha$ data',color='darkgrey',fontsize=fsize_meas)       #Greig et al. 2024, MNRAS, 530, 3208
 
    print(f"loading result file: {file}")
    all_results = np.loadtxt(file, delimiter=",", skiprows=1)
