@@ -1,8 +1,5 @@
 '''
-Plot 2D posterior maps as a function of <xHI> and logfX for multiple combinations of these parameters.
-This is for data based on the ML-Unet.
-
-Version 07.05.2025
+Plot the posterior distributions for a single test points from multiple methods.
 '''
 
 import sys
@@ -137,7 +134,9 @@ fsize = 20
 fsize_meas = 16
 fsize_legend = 14
 #colours  = ['royalblue','fuchsia','forestgreen','darkorange','limegreen','slateblue','lightcoral','red','teal','navy']
-colours  = ['royalblue','mediumseagreen','darkorange','mediumturquoise','orchid', 'burlywood','forestgreen','teal','slateblue','limegreen','lightcoral','fuchsia','red','navy']
+#colours  = ['royalblue','mediumseagreen','darkorange','mediumturquoise','orchid', 'burlywood','forestgreen','teal','slateblue','limegreen','lightcoral','fuchsia','red','navy']
+colours  = ['#A7D9F0','#B3E0B3','#FFDAB9','#B3E0D9','#D9B3E0']
+colours  = ['royalblue','mediumseagreen','darkorange','mediumturquoise','orchid'] 
 #plt.style.use('seaborn-v0_8-pastel')
 fig = plt.figure(figsize=(8.,8.))
 gs = gridspec.GridSpec(1,1)
@@ -208,7 +207,8 @@ for i, method in enumerate(methods):
    zorder = 1
    if i == 0: zorder = 2
    hist2d(xHI_mean_post, logfX_post, levels=[1-np.exp(-2.)], smooth=True, plot_datapoints=False, 
-                 plot_density=False, plot_contours=False, fill_contours=True, color=colours[i], contourf_kwargs={'zorder': zorder})
+                 plot_density=False, plot_contours=True, fill_contours=True, color=colours[i], lighten_fill=True,
+                   contourf_kwargs={'zorder': zorder}, contour_kwargs={'zorder': zorder} )
    #plt.contour(xedges[:-1], yedges[:-1], H.T, ax=ax0, levels=2, colors=colours[i]) # You can change levels and colors
 
    #,contourf_kwargs=contkwarg)

@@ -159,7 +159,9 @@ for ax0,file,telestr,featstr in zip(axes, files, telestrs, featstrs):
 
    for i in range(len(logfX)):
       #Plot the posterior distributions from the MCMC using corner package (Foreman-Mackey 2016, The Journal of Open Source Software, 1, 24)
-      pltr.hist2d(xHI_mean_post[i],logfX_post[i],ax=ax0,levels=[1-np.exp(-0.5),1-np.exp(-2.)],plot_datapoints=False,plot_density=False,fill_contours=True,color=colours[i])#,contourf_kwargs=contkwarg)
+      pltr.hist2d(xHI_mean_post[i],logfX_post[i],ax=ax0,levels=[1-np.exp(-0.5),1-np.exp(-2.)],
+                  plot_datapoints=False,plot_density=False,fill_contours=True,color=colours[i],
+                  contour_kwargs={'zorder': 1, 'linewidths': 1.} )#,contourf_kwargs=contkwarg)
 
       #Read the best fit values from the MCMC
       logfX_infer[i] = np.mean(logfX_post[i])
@@ -214,7 +216,7 @@ for ax0,file,telestr,featstr in zip(axes, files, telestrs, featstrs):
 
    #set title
    title = ''
-   score_str = rf'$G={g_score:.2f}, \sigma={sigma:.2f}$'
+   score_str = rf'$G={g_score:.2f}$'
    if args.titlepref == 'tele':
       title = f'{telestr}, {score_str}'  
    elif args.titlepref == 'feat':

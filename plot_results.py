@@ -17,6 +17,7 @@ try:
     from scipy.ndimage import gaussian_filter
 except ImportError:
     gaussian_filter = None
+import colorsys
 
 logger = logging.Logger("main")
 
@@ -340,11 +341,27 @@ if __name__ == "__main__":
     y_test = all_results[:,2:4]
     summarize_test_1000(y_pred, y_test, output_dir="./tmp_out", showplots=True, saveplots=True, label="test")
 
+def lighten_color(rgba_color, amount=0.15):
+    """
+    Lighten a color by a given amount.
+    """
+    rgba_color_list = list(rgba_color)
+    # Convert RGB to HLS
+    h, l, s = colorsys.rgb_to_hls(*rgba_color_list[:3])
+
+    # Increase lightness (e.g., by 20%)
+    # Ensure lightness stays within [0, 1]
+    new_l = min(1.0, l + amount) 
+
+    # Convert HLS back to RGB
+    lightened_rgb = colorsys.hls_to_rgb(h, new_l, s)
+    return lightened_rgb + (rgba_color[3],)
+
 # Copied from corner.py, modified for some features
 def hist2d(x, y, bins=20, range=None, weights=None, levels=None, smooth=None,
            ax=None, color=None, plot_datapoints=True, plot_density=True,
            plot_contours=True, no_fill_contours=False, fill_contours=False,
-           contour_kwargs=None, contourf_kwargs=None, data_kwargs=None,
+           contour_kwargs=None, contourf_kwargs=None, data_kwargs=None, lighten_fill=False,
            **kwargs):
     """
     Plot a 2-D histogram of samples.
@@ -422,9 +439,12 @@ def hist2d(x, y, bins=20, range=None, weights=None, levels=None, smooth=None,
     # This "color map" is the list of colors for the contour levels if the
     # contours are filled.
     rgba_color = colorConverter.to_rgba(color)
-    contour_cmap = [list(rgba_color) for l in levels] + [rgba_color]
+    if lighten_fill:
+        rgba_color = lighten_color(rgba_color, 0.1)
+    contour_cmap = [list(rgba_color) for l in levels] + [list(rgba_color)]
     for i, l in enumerate(levels):
         contour_cmap[i][-1] *= float(i) / (len(levels)+1)
+        print(f'contour_cmap[{i}][-1]= {contour_cmap[i][-1]}')
 
     # We'll make the 2D histogram to directly estimate the density.
     try:
@@ -519,7 +539,7 @@ def hist2d(x, y, bins=20, range=None, weights=None, levels=None, smooth=None,
         if contour_kwargs is None:
             contour_kwargs = dict()
         contour_kwargs["colors"] = contour_kwargs.get("colors", color)
-        ax.contour(X2, Y2, H2.T, V, zorder=0, **contour_kwargs)
+        ax.contour(X2, Y2, H2.T, V, **contour_kwargs)
 
     ax.set_xlim(range[0])
     ax.set_ylim(range[1])
